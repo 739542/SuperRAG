@@ -1,0 +1,24 @@
+# System
+Thumbs.db
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Secrets
+.env
+.env.*
+
+# Archives
+*.zip
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# Runtime artifacts
+node_modules/
+dist/
+build/
