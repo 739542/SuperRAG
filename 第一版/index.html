@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>第一版 | 企业私有知识驱动的软件工程辅助系统</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">V1</div>
+        <div>
+          <p class="eyebrow">Course Prototype</p>
+          <h1>软件工程辅助系统</h1>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-link active" data-target="dashboard">总览</button>
+        <button class="nav-link" data-target="documents">知识库管理</button>
+        <button class="nav-link" data-target="general">通用检索</button>
+        <button class="nav-link" data-target="training">培训模式</button>
+        <button class="nav-link" data-target="handover">交接模式</button>
+        <button class="nav-link" data-target="design">设计辅助</button>
+        <button class="nav-link" data-target="history">结果记录</button>
+        <button class="nav-link" data-target="settings">Dify 配置</button>
+      </nav>
+
+      <div class="sidebar-card">
+        <p class="card-label">当前路线</p>
+        <p class="sidebar-card-title">Dify 做能力底座</p>
+        <p class="muted">第一版先把知识库、检索、设计三段业务体验做出来，后续再逐步接真接口。</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">知识库 -> 检索 -> 设计</p>
+          <h2>企业私有知识驱动的软件工程辅助系统</h2>
+          <p class="hero-copy">
+            这是一版可直接演示的课程项目原型。默认使用本地 mock 数据，
+            配好 Dify 地址与 API Key 后，也可以直接走真实工作流。
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="open-settings" class="ghost-button">配置 Dify</button>
+          <button id="seed-demo" class="primary-button">恢复演示数据</button>
+        </div>
+      </header>
+
+      <section class="panel active" id="dashboard">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h3>系统总览</h3>
+          </div>
+          <p class="muted">先看状态，再进入具体场景。</p>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card">
+            <p class="stat-label">知识文档</p>
+            <p class="stat-value" id="doc-count">0</p>
+            <p class="stat-tip">已录入的项目资料数量</p>
+          </article>
+          <article class="stat-card">
+            <p class="stat-label">检索记录</p>
+            <p class="stat-value" id="history-count">0</p>
+            <p class="stat-tip">当前会话中的问题与设计输出</p>
+          </article>
+          <article class="stat-card">
+            <p class="stat-label">可用模式</p>
+            <p class="stat-value">4</p>
+            <p class="stat-tip">通用检索 / 培训 / 交接 / 设计</p>
+          </article>
+          <article class="stat-card accent">
+            <p class="stat-label">接口状态</p>
+            <p class="stat-value" id="runtime-mode">Mock</p>
+            <p class="stat-tip">未配置 Dify 时自动使用演示返回</p>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Quick Start</p>
+                <h4>建议演示路径</h4>
+              </div>
+            </div>
+            <ol class="path-list">
+              <li>先在“知识库管理”里确认文档分类与项目归属。</li>
+              <li>到“培训模式”演示新人如何理解项目背景与术语。</li>
+              <li>到“交接模式”演示任务承接、风险和待办整理。</li>
+              <li>最后到“设计辅助”生成功能清单与用例草稿。</li>
+            </ol>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">核心定位</p>
+                <h4>这版不是聊天壳，而是场景化辅助系统</h4>
+              </div>
+            </div>
+            <ul class="feature-list">
+              <li>围绕企业私有知识做结构化检索与设计辅助。</li>
+              <li>突出培训模式、交接模式、设计模式三类业务场景。</li>
+              <li>结果中保留依据、风险、后续动作，便于答辩说明。</li>
+            </ul>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Integration</p>
+                <h4>联调状态</h4>
+              </div>
+            </div>
+            <div id="integration-overview" class="integration-overview"></div>
+          </article>
+
+          <article class="card wide">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Recent Outputs</p>
+                <h4>最近结果</h4>
+              </div>
+            </div>
+            <div id="recent-results" class="recent-results empty-state">
+              暂无结果。可以先去“培训模式”或“设计辅助”生成一条演示记录。
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="documents">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Knowledge Base</p>
+            <h3>知识库管理</h3>
+          </div>
+          <p class="muted">第一版先管理文档元数据，后续再接 Dify 数据集同步。</p>
+        </div>
+
+        <div class="two-column">
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Add Document</p>
+                <h4>录入项目资料</h4>
+              </div>
+            </div>
+            <form id="document-form" class="stack-form">
+              <label>
+                文档名称
+                <input name="title" type="text" placeholder="例如：库存模块交接说明" required>
+              </label>
+              <label>
+                文档类型
+                <select name="type" required>
+                  <option value="需求文档">需求文档</option>
+                  <option value="设计文档">设计文档</option>
+                  <option value="交接文档">交接文档</option>
+                  <option value="培训资料">培训资料</option>
+                  <option value="会议纪要">会议纪要</option>
+                </select>
+              </label>
+              <label>
+                所属项目
+                <input name="project" type="text" placeholder="例如：企业软件工程辅助系统" required>
+              </label>
+              <div class="inline-grid">
+                <label>
+                  版本
+                  <input name="version" type="text" value="v1.0" required>
+                </label>
+                <label>
+                  适用场景
+                  <select name="scene">
+                    <option value="通用">通用</option>
+                    <option value="培训">培训</option>
+                    <option value="交接">交接</option>
+                    <option value="设计">设计</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                关键说明
+                <textarea name="summary" rows="4" placeholder="简要描述该文档适合解决什么问题"></textarea>
+              </label>
+              <button class="primary-button" type="submit">加入知识库列表</button>
+            </form>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Document Table</p>
+                <h4>当前文档清单</h4>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>项目</th>
+                    <th>场景</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="document-table"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="general">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Retrieval</p>
+            <h3>通用检索问答</h3>
+          </div>
+          <p class="muted">适合做常规资料查询，后续可接 Dify Chat App。</p>
+        </div>
+        <div class="scenario-layout">
+          <article class="card">
+            <form class="scenario-form" data-scene="general">
+              <label>
+                你的问题
+                <textarea name="query" rows="5" placeholder="例如：库存同步任务目前的接口联调依赖有哪些？" required></textarea>
+              </label>
+              <div class="inline-grid">
+                <label>
+                  所属项目
+                  <input name="project" type="text" value="企业软件工程辅助系统">
+                </label>
+                <label>
+                  回答重点
+                  <input name="focus" type="text" value="直接给出结论，并附带引用依据">
+                </label>
+              </div>
+              <button class="primary-button" type="submit">执行检索</button>
+            </form>
+          </article>
+          <article class="card result-card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Output</p>
+                <h4>通用检索结果</h4>
+              </div>
+            </div>
+            <div id="general-result" class="result-shell empty-state">提交问题后，这里会展示结构化结果。</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="training">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Training Mode</p>
+            <h3>培训模式</h3>
+          </div>
+          <p class="muted">突出术语解释、背景说明、学习路径，帮助新人快速进入项目。</p>
+        </div>
+        <div class="scenario-layout">
+          <article class="card">
+            <form class="scenario-form" data-scene="training">
+              <label>
+                培训问题
+                <textarea name="query" rows="5" placeholder="例如：请解释我们系统中的 RAG 流程和 Dify 在其中承担什么角色？" required></textarea>
+              </label>
+              <div class="inline-grid">
+                <label>
+                  学习对象
+                  <input name="role" type="text" value="新加入项目的开发同学">
+                </label>
+                <label>
+                  培训目标
+                  <input name="focus" type="text" value="先懂概念，再知道怎么上手">
+                </label>
+              </div>
+              <button class="primary-button" type="submit">生成培训解答</button>
+            </form>
+          </article>
+          <article class="card result-card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Output</p>
+                <h4>培训模式结果</h4>
+              </div>
+            </div>
+            <div id="training-result" class="result-shell empty-state">培训模式会自动强化背景解释与学习建议。</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="handover">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Handover Mode</p>
+            <h3>交接模式</h3>
+          </div>
+          <p class="muted">突出当前进度、风险、待办与责任边界，适合项目交接和任务接手。</p>
+        </div>
+        <div class="scenario-layout">
+          <article class="card">
+            <form class="scenario-form" data-scene="handover">
+              <label>
+                交接问题
+                <textarea name="query" rows="5" placeholder="例如：请整理库存模块交接时必须知道的当前进度、风险和待办。" required></textarea>
+              </label>
+              <div class="inline-grid">
+                <label>
+                  接手角色
+                  <input name="role" type="text" value="后端接手开发">
+                </label>
+                <label>
+                  交接重点
+                  <input name="focus" type="text" value="强调风险和未完成事项">
+                </label>
+              </div>
+              <button class="primary-button" type="submit">生成交接结果</button>
+            </form>
+          </article>
+          <article class="card result-card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Output</p>
+                <h4>交接模式结果</h4>
+              </div>
+            </div>
+            <div id="handover-result" class="result-shell empty-state">交接模式会自动整理进度、风险、待办和责任提示。</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="design">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Design Assistant</p>
+            <h3>设计辅助</h3>
+          </div>
+          <p class="muted">这是第一版的核心价值区，用知识检索结果驱动设计产物初稿生成。</p>
+        </div>
+        <div class="scenario-layout">
+          <article class="card">
+            <form class="scenario-form" data-scene="design">
+              <label>
+                设计目标
+                <textarea name="query" rows="5" placeholder="例如：基于企业私有知识，生成“培训模式”模块的功能清单和文本用例草稿。" required></textarea>
+              </label>
+              <div class="inline-grid">
+                <label>
+                  目标模块
+                  <input name="module" type="text" value="培训模式模块">
+                </label>
+                <label>
+                  设计重点
+                  <input name="focus" type="text" value="生成功能清单、用例、模块边界和风险">
+                </label>
+              </div>
+              <button class="primary-button" type="submit">生成设计初稿</button>
+            </form>
+          </article>
+          <article class="card result-card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Output</p>
+                <h4>设计辅助结果</h4>
+              </div>
+            </div>
+            <div id="design-result" class="result-shell empty-state">设计模式会尽量输出功能清单、用例、模块建议和后续动作。</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="history">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">History</p>
+            <h3>结果记录</h3>
+          </div>
+          <p class="muted">便于答辩时回看系统曾经生成过哪些结果。</p>
+        </div>
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <p class="card-label">Records</p>
+              <h4>最近问答与设计输出</h4>
+            </div>
+            <div class="toolbar">
+              <button id="export-data" class="ghost-button">导出本地数据</button>
+              <button id="clear-history" class="ghost-button danger">清空记录</button>
+            </div>
+          </div>
+          <div id="history-list" class="history-list empty-state">当前还没有保存的结果记录。</div>
+        </article>
+      </section>
+
+      <section class="panel" id="settings">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Dify Connection</p>
+            <h3>Dify 配置</h3>
+          </div>
+          <p class="muted">如果这里未配置，系统会自动走 mock 数据，不会影响演示。</p>
+        </div>
+        <div class="two-column">
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Connection</p>
+                <h4>接口参数</h4>
+              </div>
+            </div>
+            <form id="settings-form" class="stack-form">
+              <label>
+                Dify Service API 基础地址
+                <input name="baseUrl" type="text" placeholder="http://localhost/v1">
+              </label>
+              <label>
+                默认 user 标识
+                <input name="user" type="text" placeholder="course-demo-user">
+              </label>
+              <label>
+                通用检索 API Key
+                <input name="generalKey" type="password" placeholder="app-xxx">
+              </label>
+              <label>
+                培训模式 API Key
+                <input name="trainingKey" type="password" placeholder="app-xxx">
+              </label>
+              <label>
+                交接模式 API Key
+                <input name="handoverKey" type="password" placeholder="app-xxx">
+              </label>
+              <label>
+                设计模式 API Key
+                <input name="designKey" type="password" placeholder="app-xxx">
+              </label>
+              <div class="toolbar">
+                <button class="primary-button" type="submit">保存配置</button>
+                <button id="test-all-connections" class="ghost-button" type="button">测试全部连接</button>
+                <button id="reset-settings" class="ghost-button" type="button">重置为 mock</button>
+              </div>
+            </form>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Health Check</p>
+                <h4>模式联调检查</h4>
+              </div>
+            </div>
+            <div id="health-check-list" class="health-check-list"></div>
+            <div id="health-debug" class="code-block health-debug">
+              <p class="code-title">最近一次连接诊断</p>
+              <code>还没有执行连接测试。</code>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <p class="card-label">Usage Notes</p>
+                <h4>如何接 Dify</h4>
+              </div>
+            </div>
+            <div class="note-stack">
+              <div class="note">
+                <strong>1.</strong>
+                <span>在 Dify 中分别创建通用检索、培训、交接、设计四个应用或工作流应用。</span>
+              </div>
+              <div class="note">
+                <strong>2.</strong>
+                <span>为每个应用复制 Service API Key，填到左侧对应位置。</span>
+              </div>
+              <div class="note">
+                <strong>3.</strong>
+                <span>通用检索建议接 Chat App；培训、交接、设计建议接 Workflow App。</span>
+              </div>
+              <div class="note">
+                <strong>4.</strong>
+                <span>如果暂时没配通，系统会自动退回到 mock，不影响功能演示。</span>
+              </div>
+            </div>
+            <div class="code-block">
+              <p class="code-title">默认推荐地址</p>
+              <code>http://localhost/v1</code>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="result-template">
+    <div class="result-block">
+      <div class="result-meta">
+        <span class="mode-pill"></span>
+        <span class="source-pill"></span>
+      </div>
+      <h4 class="result-title"></h4>
+      <p class="result-summary"></p>
+      <div class="result-grid">
+        <div>
+          <h5>关键依据</h5>
+          <ul class="bullet-list result-evidence"></ul>
+        </div>
+        <div>
+          <h5>风险提示</h5>
+          <ul class="bullet-list result-risks"></ul>
+        </div>
+        <div>
+          <h5>后续动作</h5>
+          <ul class="bullet-list result-actions"></ul>
+        </div>
+        <div class="design-panel">
+          <h5>设计产物</h5>
+          <div class="design-output"></div>
+        </div>
+      </div>
+      <div class="citation-zone">
+        <h5>引用片段</h5>
+        <div class="citation-list"></div>
+      </div>
+    </div>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>
