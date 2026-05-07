@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Dify Lite</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --text: #152033;
+        --muted: #5d6b82;
+        --accent: #0f62fe;
+        --border: #d6deeb;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: linear-gradient(180deg, #eef3fb 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+      }
+      .hero {
+        margin-bottom: 24px;
+      }
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: 34px;
+      }
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 12px 32px rgba(21, 32, 51, 0.06);
+      }
+      .card h2 {
+        margin-top: 0;
+        font-size: 18px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 6px;
+        color: var(--muted);
+      }
+      input, textarea, button {
+        width: 100%;
+        box-sizing: border-box;
+        font: inherit;
+      }
+      input, textarea {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        background: white;
+      }
+      button {
+        border: 0;
+        border-radius: 10px;
+        padding: 11px 14px;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      pre {
+        background: #0e1726;
+        color: #d9e4ff;
+        padding: 14px;
+        border-radius: 12px;
+        overflow: auto;
+        min-height: 180px;
+      }
+      .meta {
+        margin-top: 12px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <h1>Dify Lite</h1>
+        <p>Minimal RAG backend that keeps document import, split/clean, indexing, retrieval and model invocation.</p>
+        <div class="meta">Config: {{ settings }}</div>
+      </div>
+      <div class="grid">
+        <section class="card">
+          <h2>Create Collection</h2>
+          <label for="collection-name">Collection name</label>
+          <input id="collection-name" value="demo-collection">
+          <label for="collection-description">Description</label>
+          <input id="collection-description" value="Slim Dify demo collection">
+          <button onclick="createCollection()">Create</button>
+        </section>
+        <section class="card">
+          <h2>Import Document</h2>
+          <label for="import-collection-id">Collection ID</label>
+          <input id="import-collection-id" placeholder="Paste collection id">
+          <label for="import-file">File</label>
+          <input id="import-file" type="file">
+          <label for="chunk-size">Chunk size</label>
+          <input id="chunk-size" value="800">
+          <label for="chunk-overlap">Chunk overlap</label>
+          <input id="chunk-overlap" value="120">
+          <button onclick="importDocument()">Import</button>
+        </section>
+        <section class="card">
+          <h2>Retrieve</h2>
+          <label for="retrieve-collection-id">Collection ID</label>
+          <input id="retrieve-collection-id" placeholder="Paste collection id">
+          <label for="retrieve-query">Query</label>
+          <textarea id="retrieve-query" rows="4">What is in the document?</textarea>
+          <button onclick="retrieve()">Retrieve</button>
+        </section>
+        <section class="card">
+          <h2>Chat</h2>
+          <label for="chat-collection-id">Collection ID</label>
+          <input id="chat-collection-id" placeholder="Paste collection id">
+          <label for="chat-query">Question</label>
+          <textarea id="chat-query" rows="4">Summarize the most relevant context.</textarea>
+          <button onclick="chat()">Ask</button>
+        </section>
+      </div>
+      <section class="card" style="margin-top: 16px;">
+        <h2>Result</h2>
+        <pre id="result">Ready.</pre>
+      </section>
+    </div>
+    <script>
+      async function createCollection() {
+        const payload = {
+          name: document.getElementById('collection-name').value,
+          description: document.getElementById('collection-description').value,
+        };
+        await callJson('/api/collections', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+      }
+
+      async function importDocument() {
+        const form = new FormData();
+        form.append('collection_id', document.getElementById('import-collection-id').value);
+        form.append('chunk_size', document.getElementById('chunk-size').value);
+        form.append('chunk_overlap', document.getElementById('chunk-overlap').value);
+        form.append('clean_enabled', 'true');
+        const file = document.getElementById('import-file').files[0];
+        if (!file) {
+          setResult({error: 'Choose a file first.'});
+          return;
+        }
+        form.append('file', file);
+        await callJson('/api/documents/import', {method: 'POST', body: form});
+      }
+
+      async function retrieve() {
+        const payload = {
+          collection_id: document.getElementById('retrieve-collection-id').value,
+          query: document.getElementById('retrieve-query').value,
+          top_k: 5,
+        };
+        await callJson('/api/retrieval/query', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+      }
+
+      async function chat() {
+        const payload = {
+          collection_id: document.getElementById('chat-collection-id').value,
+          query: document.getElementById('chat-query').value,
+          top_k: 5,
+        };
+        await callJson('/api/chat/completions', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+      }
+
+      async function callJson(url, options) {
+        const response = await fetch(url, options);
+        const data = await response.json();
+        setResult(data);
+      }
+
+      function setResult(data) {
+        document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+      }
+    </script>
+  </body>
+</html>

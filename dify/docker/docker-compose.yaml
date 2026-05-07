@@ -1,0 +1,345 @@
+name: dify-local
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./volumes/db/data:/var/lib/postgresql/data
+      - ./volumes/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:6-alpine
+    restart: unless-stopped
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./volumes/redis/data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  weaviate:
+    image: semitechnologies/weaviate:1.32.19
+    restart: unless-stopped
+    environment:
+      QUERY_DEFAULTS_LIMIT: ${WEAVIATE_QUERY_DEFAULTS_LIMIT}
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: ${WEAVIATE_AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED}
+      AUTHENTICATION_APIKEY_ENABLED: ${WEAVIATE_AUTHENTICATION_APIKEY_ENABLED}
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_AUTHENTICATION_APIKEY_ALLOWED_KEYS}
+      AUTHENTICATION_APIKEY_USERS: ${WEAVIATE_AUTHENTICATION_APIKEY_USERS}
+      PERSISTENCE_DATA_PATH: ${WEAVIATE_PERSISTENCE_DATA_PATH}
+      DEFAULT_VECTORIZER_MODULE: ${WEAVIATE_DEFAULT_VECTORIZER_MODULE}
+      ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES}
+      CLUSTER_HOSTNAME: ${WEAVIATE_CLUSTER_HOSTNAME}
+    volumes:
+      - ./volumes/weaviate:/var/lib/weaviate
+    ports:
+      - "8080:8080"
+
+  ssrf_proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+
+  sandbox:
+    image: langgenius/dify-sandbox:0.2.12
+    restart: unless-stopped
+    environment:
+      API_KEY: ${SANDBOX_API_KEY}
+      GIN_MODE: ${SANDBOX_GIN_MODE}
+      WORKER_TIMEOUT: ${SANDBOX_WORKER_TIMEOUT}
+      ENABLE_NETWORK: ${SANDBOX_ENABLE_NETWORK}
+      HTTP_PROXY: ${SANDBOX_HTTP_PROXY}
+      HTTPS_PROXY: ${SANDBOX_HTTPS_PROXY}
+      SANDBOX_PORT: ${SANDBOX_PORT}
+      PIP_MIRROR_URL: ${PIP_MIRROR_URL}
+    volumes:
+      - ./volumes/sandbox/dependencies:/dependencies
+      - ./volumes/sandbox/conf:/conf
+    depends_on:
+      - ssrf_proxy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8194/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  api:
+    image: langgenius/dify-api:1.11.2
+    restart: unless-stopped
+    environment:
+      MODE: api
+      MIGRATION_ENABLED: "true"
+      SECRET_KEY: ${SECRET_KEY}
+      LOG_LEVEL: INFO
+      EDITION: SELF_HOSTED
+      DEPLOY_ENV: PRODUCTION
+      CONSOLE_API_URL: ${CONSOLE_API_URL}
+      CONSOLE_WEB_URL: ${CONSOLE_WEB_URL}
+      SERVICE_API_URL: ${SERVICE_API_URL}
+      APP_WEB_URL: ${APP_WEB_URL}
+      FILES_URL: ${FILES_URL}
+      INTERNAL_FILES_URL: http://api:5001
+      WEB_API_CORS_ALLOW_ORIGINS: ${WEB_API_CORS_ALLOW_ORIGINS}
+      CONSOLE_CORS_ALLOW_ORIGINS: ${CONSOLE_CORS_ALLOW_ORIGINS}
+      DB_TYPE: ${DB_TYPE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_DATABASE}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: ${REDIS_DB}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:${REDIS_PORT}/1
+      CELERY_BACKEND: ${CELERY_BACKEND}
+      STORAGE_TYPE: ${STORAGE_TYPE}
+      OPENDAL_SCHEME: ${OPENDAL_SCHEME}
+      OPENDAL_FS_ROOT: /app/api/storage
+      VECTOR_STORE: ${VECTOR_STORE}
+      WEAVIATE_ENDPOINT: http://weaviate:8080
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY}
+      WEAVIATE_GRPC_ENABLED: ${WEAVIATE_GRPC_ENABLED}
+      CODE_EXECUTION_ENDPOINT: http://sandbox:${SANDBOX_PORT}
+      CODE_EXECUTION_API_KEY: ${SANDBOX_API_KEY}
+      CODE_EXECUTION_SSL_VERIFY: ${CODE_EXECUTION_SSL_VERIFY}
+      CODE_EXECUTION_CONNECT_TIMEOUT: ${CODE_EXECUTION_CONNECT_TIMEOUT}
+      CODE_EXECUTION_READ_TIMEOUT: ${CODE_EXECUTION_READ_TIMEOUT}
+      CODE_EXECUTION_WRITE_TIMEOUT: ${CODE_EXECUTION_WRITE_TIMEOUT}
+      PLUGIN_DAEMON_URL: http://plugin_daemon:${PLUGIN_DAEMON_PORT}
+      PLUGIN_DAEMON_KEY: ${PLUGIN_DAEMON_KEY}
+      PLUGIN_REMOTE_INSTALL_PORT: ${EXPOSE_PLUGIN_DEBUGGING_PORT}
+      PLUGIN_REMOTE_INSTALL_HOST: ${EXPOSE_PLUGIN_DEBUGGING_HOST}
+      PLUGIN_MAX_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE}
+      INNER_API_KEY_FOR_PLUGIN: ${PLUGIN_DIFY_INNER_API_KEY}
+      PLUGIN_BASED_TOKEN_COUNTING_ENABLED: ${PLUGIN_BASED_TOKEN_COUNTING_ENABLED}
+      SANDBOX_ENABLE_NETWORK: ${SANDBOX_ENABLE_NETWORK}
+      SSRF_PROXY_HTTP_URL: ${SANDBOX_HTTP_PROXY}
+      SSRF_PROXY_HTTPS_URL: ${SANDBOX_HTTPS_PROXY}
+      SERVER_WORKER_AMOUNT: "1"
+      CELERY_WORKER_AMOUNT: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
+      sandbox:
+        condition: service_healthy
+    volumes:
+      - ./volumes/app/storage:/app/api/storage
+    ports:
+      - "5001:5001"
+
+  worker:
+    image: langgenius/dify-api:1.11.2
+    restart: unless-stopped
+    environment:
+      MODE: worker
+      MIGRATION_ENABLED: "false"
+      SECRET_KEY: ${SECRET_KEY}
+      LOG_LEVEL: INFO
+      EDITION: SELF_HOSTED
+      DEPLOY_ENV: PRODUCTION
+      CONSOLE_API_URL: ${CONSOLE_API_URL}
+      CONSOLE_WEB_URL: ${CONSOLE_WEB_URL}
+      SERVICE_API_URL: ${SERVICE_API_URL}
+      APP_WEB_URL: ${APP_WEB_URL}
+      FILES_URL: ${FILES_URL}
+      INTERNAL_FILES_URL: http://api:5001
+      WEB_API_CORS_ALLOW_ORIGINS: ${WEB_API_CORS_ALLOW_ORIGINS}
+      CONSOLE_CORS_ALLOW_ORIGINS: ${CONSOLE_CORS_ALLOW_ORIGINS}
+      DB_TYPE: ${DB_TYPE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_DATABASE}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: ${REDIS_DB}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:${REDIS_PORT}/1
+      CELERY_BACKEND: ${CELERY_BACKEND}
+      STORAGE_TYPE: ${STORAGE_TYPE}
+      OPENDAL_SCHEME: ${OPENDAL_SCHEME}
+      OPENDAL_FS_ROOT: /app/api/storage
+      VECTOR_STORE: ${VECTOR_STORE}
+      WEAVIATE_ENDPOINT: http://weaviate:8080
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY}
+      WEAVIATE_GRPC_ENABLED: ${WEAVIATE_GRPC_ENABLED}
+      CODE_EXECUTION_ENDPOINT: http://sandbox:${SANDBOX_PORT}
+      CODE_EXECUTION_API_KEY: ${SANDBOX_API_KEY}
+      CODE_EXECUTION_SSL_VERIFY: ${CODE_EXECUTION_SSL_VERIFY}
+      CODE_EXECUTION_CONNECT_TIMEOUT: ${CODE_EXECUTION_CONNECT_TIMEOUT}
+      CODE_EXECUTION_READ_TIMEOUT: ${CODE_EXECUTION_READ_TIMEOUT}
+      CODE_EXECUTION_WRITE_TIMEOUT: ${CODE_EXECUTION_WRITE_TIMEOUT}
+      PLUGIN_DAEMON_URL: http://plugin_daemon:${PLUGIN_DAEMON_PORT}
+      PLUGIN_DAEMON_KEY: ${PLUGIN_DAEMON_KEY}
+      PLUGIN_REMOTE_INSTALL_PORT: ${EXPOSE_PLUGIN_DEBUGGING_PORT}
+      PLUGIN_REMOTE_INSTALL_HOST: ${EXPOSE_PLUGIN_DEBUGGING_HOST}
+      PLUGIN_MAX_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE}
+      INNER_API_KEY_FOR_PLUGIN: ${PLUGIN_DIFY_INNER_API_KEY}
+      PLUGIN_BASED_TOKEN_COUNTING_ENABLED: ${PLUGIN_BASED_TOKEN_COUNTING_ENABLED}
+      SANDBOX_ENABLE_NETWORK: ${SANDBOX_ENABLE_NETWORK}
+      SSRF_PROXY_HTTP_URL: ${SANDBOX_HTTP_PROXY}
+      SSRF_PROXY_HTTPS_URL: ${SANDBOX_HTTPS_PROXY}
+      CELERY_WORKER_AMOUNT: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
+      sandbox:
+        condition: service_healthy
+    volumes:
+      - ./volumes/app/storage:/app/api/storage
+
+  worker_beat:
+    image: langgenius/dify-api:1.11.2
+    restart: unless-stopped
+    environment:
+      MODE: beat
+      MIGRATION_ENABLED: "false"
+      SECRET_KEY: ${SECRET_KEY}
+      LOG_LEVEL: INFO
+      EDITION: SELF_HOSTED
+      DEPLOY_ENV: PRODUCTION
+      CONSOLE_API_URL: ${CONSOLE_API_URL}
+      CONSOLE_WEB_URL: ${CONSOLE_WEB_URL}
+      SERVICE_API_URL: ${SERVICE_API_URL}
+      APP_WEB_URL: ${APP_WEB_URL}
+      FILES_URL: ${FILES_URL}
+      INTERNAL_FILES_URL: http://api:5001
+      WEB_API_CORS_ALLOW_ORIGINS: ${WEB_API_CORS_ALLOW_ORIGINS}
+      CONSOLE_CORS_ALLOW_ORIGINS: ${CONSOLE_CORS_ALLOW_ORIGINS}
+      DB_TYPE: ${DB_TYPE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_DATABASE}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: ${REDIS_DB}
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:${REDIS_PORT}/1
+      CELERY_BACKEND: ${CELERY_BACKEND}
+      STORAGE_TYPE: ${STORAGE_TYPE}
+      OPENDAL_SCHEME: ${OPENDAL_SCHEME}
+      OPENDAL_FS_ROOT: /app/api/storage
+      VECTOR_STORE: ${VECTOR_STORE}
+      WEAVIATE_ENDPOINT: http://weaviate:8080
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY}
+      WEAVIATE_GRPC_ENABLED: ${WEAVIATE_GRPC_ENABLED}
+      CODE_EXECUTION_ENDPOINT: http://sandbox:${SANDBOX_PORT}
+      CODE_EXECUTION_API_KEY: ${SANDBOX_API_KEY}
+      CODE_EXECUTION_SSL_VERIFY: ${CODE_EXECUTION_SSL_VERIFY}
+      CODE_EXECUTION_CONNECT_TIMEOUT: ${CODE_EXECUTION_CONNECT_TIMEOUT}
+      CODE_EXECUTION_READ_TIMEOUT: ${CODE_EXECUTION_READ_TIMEOUT}
+      CODE_EXECUTION_WRITE_TIMEOUT: ${CODE_EXECUTION_WRITE_TIMEOUT}
+      PLUGIN_DAEMON_URL: http://plugin_daemon:${PLUGIN_DAEMON_PORT}
+      PLUGIN_DAEMON_KEY: ${PLUGIN_DAEMON_KEY}
+      PLUGIN_REMOTE_INSTALL_PORT: ${EXPOSE_PLUGIN_DEBUGGING_PORT}
+      PLUGIN_REMOTE_INSTALL_HOST: ${EXPOSE_PLUGIN_DEBUGGING_HOST}
+      PLUGIN_MAX_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE}
+      INNER_API_KEY_FOR_PLUGIN: ${PLUGIN_DIFY_INNER_API_KEY}
+      PLUGIN_BASED_TOKEN_COUNTING_ENABLED: ${PLUGIN_BASED_TOKEN_COUNTING_ENABLED}
+      SANDBOX_ENABLE_NETWORK: ${SANDBOX_ENABLE_NETWORK}
+      SSRF_PROXY_HTTP_URL: ${SANDBOX_HTTP_PROXY}
+      SSRF_PROXY_HTTPS_URL: ${SANDBOX_HTTPS_PROXY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
+      sandbox:
+        condition: service_healthy
+    volumes:
+      - ./volumes/app/storage:/app/api/storage
+
+  plugin_daemon:
+    image: langgenius/dify-plugin-daemon:0.5.2-local
+    restart: unless-stopped
+    environment:
+      DB_TYPE: ${DB_TYPE}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_PLUGIN_DATABASE}
+      DB_DEFAULT_DATABASE: postgres
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: "2"
+      REDIS_USE_SSL: "false"
+      SERVER_PORT: ${PLUGIN_DAEMON_PORT}
+      SERVER_KEY: ${PLUGIN_DAEMON_KEY}
+      MAX_PLUGIN_PACKAGE_SIZE: ${PLUGIN_MAX_PACKAGE_SIZE}
+      PPROF_ENABLED: ${PLUGIN_PPROF_ENABLED}
+      DIFY_INNER_API_URL: http://api:5001
+      DIFY_INNER_API_KEY: ${PLUGIN_DIFY_INNER_API_KEY}
+      PLUGIN_REMOTE_INSTALLING_HOST: ${PLUGIN_DEBUGGING_HOST}
+      PLUGIN_REMOTE_INSTALLING_PORT: ${PLUGIN_DEBUGGING_PORT}
+      FORCE_VERIFYING_SIGNATURE: ${FORCE_VERIFYING_SIGNATURE}
+      PYTHON_ENV_INIT_TIMEOUT: ${PLUGIN_PYTHON_ENV_INIT_TIMEOUT}
+      PLUGIN_MAX_EXECUTION_TIMEOUT: ${PLUGIN_MAX_EXECUTION_TIMEOUT}
+      PLUGIN_LOCAL_LAUNCHING_CONCURRENT: ${PLUGIN_LOCAL_LAUNCHING_CONCURRENT}
+      PIP_MIRROR_URL: ${PIP_MIRROR_URL}
+      PLUGIN_STORAGE_TYPE: ${PLUGIN_STORAGE_TYPE}
+      PLUGIN_STORAGE_LOCAL_ROOT: ${PLUGIN_STORAGE_LOCAL_ROOT}
+      PLUGIN_WORKING_PATH: ${PLUGIN_WORKING_PATH}
+      PLUGIN_INSTALLED_PATH: ${PLUGIN_INSTALLED_PATH}
+      PLUGIN_PACKAGE_CACHE_PATH: ${PLUGIN_PACKAGE_CACHE_PATH}
+      PLUGIN_MEDIA_CACHE_PATH: ${PLUGIN_MEDIA_CACHE_PATH}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./volumes/plugin_daemon:/app/storage
+    ports:
+      - "5002:5002"
+      - "5003:5003"
+
+  web:
+    image: langgenius/dify-web:1.11.2
+    restart: unless-stopped
+    environment:
+      EDITION: SELF_HOSTED
+      DEPLOY_ENV: PRODUCTION
+      CONSOLE_API_URL: ${CONSOLE_API_URL}
+      APP_API_URL: ${APP_API_URL}
+      MARKETPLACE_URL: ${MARKETPLACE_URL}
+      MARKETPLACE_API_URL: ${MARKETPLACE_API_URL}
+      PORT: 3000
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:3000"

@@ -1,0 +1,35 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Local Docker client state
+.docker-config/
+
+# Local logs and runtime files
+data/
+data/deploy-logs/
+*.log
+
+# Python cache
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# Local dify-lite runtime data
+dify-lite/data/dify_lite.db
+dify-lite/data/uploads/
+dify-lite/data/frontend-import-sample.txt
+
+# Local Dify secrets
+dify/docker/.env
+
+# Local Docker volume runtime data
+dify/docker/volumes/app/
+dify/docker/volumes/db/data/
+dify/docker/volumes/plugin_daemon/app/
+dify/docker/volumes/plugin_daemon/cwd/
+dify/docker/volumes/redis/data/
+dify/docker/volumes/sandbox/dependencies/
+dify/docker/volumes/weaviate/
