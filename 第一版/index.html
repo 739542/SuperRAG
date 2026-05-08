@@ -3,538 +3,404 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>第一版 | 企业私有知识驱动的软件工程辅助系统</title>
+  <title>SuperRAG | 企业软件工程知识助手</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
+  <div class="app-layout">
+    <aside class="sidebar" aria-label="主导航">
       <div class="brand">
-        <div class="brand-mark">V1</div>
-        <div>
-          <p class="eyebrow">Course Prototype</p>
-          <h1>软件工程辅助系统</h1>
+        <div class="brand-mark" aria-hidden="true">SR</div>
+        <div class="brand-text">
+          <strong>SuperRAG</strong>
+          <span>企业软件工程知识助手</span>
         </div>
       </div>
 
       <nav class="nav">
-        <button class="nav-link active" data-target="dashboard">总览</button>
-        <button class="nav-link" data-target="documents">知识库管理</button>
-        <button class="nav-link" data-target="general">通用检索</button>
-        <button class="nav-link" data-target="training">培训模式</button>
-        <button class="nav-link" data-target="handover">交接模式</button>
-        <button class="nav-link" data-target="design">设计辅助</button>
-        <button class="nav-link" data-target="history">结果记录</button>
-        <button class="nav-link" data-target="settings">Dify 配置</button>
+        <a class="nav-link" href="#/dashboard" data-route="/dashboard">
+          <span class="nav-icon" aria-hidden="true">H</span>
+          <span>首页</span>
+        </a>
+        <a class="nav-link" href="#/documents" data-route="/documents">
+          <span class="nav-icon" aria-hidden="true">D</span>
+          <span>文档管理</span>
+        </a>
+        <a class="nav-link" href="#/chat" data-route="/chat">
+          <span class="nav-icon" aria-hidden="true">Q</span>
+          <span>智能问答</span>
+        </a>
+        <a class="nav-link" href="#/training" data-route="/training">
+          <span class="nav-icon" aria-hidden="true">T</span>
+          <span>培训模式</span>
+        </a>
+        <a class="nav-link" href="#/handover" data-route="/handover">
+          <span class="nav-icon" aria-hidden="true">J</span>
+          <span>交接模式</span>
+        </a>
+        <a class="nav-link" href="#/design-assistant" data-route="/design-assistant">
+          <span class="nav-icon" aria-hidden="true">A</span>
+          <span>设计辅助</span>
+        </a>
+        <a class="nav-link" href="#/history" data-route="/history">
+          <span class="nav-icon" aria-hidden="true">R</span>
+          <span>历史记录</span>
+        </a>
+        <a class="nav-link" href="#/settings" data-route="/settings">
+          <span class="nav-icon" aria-hidden="true">S</span>
+          <span>后台配置</span>
+        </a>
       </nav>
 
-      <div class="sidebar-card">
-        <p class="card-label">当前路线</p>
-        <p class="sidebar-card-title">Dify 做能力底座</p>
-        <p class="muted">第一版先把知识库、检索、设计三段业务体验做出来，后续再逐步接真接口。</p>
+      <div class="sidebar-footer">
+        <p>能力底座</p>
+        <strong>Dify Knowledge + Workflow</strong>
       </div>
     </aside>
 
-    <main class="main">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">知识库 -> 检索 -> 设计</p>
-          <h2>企业私有知识驱动的软件工程辅助系统</h2>
-          <p class="hero-copy">
-            这是一版可直接演示的课程项目原型。默认使用本地 mock 数据，
-            配好 Dify 地址与 API Key 后，也可以直接走真实工作流。
-          </p>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-title">
+          <span>当前系统</span>
+          <strong>SuperRAG</strong>
         </div>
-        <div class="hero-actions">
-          <button id="open-settings" class="ghost-button">配置 Dify</button>
-          <button id="seed-demo" class="primary-button">恢复演示数据</button>
+
+        <label class="global-search" aria-label="全局搜索">
+          <span aria-hidden="true">⌕</span>
+          <input type="search" placeholder="搜索文档、会话或设计产物">
+        </label>
+
+        <div class="topbar-actions">
+          <button class="icon-button" type="button" aria-label="通知">
+            <span aria-hidden="true">N</span>
+          </button>
+          <div class="user-chip" aria-label="当前用户">
+            <span class="avatar" aria-hidden="true">胡</span>
+            <div>
+              <strong>胡俊熙</strong>
+              <span>项目成员</span>
+            </div>
+          </div>
         </div>
       </header>
 
-      <section class="panel active" id="dashboard">
-        <div class="section-heading">
-          <div>
+      <main class="main-content" id="main-content" tabindex="-1">
+        <section class="page-panel" data-page="/dashboard">
+          <div class="page-header">
             <p class="eyebrow">Dashboard</p>
-            <h3>系统总览</h3>
+            <h1>首页 / 控制台</h1>
+            <p>围绕企业私有知识、RAG 检索和软件工程场景辅助，查看当前知识库与业务流转状态。</p>
           </div>
-          <p class="muted">先看状态，再进入具体场景。</p>
-        </div>
 
-        <div class="stats-grid">
-          <article class="stat-card">
-            <p class="stat-label">知识文档</p>
-            <p class="stat-value" id="doc-count">0</p>
-            <p class="stat-tip">已录入的项目资料数量</p>
-          </article>
-          <article class="stat-card">
-            <p class="stat-label">检索记录</p>
-            <p class="stat-value" id="history-count">0</p>
-            <p class="stat-tip">当前会话中的问题与设计输出</p>
-          </article>
-          <article class="stat-card">
-            <p class="stat-label">可用模式</p>
-            <p class="stat-value">4</p>
-            <p class="stat-tip">通用检索 / 培训 / 交接 / 设计</p>
-          </article>
-          <article class="stat-card accent">
-            <p class="stat-label">接口状态</p>
-            <p class="stat-value" id="runtime-mode">Mock</p>
-            <p class="stat-tip">未配置 Dify 时自动使用演示返回</p>
-          </article>
-        </div>
-
-        <div class="dashboard-grid">
-          <article class="card">
-            <div class="card-head">
+          <div class="dashboard-page">
+            <section class="welcome-card">
               <div>
-                <p class="card-label">Quick Start</p>
-                <h4>建议演示路径</h4>
+                <p class="eyebrow">SuperRAG Workspace</p>
+                <h2>欢迎使用 SuperRAG 企业软件工程知识助手</h2>
+                <p>基于企业私有知识库，辅助完成新人培训、项目交接、需求设计与证据追溯。</p>
               </div>
-            </div>
-            <ol class="path-list">
-              <li>先在“知识库管理”里确认文档分类与项目归属。</li>
-              <li>到“培训模式”演示新人如何理解项目背景与术语。</li>
-              <li>到“交接模式”演示任务承接、风险和待办整理。</li>
-              <li>最后到“设计辅助”生成功能清单与用例草稿。</li>
-            </ol>
-          </article>
-
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">核心定位</p>
-                <h4>这版不是聊天壳，而是场景化辅助系统</h4>
+              <div class="workflow-line" aria-label="核心业务闭环">
+                <span>文档入库</span>
+                <span>RAG 检索</span>
+                <span>场景 Workflow</span>
+                <span>证据追溯</span>
               </div>
-            </div>
-            <ul class="feature-list">
-              <li>围绕企业私有知识做结构化检索与设计辅助。</li>
-              <li>突出培训模式、交接模式、设计模式三类业务场景。</li>
-              <li>结果中保留依据、风险、后续动作，便于答辩说明。</li>
-            </ul>
-          </article>
+            </section>
 
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Integration</p>
-                <h4>联调状态</h4>
-              </div>
-            </div>
-            <div id="integration-overview" class="integration-overview"></div>
-          </article>
+            <section class="stats-grid" id="dashboard-stats" aria-label="数据概览">
+              <article class="skeleton-card"></article>
+              <article class="skeleton-card"></article>
+              <article class="skeleton-card"></article>
+              <article class="skeleton-card"></article>
+            </section>
 
-          <article class="card wide">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Recent Outputs</p>
-                <h4>最近结果</h4>
-              </div>
-            </div>
-            <div id="recent-results" class="recent-results empty-state">
-              暂无结果。可以先去“培训模式”或“设计辅助”生成一条演示记录。
-            </div>
-          </article>
-        </div>
-      </section>
+            <section class="mode-grid" aria-label="核心模式入口">
+              <article class="mode-card">
+                <div class="mode-icon" aria-hidden="true">T</div>
+                <h3>培训模式</h3>
+                <p>帮助新人理解项目背景、核心术语、模块职责和学习路径。</p>
+                <a class="secondary-button" href="#/training">进入培训模式</a>
+              </article>
+              <article class="mode-card">
+                <div class="mode-icon" aria-hidden="true">J</div>
+                <h3>交接模式</h3>
+                <p>汇总项目背景、当前进度、风险点和待办事项。</p>
+                <a class="secondary-button" href="#/handover">进入交接模式</a>
+              </article>
+              <article class="mode-card mode-card-featured">
+                <div class="mode-icon" aria-hidden="true">A</div>
+                <h3>设计辅助</h3>
+                <p>基于企业文档生成功能清单、详细文本用例和模块划分建议。</p>
+                <a class="primary-button" href="#/design-assistant">进入设计辅助</a>
+              </article>
+            </section>
 
-      <section class="panel" id="documents">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Knowledge Base</p>
-            <h3>知识库管理</h3>
+            <section class="dashboard-grid">
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Recent Sessions</p>
+                    <h2>最近问答记录</h2>
+                  </div>
+                  <a class="text-link" href="#/history">查看全部</a>
+                </div>
+                <div class="record-list" id="recent-sessions"></div>
+              </article>
+
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Recent Documents</p>
+                    <h2>最近上传文档</h2>
+                  </div>
+                  <a class="text-link" href="#/documents">进入管理</a>
+                </div>
+                <div class="document-list" id="recent-documents"></div>
+              </article>
+
+              <article class="dashboard-card dashboard-card-wide">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Knowledge Base</p>
+                    <h2>知识库状态</h2>
+                  </div>
+                </div>
+                <div class="knowledge-status-grid" id="knowledge-status"></div>
+              </article>
+            </section>
           </div>
-          <p class="muted">第一版先管理文档元数据，后续再接 Dify 数据集同步。</p>
-        </div>
+        </section>
 
-        <div class="two-column">
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Add Document</p>
-                <h4>录入项目资料</h4>
+        <section class="page-panel" data-page="/documents">
+          <div class="page-header">
+            <p class="eyebrow">Documents</p>
+            <h1>文档管理</h1>
+            <p>管理企业私有文档，完成分类、标签、入库状态查看与知识库映射。</p>
+          </div>
+
+          <div class="document-page">
+            <section class="document-toolbar dashboard-card">
+              <div class="toolbar-actions">
+                <button class="primary-button" type="button" id="open-upload-dialog">上传文档</button>
+                <button class="secondary-button" type="button" data-doc-placeholder-action="新建分类">新建分类</button>
+                <button class="secondary-button" type="button" data-doc-placeholder-action="批量标签">批量标签</button>
               </div>
-            </div>
-            <form id="document-form" class="stack-form">
-              <label>
-                文档名称
-                <input name="title" type="text" placeholder="例如：库存模块交接说明" required>
+              <label class="document-search">
+                <span aria-hidden="true">⌕</span>
+                <input id="document-search" type="search" placeholder="搜索文档名称、标签、内容">
               </label>
+            </section>
+
+            <section class="document-filters dashboard-card" aria-label="文档筛选">
               <label>
                 文档类型
-                <select name="type" required>
-                  <option value="需求文档">需求文档</option>
-                  <option value="设计文档">设计文档</option>
-                  <option value="交接文档">交接文档</option>
-                  <option value="培训资料">培训资料</option>
-                  <option value="会议纪要">会议纪要</option>
+                <select id="filter-type">
+                  <option value="">全部</option>
                 </select>
               </label>
               <label>
                 所属项目
-                <input name="project" type="text" placeholder="例如：企业软件工程辅助系统" required>
+                <select id="filter-project">
+                  <option value="">全部</option>
+                </select>
               </label>
-              <div class="inline-grid">
+              <label>
+                上传者
+                <select id="filter-uploader">
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label>
+                入库状态
+                <select id="filter-status">
+                  <option value="">全部</option>
+                  <option value="indexed">已入库</option>
+                  <option value="indexing">解析中</option>
+                  <option value="failed">解析失败</option>
+                  <option value="pending">待处理</option>
+                </select>
+              </label>
+              <label>
+                可见范围
+                <select id="filter-visibility">
+                  <option value="">全部</option>
+                </select>
+              </label>
+            </section>
+
+            <section class="document-table-card dashboard-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Knowledge Governance</p>
+                  <h2>企业知识文档</h2>
+                </div>
+                <span class="table-count" id="document-result-count">0 条文档</span>
+              </div>
+              <div class="table-wrap">
+                <table class="document-table">
+                  <thead>
+                    <tr>
+                      <th>文档名称</th>
+                      <th>文档类型</th>
+                      <th>所属项目</th>
+                      <th>标签</th>
+                      <th>上传者</th>
+                      <th>版本</th>
+                      <th>入库状态</th>
+                      <th>更新时间</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="document-table-body">
+                    <tr>
+                      <td colspan="9">文档数据加载中...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <div class="modal-backdrop" id="upload-dialog" hidden>
+            <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-dialog-title">
+              <div class="modal-head">
+                <div>
+                  <p class="eyebrow">Upload</p>
+                  <h2 id="upload-dialog-title">上传文档</h2>
+                </div>
+                <button class="ghost-icon-button" type="button" data-close-upload aria-label="关闭上传弹窗">×</button>
+              </div>
+              <form class="upload-form" id="upload-form">
                 <label>
-                  版本
-                  <input name="version" type="text" value="v1.0" required>
+                  选择文件
+                  <input name="file" type="file" accept=".doc,.docx,.pdf,.xls,.xlsx,.md,.txt,.ppt,.pptx">
                 </label>
                 <label>
-                  适用场景
-                  <select name="scene">
-                    <option value="通用">通用</option>
-                    <option value="培训">培训</option>
-                    <option value="交接">交接</option>
-                    <option value="设计">设计</option>
+                  文档类型
+                  <select name="type">
+                    <option value="Word">Word</option>
+                    <option value="PDF">PDF</option>
+                    <option value="Excel">Excel</option>
+                    <option value="Markdown">Markdown</option>
+                    <option value="TXT">TXT</option>
+                    <option value="PPT">PPT</option>
                   </select>
                 </label>
-              </div>
-              <label>
-                关键说明
-                <textarea name="summary" rows="4" placeholder="简要描述该文档适合解决什么问题"></textarea>
-              </label>
-              <button class="primary-button" type="submit">加入知识库列表</button>
-            </form>
-          </article>
-
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Document Table</p>
-                <h4>当前文档清单</h4>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th>类型</th>
-                    <th>项目</th>
-                    <th>场景</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody id="document-table"></tbody>
-              </table>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel" id="general">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Retrieval</p>
-            <h3>通用检索问答</h3>
-          </div>
-          <p class="muted">适合做常规资料查询，后续可接 Dify Chat App。</p>
-        </div>
-        <div class="scenario-layout">
-          <article class="card">
-            <form class="scenario-form" data-scene="general">
-              <label>
-                你的问题
-                <textarea name="query" rows="5" placeholder="例如：库存同步任务目前的接口联调依赖有哪些？" required></textarea>
-              </label>
-              <div class="inline-grid">
                 <label>
                   所属项目
-                  <input name="project" type="text" value="企业软件工程辅助系统">
+                  <input name="project" type="text" value="企业知识库">
                 </label>
                 <label>
-                  回答重点
-                  <input name="focus" type="text" value="直接给出结论，并附带引用依据">
+                  标签
+                  <input name="tags" type="text" placeholder="多个标签用逗号分隔，例如：培训, 入职">
                 </label>
-              </div>
-              <button class="primary-button" type="submit">执行检索</button>
-            </form>
-          </article>
-          <article class="card result-card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Output</p>
-                <h4>通用检索结果</h4>
-              </div>
-            </div>
-            <div id="general-result" class="result-shell empty-state">提交问题后，这里会展示结构化结果。</div>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel" id="training">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Training Mode</p>
-            <h3>培训模式</h3>
+                <label>
+                  可见范围
+                  <select name="visibilityScope">
+                    <option value="项目成员">项目成员</option>
+                    <option value="团队内部">团队内部</option>
+                    <option value="管理员">管理员</option>
+                  </select>
+                </label>
+                <div class="modal-actions">
+                  <button class="secondary-button" type="button" data-close-upload>取消</button>
+                  <button class="primary-button" type="submit">确认上传</button>
+                </div>
+              </form>
+            </section>
           </div>
-          <p class="muted">突出术语解释、背景说明、学习路径，帮助新人快速进入项目。</p>
-        </div>
-        <div class="scenario-layout">
-          <article class="card">
-            <form class="scenario-form" data-scene="training">
-              <label>
-                培训问题
-                <textarea name="query" rows="5" placeholder="例如：请解释我们系统中的 RAG 流程和 Dify 在其中承担什么角色？" required></textarea>
-              </label>
-              <div class="inline-grid">
-                <label>
-                  学习对象
-                  <input name="role" type="text" value="新加入项目的开发同学">
-                </label>
-                <label>
-                  培训目标
-                  <input name="focus" type="text" value="先懂概念，再知道怎么上手">
-                </label>
-              </div>
-              <button class="primary-button" type="submit">生成培训解答</button>
-            </form>
-          </article>
-          <article class="card result-card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Output</p>
-                <h4>培训模式结果</h4>
-              </div>
-            </div>
-            <div id="training-result" class="result-shell empty-state">培训模式会自动强化背景解释与学习建议。</div>
-          </article>
-        </div>
-      </section>
 
-      <section class="panel" id="handover">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Handover Mode</p>
-            <h3>交接模式</h3>
+          <aside class="detail-drawer" id="document-detail-drawer" hidden aria-label="文档详情">
+            <div class="drawer-head">
+              <div>
+                <p class="eyebrow">Document Detail</p>
+                <h2 id="drawer-document-title">文档详情</h2>
+              </div>
+              <button class="ghost-icon-button" type="button" id="close-document-drawer" aria-label="关闭详情抽屉">×</button>
+            </div>
+            <div id="document-detail-content" class="drawer-content"></div>
+          </aside>
+        </section>
+
+        <section class="page-panel" data-page="/chat">
+          <div class="page-header">
+            <p class="eyebrow">Knowledge QA</p>
+            <h1>智能问答</h1>
+            <p>SuperRAG 智能问答页建设中。</p>
           </div>
-          <p class="muted">突出当前进度、风险、待办与责任边界，适合项目交接和任务接手。</p>
-        </div>
-        <div class="scenario-layout">
-          <article class="card">
-            <form class="scenario-form" data-scene="handover">
-              <label>
-                交接问题
-                <textarea name="query" rows="5" placeholder="例如：请整理库存模块交接时必须知道的当前进度、风险和待办。" required></textarea>
-              </label>
-              <div class="inline-grid">
-                <label>
-                  接手角色
-                  <input name="role" type="text" value="后端接手开发">
-                </label>
-                <label>
-                  交接重点
-                  <input name="focus" type="text" value="强调风险和未完成事项">
-                </label>
-              </div>
-              <button class="primary-button" type="submit">生成交接结果</button>
-            </form>
+          <article class="placeholder-card">
+            <h2>智能问答页建设中</h2>
+            <p>后续将放置会话列表、问答区、引用证据和追问入口。</p>
           </article>
-          <article class="card result-card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Output</p>
-                <h4>交接模式结果</h4>
-              </div>
-            </div>
-            <div id="handover-result" class="result-shell empty-state">交接模式会自动整理进度、风险、待办和责任提示。</div>
-          </article>
-        </div>
-      </section>
+        </section>
 
-      <section class="panel" id="design">
-        <div class="section-heading">
-          <div>
+        <section class="page-panel" data-page="/training">
+          <div class="page-header">
+            <p class="eyebrow">Training</p>
+            <h1>培训模式</h1>
+            <p>SuperRAG 培训模式页建设中。</p>
+          </div>
+          <article class="placeholder-card">
+            <h2>培训模式页建设中</h2>
+            <p>后续将放置培训输入、术语解释、学习路径和推荐资料。</p>
+          </article>
+        </section>
+
+        <section class="page-panel" data-page="/handover">
+          <div class="page-header">
+            <p class="eyebrow">Handover</p>
+            <h1>交接模式</h1>
+            <p>SuperRAG 交接模式页建设中。</p>
+          </div>
+          <article class="placeholder-card">
+            <h2>交接模式页建设中</h2>
+            <p>后续将放置进度汇总、风险、待办和责任边界。</p>
+          </article>
+        </section>
+
+        <section class="page-panel" data-page="/design-assistant">
+          <div class="page-header">
             <p class="eyebrow">Design Assistant</p>
-            <h3>设计辅助</h3>
+            <h1>设计辅助</h1>
+            <p>SuperRAG 设计辅助页建设中。</p>
           </div>
-          <p class="muted">这是第一版的核心价值区，用知识检索结果驱动设计产物初稿生成。</p>
-        </div>
-        <div class="scenario-layout">
-          <article class="card">
-            <form class="scenario-form" data-scene="design">
-              <label>
-                设计目标
-                <textarea name="query" rows="5" placeholder="例如：基于企业私有知识，生成“培训模式”模块的功能清单和文本用例草稿。" required></textarea>
-              </label>
-              <div class="inline-grid">
-                <label>
-                  目标模块
-                  <input name="module" type="text" value="培训模式模块">
-                </label>
-                <label>
-                  设计重点
-                  <input name="focus" type="text" value="生成功能清单、用例、模块边界和风险">
-                </label>
-              </div>
-              <button class="primary-button" type="submit">生成设计初稿</button>
-            </form>
+          <article class="placeholder-card">
+            <h2>设计辅助页建设中</h2>
+            <p>后续将放置设计输入、结构化设计产物、风险提示和引用追溯。</p>
           </article>
-          <article class="card result-card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Output</p>
-                <h4>设计辅助结果</h4>
-              </div>
-            </div>
-            <div id="design-result" class="result-shell empty-state">设计模式会尽量输出功能清单、用例、模块建议和后续动作。</div>
-          </article>
-        </div>
-      </section>
+        </section>
 
-      <section class="panel" id="history">
-        <div class="section-heading">
-          <div>
+        <section class="page-panel" data-page="/history">
+          <div class="page-header">
             <p class="eyebrow">History</p>
-            <h3>结果记录</h3>
+            <h1>历史记录</h1>
+            <p>SuperRAG 历史记录页建设中。</p>
           </div>
-          <p class="muted">便于答辩时回看系统曾经生成过哪些结果。</p>
-        </div>
-        <article class="card">
-          <div class="card-head">
-            <div>
-              <p class="card-label">Records</p>
-              <h4>最近问答与设计输出</h4>
-            </div>
-            <div class="toolbar">
-              <button id="export-data" class="ghost-button">导出本地数据</button>
-              <button id="clear-history" class="ghost-button danger">清空记录</button>
-            </div>
+          <article class="placeholder-card">
+            <h2>历史记录页建设中</h2>
+            <p>后续将放置历史表格、筛选条件和记录详情面板。</p>
+          </article>
+        </section>
+
+        <section class="page-panel" data-page="/settings">
+          <div class="page-header">
+            <p class="eyebrow">Settings</p>
+            <h1>后台配置</h1>
+            <p>SuperRAG 后台配置页建设中。</p>
           </div>
-          <div id="history-list" class="history-list empty-state">当前还没有保存的结果记录。</div>
-        </article>
-      </section>
-
-      <section class="panel" id="settings">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Dify Connection</p>
-            <h3>Dify 配置</h3>
-          </div>
-          <p class="muted">如果这里未配置，系统会自动走 mock 数据，不会影响演示。</p>
-        </div>
-        <div class="two-column">
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Connection</p>
-                <h4>接口参数</h4>
-              </div>
-            </div>
-            <form id="settings-form" class="stack-form">
-              <label>
-                Dify Service API 基础地址
-                <input name="baseUrl" type="text" placeholder="http://localhost/v1">
-              </label>
-              <label>
-                默认 user 标识
-                <input name="user" type="text" placeholder="course-demo-user">
-              </label>
-              <label>
-                通用检索 API Key
-                <input name="generalKey" type="password" placeholder="app-xxx">
-              </label>
-              <label>
-                培训模式 API Key
-                <input name="trainingKey" type="password" placeholder="app-xxx">
-              </label>
-              <label>
-                交接模式 API Key
-                <input name="handoverKey" type="password" placeholder="app-xxx">
-              </label>
-              <label>
-                设计模式 API Key
-                <input name="designKey" type="password" placeholder="app-xxx">
-              </label>
-              <div class="toolbar">
-                <button class="primary-button" type="submit">保存配置</button>
-                <button id="test-all-connections" class="ghost-button" type="button">测试全部连接</button>
-                <button id="reset-settings" class="ghost-button" type="button">重置为 mock</button>
-              </div>
-            </form>
+          <article class="placeholder-card">
+            <h2>后台配置页建设中</h2>
+            <p>后续将放置 Dify Workflow 映射、检索参数、模型配置和日志状态。</p>
           </article>
-
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Health Check</p>
-                <h4>模式联调检查</h4>
-              </div>
-            </div>
-            <div id="health-check-list" class="health-check-list"></div>
-            <div id="health-debug" class="code-block health-debug">
-              <p class="code-title">最近一次连接诊断</p>
-              <code>还没有执行连接测试。</code>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="card-head">
-              <div>
-                <p class="card-label">Usage Notes</p>
-                <h4>如何接 Dify</h4>
-              </div>
-            </div>
-            <div class="note-stack">
-              <div class="note">
-                <strong>1.</strong>
-                <span>在 Dify 中分别创建通用检索、培训、交接、设计四个应用或工作流应用。</span>
-              </div>
-              <div class="note">
-                <strong>2.</strong>
-                <span>为每个应用复制 Service API Key，填到左侧对应位置。</span>
-              </div>
-              <div class="note">
-                <strong>3.</strong>
-                <span>通用检索建议接 Chat App；培训、交接、设计建议接 Workflow App。</span>
-              </div>
-              <div class="note">
-                <strong>4.</strong>
-                <span>如果暂时没配通，系统会自动退回到 mock，不影响功能演示。</span>
-              </div>
-            </div>
-            <div class="code-block">
-              <p class="code-title">默认推荐地址</p>
-              <code>http://localhost/v1</code>
-            </div>
-          </article>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
   </div>
 
-  <template id="result-template">
-    <div class="result-block">
-      <div class="result-meta">
-        <span class="mode-pill"></span>
-        <span class="source-pill"></span>
-      </div>
-      <h4 class="result-title"></h4>
-      <p class="result-summary"></p>
-      <div class="result-grid">
-        <div>
-          <h5>关键依据</h5>
-          <ul class="bullet-list result-evidence"></ul>
-        </div>
-        <div>
-          <h5>风险提示</h5>
-          <ul class="bullet-list result-risks"></ul>
-        </div>
-        <div>
-          <h5>后续动作</h5>
-          <ul class="bullet-list result-actions"></ul>
-        </div>
-        <div class="design-panel">
-          <h5>设计产物</h5>
-          <div class="design-output"></div>
-        </div>
-      </div>
-      <div class="citation-zone">
-        <h5>引用片段</h5>
-        <div class="citation-list"></div>
-      </div>
-    </div>
-  </template>
-
+  <script src="./api-config.js"></script>
+  <script src="./mock-data.js"></script>
+  <script src="./api.js"></script>
+  <script src="./document-service.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
