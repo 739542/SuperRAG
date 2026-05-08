@@ -20,10 +20,31 @@ const documentState = {
   loaded: false,
   documents: [],
 };
+const chatState = {
+  loaded: false,
+  sessions: [],
+  messagesBySession: {},
+  activeSessionId: "",
+  documents: [],
+  citations: [],
+  evidenceLevel: "medium",
+  loading: false,
+};
+const trainingState = {
+  loaded: false,
+  result: null,
+};
+const handoverState = {
+  loaded: false,
+  result: null,
+};
 
 document.addEventListener("DOMContentLoaded", () => {
   bindTopbarActions();
   bindDashboardActions();
+  bindChatActions();
+  bindTrainingActions();
+  bindHandoverActions();
   bindDocumentsActions();
   window.addEventListener("hashchange", renderCurrentRoute);
   renderCurrentRoute();
@@ -83,6 +104,18 @@ function renderCurrentRoute() {
   if (normalizedRoute === "/documents") {
     renderDocumentsPage();
   }
+
+  if (normalizedRoute === "/chat") {
+    renderChatPage();
+  }
+
+  if (normalizedRoute === "/training") {
+    renderTrainingPage();
+  }
+
+  if (normalizedRoute === "/handover") {
+    renderHandoverPage();
+  }
 }
 
 function bindDashboardActions() {
@@ -93,6 +126,845 @@ function bindDashboardActions() {
     }
     window.location.hash = sessionItem.dataset.sessionRoute;
   });
+}
+
+function bindChatActions() {
+  document.addEventListener("input", (event) => {
+    if (event.target.id !== "chat-session-search") {
+      return;
+    }
+    renderChatSessions();
+  });
+
+  document.addEventListener("click", async (event) => {
+    const sessionButton = event.target.closest("[data-chat-session-id]");
+    if (sessionButton) {
+      chatState.activeSessionId = sessionButton.dataset.chatSessionId;
+      await ensureChatMessages(chatState.activeSessionId);
+      updateChatEvidenceFromActiveSession();
+      renderChatPageContent();
+      return;
+    }
+
+    const quickQuestion = event.target.closest("[data-chat-question]");
+    if (quickQuestion) {
+      const input = document.getElementById("chat-input");
+      if (input) {
+        input.value = quickQuestion.dataset.chatQuestion;
+      }
+      await submitChatQuestion(quickQuestion.dataset.chatQuestion);
+      return;
+    }
+
+    if (event.target.closest("#chat-new-session")) {
+      createNewChatSession();
+      renderChatPageContent();
+      document.getElementById("chat-input")?.focus();
+      return;
+    }
+
+    const citationButton = event.target.closest("[data-citation-title]");
+    if (citationButton) {
+      toast(`原文预览占位：${citationButton.dataset.citationTitle}`);
+    }
+  });
+
+  document.addEventListener("change", (event) => {
+    if (!event.target.matches("#chat-knowledge-select, #chat-project-select, #chat-answer-mode")) {
+      return;
+    }
+    renderChatConversation();
+  });
+
+  document.addEventListener("submit", async (event) => {
+    if (event.target.id !== "chat-form") {
+      return;
+    }
+    event.preventDefault();
+    await submitChatQuestion(document.getElementById("chat-input")?.value);
+  });
+}
+
+async function renderChatPage() {
+  if (!chatState.loaded) {
+    await loadChatData();
+  }
+  renderChatPageContent();
+}
+
+async function loadChatData() {
+  const service = getChatService();
+  if (!service) {
+    return;
+  }
+
+  const [sessionsResult, knowledgeOptions] = await Promise.all([
+    service.getSessions(),
+    service.getKnowledgeOptions(),
+  ]);
+  chatState.sessions = sessionsResult.list;
+  chatState.documents = knowledgeOptions.documents;
+  chatState.activeSessionId = chatState.sessions[0]?.id || "";
+  chatState.loaded = true;
+
+  if (chatState.activeSessionId) {
+    await ensureChatMessages(chatState.activeSessionId);
+    updateChatEvidenceFromActiveSession();
+  }
+}
+
+function renderChatPageContent() {
+  populateChatConfigOptions();
+  renderChatSessions();
+  renderChatConversation();
+  renderChatCitationPanel();
+}
+
+function populateChatConfigOptions() {
+  const knowledgeSelect = document.getElementById("chat-knowledge-select");
+  const projectSelect = document.getElementById("chat-project-select");
+  if (!knowledgeSelect || !projectSelect) {
+    return;
+  }
+
+  const knowledgeItems = uniqueValues(
+    chatState.documents.map((item) => item.difyDatasetId || item.project || "企业知识库"),
+  );
+  const projectItems = uniqueValues(chatState.documents.map((item) => item.project));
+
+  setSelectOptions(knowledgeSelect, knowledgeItems, "全部知识库");
+  setSelectOptions(projectSelect, projectItems, "全部项目");
+}
+
+function setSelectOptions(select, values, allLabel) {
+  const currentValue = select.value;
+  select.innerHTML = [
+    `<option value="">${escapeHtml(allLabel)}</option>`,
+    ...values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`),
+  ].join("");
+  select.value = values.includes(currentValue) ? currentValue : "";
+}
+
+function renderChatSessions() {
+  const container = document.getElementById("chat-session-list");
+  if (!container) {
+    return;
+  }
+
+  const keyword = String(document.getElementById("chat-session-search")?.value || "").trim().toLowerCase();
+  const sessions = chatState.sessions.filter((session) => {
+    return !keyword || [session.title, formatSceneMode(session.sceneMode)].join(" ").toLowerCase().includes(keyword);
+  });
+
+  if (!sessions.length) {
+    container.innerHTML = '<div class="empty-inline">暂无匹配会话。</div>';
+    return;
+  }
+
+  container.innerHTML = sessions
+    .map(
+      (session) => `
+        <button class="chat-session-item ${session.id === chatState.activeSessionId ? "active" : ""}" type="button" data-chat-session-id="${escapeHtml(session.id)}">
+          <span>
+            <strong>${escapeHtml(session.title)}</strong>
+            <small>${escapeHtml(formatSceneMode(session.sceneMode))}</small>
+          </span>
+          <time>${escapeHtml(formatShortTime(session.updatedAt))}</time>
+        </button>
+      `,
+    )
+    .join("");
+}
+
+async function ensureChatMessages(sessionId) {
+  if (!sessionId || chatState.messagesBySession[sessionId]) {
+    return;
+  }
+
+  const service = getChatService();
+  if (!service) {
+    return;
+  }
+
+  chatState.messagesBySession[sessionId] = await service.getMessages(sessionId);
+}
+
+function createNewChatSession() {
+  const service = getChatService();
+  if (!service) {
+    return;
+  }
+  const session = service.createLocalSession();
+  chatState.sessions = [
+    session,
+    ...chatState.sessions,
+  ];
+  chatState.messagesBySession[session.id] = [];
+  chatState.activeSessionId = session.id;
+  chatState.citations = [];
+  chatState.evidenceLevel = "medium";
+}
+
+async function submitChatQuestion(question) {
+  const normalizedQuestion = String(question || "").trim();
+  if (!normalizedQuestion) {
+    toast("请输入你想查询的问题。");
+    return;
+  }
+
+  const service = getChatService();
+  if (!service) {
+    return;
+  }
+
+  if (!chatState.loaded) {
+    await loadChatData();
+  }
+  if (!chatState.activeSessionId) {
+    createNewChatSession();
+  }
+
+  const sessionId = chatState.activeSessionId;
+  const messages = chatState.messagesBySession[sessionId] || [];
+  messages.push(service.createUserMessage({ sessionId, content: normalizedQuestion }));
+  chatState.messagesBySession[sessionId] = messages;
+  updateActiveSessionTitle(normalizedQuestion);
+  chatState.loading = true;
+  renderChatPageContent();
+
+  const input = document.getElementById("chat-input");
+  if (input) {
+    input.value = "";
+  }
+
+  try {
+    const assistantMessage = await service.sendQuestion({
+      question: normalizedQuestion,
+      sessionId,
+      answerMode: document.getElementById("chat-answer-mode")?.value || "evidence",
+      knowledgeBaseId: document.getElementById("chat-knowledge-select")?.value || "",
+      project: document.getElementById("chat-project-select")?.value || "",
+      history: messages,
+    });
+    messages.push(assistantMessage);
+    chatState.citations = assistantMessage.citationItems || [];
+    chatState.evidenceLevel = assistantMessage.evidenceLevel || inferEvidenceLevel(chatState.citations);
+  } catch (error) {
+    toast(`生成回答失败：${error.message}`);
+  } finally {
+    chatState.loading = false;
+    renderChatPageContent();
+  }
+}
+
+function updateActiveSessionTitle(question) {
+  const now = nowText();
+  chatState.sessions = chatState.sessions.map((session) => {
+    if (session.id !== chatState.activeSessionId) {
+      return session;
+    }
+    const shouldRename = session.title === "新的知识检索会话" || !session.title;
+    return {
+      ...session,
+      title: shouldRename ? question.slice(0, 22) : session.title,
+      updatedAt: now,
+    };
+  });
+}
+
+function renderChatConversation() {
+  const container = document.getElementById("chat-conversation");
+  if (!container) {
+    return;
+  }
+
+  const messages = chatState.messagesBySession[chatState.activeSessionId] || [];
+  if (!messages.length && !chatState.loading) {
+    container.innerHTML = `
+      <div class="chat-empty-state">
+        <strong>企业知识检索问答</strong>
+        <p>请选择会话或输入问题，系统会以结论、依据、建议和不确定性提示组织回答。</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = [
+    ...messages.map((message) => renderChatMessage(message)),
+    chatState.loading ? renderChatLoading() : "",
+  ].join("");
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderChatMessage(message) {
+  if (message.role === "user") {
+    return `
+      <div class="chat-message user-message">
+        <div class="question-bubble">
+          <span>用户问题</span>
+          <p>${escapeHtml(message.content)}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  return renderAnswerCard(message);
+}
+
+function renderAnswerCard(message) {
+  const sections = getAnswerSections(message);
+  const evidenceLevel = message.evidenceLevel || inferEvidenceLevel(message.citationItems || []);
+  const answerMode = getAnswerModeLabel(message.answerMode || document.getElementById("chat-answer-mode")?.value || "evidence");
+
+  return `
+    <article class="answer-card chat-message">
+      <div class="answer-card-head">
+        <div>
+          <p class="eyebrow">RAG Answer</p>
+          <h2>企业知识检索回答</h2>
+        </div>
+        <div class="answer-card-tags">
+          <span>${escapeHtml(answerMode)}</span>
+          ${renderEvidenceLevelBadge(evidenceLevel)}
+        </div>
+      </div>
+      <div class="answer-section conclusion">
+        <h3>结论</h3>
+        <p>${escapeHtml(sections.conclusion)}</p>
+      </div>
+      <div class="answer-grid">
+        <section class="answer-section">
+          <h3>依据</h3>
+          <p>${escapeHtml(sections.evidence)}</p>
+        </section>
+        <section class="answer-section">
+          <h3>建议</h3>
+          <p>${escapeHtml(sections.suggestion)}</p>
+        </section>
+      </div>
+      <section class="answer-section uncertainty">
+        <h3>不确定性</h3>
+        <p>${escapeHtml(sections.uncertainty)}</p>
+      </section>
+    </article>
+  `;
+}
+
+function getAnswerSections(message) {
+  if (message.structuredAnswer) {
+    return message.structuredAnswer;
+  }
+
+  const citationSummary = (message.citationItems || [])
+    .slice(0, 2)
+    .map((citation) => citation.snippet)
+    .join("；");
+
+  return {
+    conclusion: message.content || "当前回答为空。",
+    evidence: citationSummary || "当前 mock 消息没有绑定足够引用片段。",
+    suggestion: message.nextActions?.[0] || "建议继续补充相关文档，并在正式结论前核对引用证据。",
+    uncertainty: message.risks?.[0] || "该回答基于当前知识库片段生成，未入库资料不会被覆盖。",
+  };
+}
+
+function renderChatLoading() {
+  return `
+    <article class="answer-card chat-message loading-answer">
+      <div class="answer-card-head">
+        <div>
+          <p class="eyebrow">Retrieving</p>
+          <h2>正在检索知识库并生成结构化回答</h2>
+        </div>
+      </div>
+      <div class="loading-lines">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </article>
+  `;
+}
+
+function updateChatEvidenceFromActiveSession() {
+  const messages = chatState.messagesBySession[chatState.activeSessionId] || [];
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  chatState.citations = lastAssistant?.citationItems || [];
+  chatState.evidenceLevel = lastAssistant?.evidenceLevel || inferEvidenceLevel(chatState.citations);
+}
+
+function renderChatCitationPanel() {
+  const listNode = document.getElementById("chat-citation-list");
+  const levelNode = document.getElementById("chat-evidence-level");
+  const warningNode = document.getElementById("chat-evidence-warning");
+  if (!listNode || !levelNode || !warningNode) {
+    return;
+  }
+
+  const level = chatState.evidenceLevel || inferEvidenceLevel(chatState.citations);
+  levelNode.className = `evidence-level level-${level}`;
+  levelNode.textContent = getEvidenceLevelLabel(level);
+  warningNode.hidden = level !== "low";
+
+  if (!chatState.citations.length) {
+    listNode.innerHTML = '<div class="empty-inline">暂无引用证据。</div>';
+    return;
+  }
+
+  listNode.innerHTML = chatState.citations.map(renderCitationCard).join("");
+}
+
+function renderCitationCard(citation) {
+  const score = Number(citation.relevanceScore ?? citation.score ?? 0);
+  const displayScore = score ? score.toFixed(2) : "0.00";
+  return `
+    <article class="citation-card">
+      <div class="citation-card-head">
+        <strong>${escapeHtml(citation.documentTitle || citation.title || "知识库片段")}</strong>
+        <span>${escapeHtml(displayScore)}</span>
+      </div>
+      <p>${escapeHtml(citation.snippet || citation.content || "暂无片段摘要。")}</p>
+      <div class="citation-meta">
+        <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
+        <button type="button" data-citation-title="${escapeHtml(citation.documentTitle || citation.title || "知识库片段")}">查看原文</button>
+      </div>
+    </article>
+  `;
+}
+
+function inferEvidenceLevel(citations = []) {
+  if (!citations.length) {
+    return "low";
+  }
+  const bestScore = Math.max(...citations.map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0)));
+  if (bestScore >= 0.88 && citations.length >= 2) {
+    return "high";
+  }
+  if (bestScore >= 0.65) {
+    return "medium";
+  }
+  return "low";
+}
+
+function renderEvidenceLevelBadge(level) {
+  return `<span class="evidence-level level-${level}">${escapeHtml(getEvidenceLevelLabel(level))}</span>`;
+}
+
+function getEvidenceLevelLabel(level) {
+  const labels = {
+    high: "充分",
+    medium: "部分充分",
+    low: "不足",
+  };
+  return labels[level] || "部分充分";
+}
+
+function getAnswerModeLabel(mode) {
+  const labels = {
+    concise: "简洁回答",
+    detailed: "详细回答",
+    evidence: "带依据回答",
+  };
+  return labels[mode] || "带依据回答";
+}
+
+function nowText() {
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(new Date())
+    .replace(/\//g, "-");
+}
+
+function bindTrainingActions() {
+  document.addEventListener("click", async (event) => {
+    const quickQuestion = event.target.closest("[data-training-question]");
+    if (quickQuestion) {
+      const input = document.getElementById("training-query");
+      if (input) {
+        input.value = quickQuestion.dataset.trainingQuestion;
+      }
+      await generateTrainingResult(quickQuestion.dataset.trainingQuestion);
+      return;
+    }
+
+    if (event.target.closest("#training-generate")) {
+      await generateTrainingResult(document.getElementById("training-query")?.value);
+    }
+  });
+}
+
+function bindHandoverActions() {
+  document.addEventListener("click", async (event) => {
+    const quickQuestion = event.target.closest("[data-handover-question]");
+    if (quickQuestion) {
+      const input = document.getElementById("handover-query");
+      if (input) {
+        input.value = quickQuestion.dataset.handoverQuestion;
+      }
+      await generateHandoverResult(quickQuestion.dataset.handoverQuestion);
+      return;
+    }
+
+    if (event.target.closest("#handover-generate")) {
+      await generateHandoverResult(document.getElementById("handover-query")?.value);
+    }
+  });
+}
+
+async function renderTrainingPage() {
+  const service = getTrainingService();
+  if (!service) {
+    return;
+  }
+
+  if (!trainingState.loaded) {
+    const options = await service.getTrainingOptions();
+    populateScenarioSelect("training-topic", options.topics, "项目背景");
+    populateScenarioSelect("training-project", options.projects, "企业知识库");
+    trainingState.loaded = true;
+    await generateTrainingResult("这个项目主要解决什么问题？", { silent: true });
+    return;
+  }
+
+  renderTrainingResult(trainingState.result);
+}
+
+async function generateTrainingResult(question, options = {}) {
+  const service = getTrainingService();
+  if (!service) {
+    return;
+  }
+
+  const query = String(question || "").trim() || "请给我一周学习路径";
+  const resultNode = document.getElementById("training-result");
+  if (resultNode) {
+    resultNode.innerHTML = renderScenarioLoading("正在生成新人培训说明...");
+  }
+
+  try {
+    trainingState.result = await service.generateTrainingResult({
+      query,
+      topic: document.getElementById("training-topic")?.value || "项目背景",
+      project: document.getElementById("training-project")?.value || "企业知识库",
+    });
+    renderTrainingResult(trainingState.result);
+    if (!options.silent) {
+      toast("培训说明已生成。");
+    }
+  } catch (error) {
+    if (resultNode) {
+      resultNode.innerHTML = `<div class="empty-inline">培训结果生成失败：${escapeHtml(error.message)}</div>`;
+    }
+  }
+}
+
+function renderTrainingResult(result) {
+  const container = document.getElementById("training-result");
+  if (!container) {
+    return;
+  }
+  if (!result) {
+    container.innerHTML = '<div class="empty-inline">请输入培训问题后生成结构化说明。</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <section class="scenario-summary-card">
+      <div>
+        <p class="eyebrow">${escapeHtml(result.topic)}</p>
+        <h3>结论摘要</h3>
+        <p>${escapeHtml(result.summary)}</p>
+      </div>
+    </section>
+    <section class="scenario-section">
+      <h3>背景说明</h3>
+      <p>${escapeHtml(result.background)}</p>
+    </section>
+    <section class="scenario-section">
+      <h3>核心术语解释</h3>
+      <div class="term-grid">${result.terms.map(renderTermCard).join("")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>学习路径</h3>
+      <div class="learning-timeline">${result.learningPath.map(renderLearningStep).join("")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>推荐阅读资料</h3>
+      <div class="recommended-doc-grid">${result.recommendedDocs.map(renderRecommendedDoc).join("")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>引用证据</h3>
+      <div class="scenario-evidence-list">${result.citations.map(renderScenarioCitation).join("")}</div>
+    </section>
+  `;
+}
+
+function renderTermCard(item) {
+  return `
+    <article class="term-card">
+      <strong>${escapeHtml(item.term)}</strong>
+      <p>${escapeHtml(item.explanation)}</p>
+    </article>
+  `;
+}
+
+function renderLearningStep(item) {
+  return `
+    <article class="timeline-step">
+      <span>${escapeHtml(item.day)}</span>
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(item.description)}</p>
+      </div>
+    </article>
+  `;
+}
+
+function renderRecommendedDoc(item) {
+  return `
+    <article class="recommended-doc-card">
+      <div class="recommended-doc-head">
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority)}</span>
+      </div>
+      <p>${escapeHtml(item.reason)}</p>
+      <small>预计阅读时间：${escapeHtml(item.estimatedReadTime)}</small>
+    </article>
+  `;
+}
+
+async function renderHandoverPage() {
+  const service = getHandoverService();
+  if (!service) {
+    return;
+  }
+
+  if (!handoverState.loaded) {
+    const options = await service.getHandoverOptions();
+    populateScenarioSelect("handover-project", options.projects, "企业知识库");
+    populateScenarioSelect("handover-scope", options.scopes, "功能模块");
+    handoverState.loaded = true;
+    await generateHandoverResult("请总结当前项目进度", { silent: true });
+    return;
+  }
+
+  renderHandoverResult(handoverState.result);
+}
+
+async function generateHandoverResult(question, options = {}) {
+  const service = getHandoverService();
+  if (!service) {
+    return;
+  }
+
+  const query = String(question || "").trim() || "请生成接手者待办清单";
+  const resultNode = document.getElementById("handover-result");
+  if (resultNode) {
+    resultNode.innerHTML = renderScenarioLoading("正在汇总交接信息...");
+  }
+
+  try {
+    handoverState.result = await service.generateHandoverResult({
+      query,
+      project: document.getElementById("handover-project")?.value || "企业知识库",
+      scope: document.getElementById("handover-scope")?.value || "功能模块",
+    });
+    renderHandoverResult(handoverState.result);
+    if (!options.silent) {
+      toast("交接摘要已生成。");
+    }
+  } catch (error) {
+    if (resultNode) {
+      resultNode.innerHTML = `<div class="empty-inline">交接摘要生成失败：${escapeHtml(error.message)}</div>`;
+    }
+  }
+}
+
+function renderHandoverResult(result) {
+  const container = document.getElementById("handover-result");
+  if (!container) {
+    return;
+  }
+  if (!result) {
+    container.innerHTML = '<div class="empty-inline">请输入交接问题后生成结构化摘要。</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <section class="handover-summary-grid">
+      ${renderInfoBlock("项目背景", result.projectBackground)}
+      ${renderInfoBlock("当前进度", result.currentProgress)}
+    </section>
+    <section class="handover-two-column">
+      ${renderListBlock("已完成功能", result.completedFeatures)}
+      ${renderListBlock("未完成事项", result.unfinishedItems)}
+    </section>
+    <section class="scenario-section">
+      <h3>待办清单</h3>
+      ${renderTodoTable(result.todos)}
+    </section>
+    <section class="scenario-section">
+      <h3>风险点</h3>
+      <div class="risk-card-grid">${result.risks.map(renderHandoverRisk).join("")}</div>
+    </section>
+    <section class="handover-two-column">
+      ${renderRoleBlock(result.roles)}
+      ${renderListBlock("依赖文档", result.dependentDocs)}
+    </section>
+    <section class="scenario-section">
+      <h3>引用证据</h3>
+      <div class="scenario-evidence-list">${result.citations.map(renderScenarioCitation).join("")}</div>
+    </section>
+  `;
+}
+
+function renderInfoBlock(title, content) {
+  return `
+    <article class="scenario-section">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(content)}</p>
+    </article>
+  `;
+}
+
+function renderListBlock(title, items = []) {
+  return `
+    <article class="scenario-section">
+      <h3>${escapeHtml(title)}</h3>
+      <ul class="scenario-bullet-list">
+        ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    </article>
+  `;
+}
+
+function renderTodoTable(todos = []) {
+  return `
+    <div class="table-wrap">
+      <table class="scenario-table">
+        <thead>
+          <tr>
+            <th>任务名称</th>
+            <th>优先级</th>
+            <th>风险等级</th>
+            <th>建议负责人</th>
+            <th>截止时间</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${todos
+            .map(
+              (todo) => `
+                <tr>
+                  <td>${escapeHtml(todo.taskName)}</td>
+                  <td><span class="priority-badge priority-${getPriorityClass(todo.priority)}">${escapeHtml(todo.priority)}</span></td>
+                  <td>${escapeHtml(todo.riskLevel)}</td>
+                  <td>${escapeHtml(todo.owner)}</td>
+                  <td>${escapeHtml(todo.dueDate)}</td>
+                  <td>${escapeHtml(todo.status)}</td>
+                </tr>
+              `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderHandoverRisk(risk) {
+  return `
+    <article class="risk-card">
+      <div class="risk-card-head">
+        <strong>${escapeHtml(risk.type)}</strong>
+        <span>风险</span>
+      </div>
+      <p>${escapeHtml(risk.description)}</p>
+      <dl>
+        <div><dt>影响范围</dt><dd>${escapeHtml(risk.impact)}</dd></div>
+        <div><dt>建议处理</dt><dd>${escapeHtml(risk.suggestion)}</dd></div>
+        <div><dt>证据来源</dt><dd>${escapeHtml(risk.evidenceSource)}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function renderRoleBlock(roles = []) {
+  return `
+    <article class="scenario-section">
+      <h3>责任人 / 相关角色</h3>
+      <div class="role-list">
+        ${roles
+          .map(
+            (item) => `
+              <div>
+                <strong>${escapeHtml(item.role)}</strong>
+                <p>${escapeHtml(item.responsibility)}</p>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderScenarioCitation(citation) {
+  const score = Number(citation.relevanceScore || 0);
+  return `
+    <article class="citation-card">
+      <div class="citation-card-head">
+        <strong>${escapeHtml(citation.documentTitle)}</strong>
+        <span>${score ? score.toFixed(2) : "0.00"}</span>
+      </div>
+      <p>${escapeHtml(citation.snippet)}</p>
+      <div class="citation-meta">
+        <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
+        <button type="button" data-citation-title="${escapeHtml(citation.documentTitle)}">查看原文</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderScenarioLoading(message) {
+  return `
+    <div class="scenario-loading">
+      <strong>${escapeHtml(message)}</strong>
+      <div class="loading-lines">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  `;
+}
+
+function populateScenarioSelect(selectId, values, fallbackLabel) {
+  const select = document.getElementById(selectId);
+  if (!select) {
+    return;
+  }
+  const currentValue = select.value;
+  const options = values.length ? values : [fallbackLabel];
+  select.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  select.value = options.includes(currentValue) ? currentValue : options[0];
+}
+
+function getPriorityClass(value) {
+  const text = String(value || "");
+  if (text.includes("高")) {
+    return "high";
+  }
+  if (text.includes("低")) {
+    return "low";
+  }
+  return "medium";
 }
 
 async function renderDashboardPage() {
@@ -688,6 +1560,30 @@ function getDocumentService() {
     return null;
   }
   return window.documentService;
+}
+
+function getChatService() {
+  if (!window.chatService) {
+    toast("Chat service 未加载。");
+    return null;
+  }
+  return window.chatService;
+}
+
+function getTrainingService() {
+  if (!window.trainingService) {
+    toast("Training service 未加载。");
+    return null;
+  }
+  return window.trainingService;
+}
+
+function getHandoverService() {
+  if (!window.handoverService) {
+    toast("Handover service 未加载。");
+    return null;
+  }
+  return window.handoverService;
 }
 
 function renderStatusBadge(status, customLabel) {

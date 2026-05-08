@@ -326,36 +326,205 @@
           <div class="page-header">
             <p class="eyebrow">Knowledge QA</p>
             <h1>智能问答</h1>
-            <p>SuperRAG 智能问答页建设中。</p>
+            <p>围绕企业知识库进行通用检索问答，每个回答都绑定引用证据与证据充分度。</p>
           </div>
-          <article class="placeholder-card">
-            <h2>智能问答页建设中</h2>
-            <p>后续将放置会话列表、问答区、引用证据和追问入口。</p>
-          </article>
+
+          <div class="chat-workbench">
+            <aside class="chat-sidebar dashboard-card" aria-label="会话列表">
+              <button class="primary-button chat-new-button" type="button" id="chat-new-session">新建会话</button>
+              <label class="chat-search">
+                <span aria-hidden="true">⌕</span>
+                <input id="chat-session-search" type="search" placeholder="搜索会话">
+              </label>
+              <div class="chat-session-list" id="chat-session-list"></div>
+            </aside>
+
+            <section class="chat-main dashboard-card" aria-label="智能问答主区域">
+              <div class="chat-config-bar">
+                <label>
+                  选择知识库
+                  <select id="chat-knowledge-select"></select>
+                </label>
+                <label>
+                  选择项目
+                  <select id="chat-project-select"></select>
+                </label>
+                <label>
+                  回答模式
+                  <select id="chat-answer-mode">
+                    <option value="concise">简洁回答</option>
+                    <option value="detailed">详细回答</option>
+                    <option value="evidence" selected>带依据回答</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="chat-conversation" id="chat-conversation" aria-live="polite"></div>
+
+              <form class="chat-input-area" id="chat-form">
+                <div class="quick-question-row" aria-label="常用问题">
+                  <button type="button" data-chat-question="这个项目主要解决什么问题？">这个项目主要解决什么问题？</button>
+                  <button type="button" data-chat-question="新人应该先看哪些文档？">新人应该先看哪些文档？</button>
+                  <button type="button" data-chat-question="当前系统有哪些核心模块？">当前系统有哪些核心模块？</button>
+                  <button type="button" data-chat-question="请总结文档入库流程">请总结文档入库流程</button>
+                </div>
+                <div class="chat-input-row">
+                  <textarea id="chat-input" rows="2" placeholder="请输入你想查询的企业知识或项目问题"></textarea>
+                  <button class="primary-button" type="submit" id="chat-send">发送</button>
+                </div>
+              </form>
+            </section>
+
+            <aside class="citation-panel dashboard-card" aria-label="引用证据">
+              <div class="citation-panel-head">
+                <div>
+                  <p class="eyebrow">Evidence</p>
+                  <h2>引用证据</h2>
+                </div>
+                <span class="evidence-level level-medium" id="chat-evidence-level">部分充分</span>
+              </div>
+              <div class="evidence-warning" id="chat-evidence-warning" hidden>
+                当前知识库中证据不足，建议补充相关文档后再生成正式结论。
+              </div>
+              <div class="citation-list-panel" id="chat-citation-list"></div>
+            </aside>
+          </div>
         </section>
 
         <section class="page-panel" data-page="/training">
           <div class="page-header">
             <p class="eyebrow">Training</p>
             <h1>培训模式</h1>
-            <p>SuperRAG 培训模式页建设中。</p>
+            <p>基于企业私有知识库，为新人生成术语解释、背景梳理、学习路径和推荐资料。</p>
           </div>
-          <article class="placeholder-card">
-            <h2>培训模式页建设中</h2>
-            <p>后续将放置培训输入、术语解释、学习路径和推荐资料。</p>
-          </article>
+
+          <div class="scenario-page training-page">
+            <section class="scenario-hero dashboard-card">
+              <div>
+                <p class="eyebrow">Onboarding Guide</p>
+                <h2>培训模式</h2>
+                <p>把分散的需求、接口、交接和培训资料整理成新人能直接学习的结构化说明。</p>
+              </div>
+              <div class="scenario-hero-metrics" aria-label="培训产出结构">
+                <span>背景</span>
+                <span>术语</span>
+                <span>路径</span>
+                <span>资料</span>
+              </div>
+            </section>
+
+            <section class="scenario-grid">
+              <aside class="scenario-input-card dashboard-card">
+                <label>
+                  我想了解的内容
+                  <textarea id="training-query" rows="5" placeholder="例如：请给我一周学习路径，帮助新人快速理解 SuperRAG 项目"></textarea>
+                </label>
+                <label>
+                  培训主题
+                  <select id="training-topic"></select>
+                </label>
+                <label>
+                  关联项目
+                  <select id="training-project"></select>
+                </label>
+                <button class="primary-button" type="button" id="training-generate">生成培训说明</button>
+              </aside>
+
+              <section class="scenario-output dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Training Output</p>
+                    <h2>结构化培训结果</h2>
+                  </div>
+                </div>
+                <div class="training-result" id="training-result"></div>
+              </section>
+            </section>
+
+            <section class="quick-panel dashboard-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Quick Questions</p>
+                  <h2>快捷问题</h2>
+                </div>
+              </div>
+              <div class="quick-question-row">
+                <button type="button" data-training-question="这个项目主要解决什么问题？">这个项目主要解决什么问题？</button>
+                <button type="button" data-training-question="新人应该先看哪些文档？">新人应该先看哪些文档？</button>
+                <button type="button" data-training-question="请解释系统中的核心模块">请解释系统中的核心模块</button>
+                <button type="button" data-training-question="请给我一周学习路径">请给我一周学习路径</button>
+                <button type="button" data-training-question="请总结开发流程和注意事项">请总结开发流程和注意事项</button>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section class="page-panel" data-page="/handover">
           <div class="page-header">
             <p class="eyebrow">Handover</p>
             <h1>交接模式</h1>
-            <p>SuperRAG 交接模式页建设中。</p>
+            <p>从企业文档和历史记录中汇总项目背景、当前进度、风险点和待办事项。</p>
           </div>
-          <article class="placeholder-card">
-            <h2>交接模式页建设中</h2>
-            <p>后续将放置进度汇总、风险、待办和责任边界。</p>
-          </article>
+
+          <div class="scenario-page handover-page">
+            <section class="scenario-hero dashboard-card">
+              <div>
+                <p class="eyebrow">Project Transfer</p>
+                <h2>交接模式</h2>
+                <p>围绕任务交接收敛背景、进度、风险、待办、责任角色和依赖文档。</p>
+              </div>
+              <div class="scenario-hero-metrics" aria-label="交接闭环">
+                <span>背景</span>
+                <span>进度</span>
+                <span>风险</span>
+                <span>待办</span>
+              </div>
+            </section>
+
+            <section class="scenario-grid">
+              <aside class="scenario-input-card dashboard-card">
+                <label>
+                  交接问题
+                  <textarea id="handover-query" rows="5" placeholder="例如：请生成接手者待办清单，并指出当前最大风险"></textarea>
+                </label>
+                <label>
+                  所属项目
+                  <select id="handover-project"></select>
+                </label>
+                <label>
+                  交接范围
+                  <select id="handover-scope"></select>
+                </label>
+                <button class="primary-button" type="button" id="handover-generate">生成交接摘要</button>
+              </aside>
+
+              <section class="scenario-output dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Handover Output</p>
+                    <h2>结构化交接结果</h2>
+                  </div>
+                </div>
+                <div class="handover-result" id="handover-result"></div>
+              </section>
+            </section>
+
+            <section class="quick-panel dashboard-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Quick Questions</p>
+                  <h2>快捷问题</h2>
+                </div>
+              </div>
+              <div class="quick-question-row">
+                <button type="button" data-handover-question="请总结当前项目进度">请总结当前项目进度</button>
+                <button type="button" data-handover-question="这个模块还有哪些未完成事项？">这个模块还有哪些未完成事项？</button>
+                <button type="button" data-handover-question="当前交接中最大的风险是什么？">当前交接中最大的风险是什么？</button>
+                <button type="button" data-handover-question="请生成接手者待办清单">请生成接手者待办清单</button>
+                <button type="button" data-handover-question="哪些文档需要优先阅读？">哪些文档需要优先阅读？</button>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section class="page-panel" data-page="/design-assistant">
@@ -401,6 +570,9 @@
   <script src="./mock-data.js"></script>
   <script src="./api.js"></script>
   <script src="./document-service.js"></script>
+  <script src="./chat-service.js"></script>
+  <script src="./training-service.js"></script>
+  <script src="./handover-service.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

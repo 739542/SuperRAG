@@ -98,22 +98,49 @@
 
   function generateMockAnswer(question) {
     const normalizedQuestion = String(question || "").trim() || "当前问题";
-    const citations = clone((mock.mockCitations || []).slice(0, 3));
+    const isLowEvidenceQuestion = /权限|管理员|安全|证据不足|没有资料|未覆盖|未知/.test(normalizedQuestion);
+    const isStrongEvidenceQuestion = /入库|流程|新人|文档|核心模块|主要解决/.test(normalizedQuestion);
+    const citationSource = clone(mock.mockCitations || []);
+    const citations = isLowEvidenceQuestion
+      ? citationSource
+          .filter((citation) => citation.id === "cit-004")
+          .map((citation) => ({
+            ...citation,
+            relevanceScore: 0.48,
+            snippet: "当前资料仅提到不同角色拥有不同可见范围，缺少完整的权限控制、管理员操作和安全审计设计。",
+          }))
+      : citationSource.slice(0, 3);
+    const evidenceLevel = isLowEvidenceQuestion ? "low" : isStrongEvidenceQuestion ? "high" : "medium";
+    const structuredAnswer = isLowEvidenceQuestion
+      ? {
+          conclusion: "当前知识库只能支持权限相关问题的初步判断，暂不适合作为正式设计结论。",
+          evidence: "已有资料只覆盖角色和可见范围，缺少管理员权限、接口鉴权和审计日志等关键证据。",
+          suggestion: "建议补充管理员权限设计文档、接口鉴权说明和安全审计规则后，再生成正式方案。",
+          uncertainty: "证据不足主要集中在权限边界、异常授权和操作留痕，当前回答需要人工复核。",
+        }
+      : {
+          conclusion: `根据当前知识库，“${normalizedQuestion}”应从文档入库、知识检索、场景化输出和引用追溯四个环节理解。`,
+          evidence: "相关资料显示，系统强调企业私有知识库、RAG 检索、培训/交接/设计辅助以及回答证据追溯。",
+          suggestion: "优先围绕高频业务问题组织知识库，回答时同步展示引用片段、相关度和后续补充建议。",
+          uncertainty: "如果问题涉及尚未入库的模块细节，仍需要补充对应需求、接口或交接文档。",
+        };
 
     return Promise.resolve({
       id: `answer-${Date.now()}`,
       sessionId: "mock-session",
       role: "assistant",
-      content: `围绕“${normalizedQuestion}”，SuperRAG 会先检索企业知识库，再输出结论、依据、风险和后续动作。当前为 mock 返回，后续可在 api.js 中替换为真实问答接口。`,
+      content: structuredAnswer.conclusion,
       createdAt: nowText(),
+      evidenceLevel,
+      structuredAnswer,
       citations: citations.map((citation) => citation.id),
       citationItems: citations,
       evidence: [
-        "已从企业知识库中找到相关文档片段。",
+        structuredAnswer.evidence,
         "回答结构保留引用证据，便于后续追溯。",
       ],
-      risks: ["当前为 mock 结果，不能代表真实 Dify 召回质量。"],
-      nextActions: ["接入真实问答 API 后替换 generateMockAnswer 的内部实现。"],
+      risks: [structuredAnswer.uncertainty],
+      nextActions: [structuredAnswer.suggestion],
     });
   }
 
