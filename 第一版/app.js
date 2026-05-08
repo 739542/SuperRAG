@@ -38,6 +38,12 @@ const handoverState = {
   loaded: false,
   result: null,
 };
+const designState = {
+  loaded: false,
+  result: null,
+  activeTab: "functions",
+  loading: false,
+};
 
 document.addEventListener("DOMContentLoaded", () => {
   bindTopbarActions();
@@ -45,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindChatActions();
   bindTrainingActions();
   bindHandoverActions();
+  bindDesignActions();
   bindDocumentsActions();
   window.addEventListener("hashchange", renderCurrentRoute);
   renderCurrentRoute();
@@ -115,6 +122,10 @@ function renderCurrentRoute() {
 
   if (normalizedRoute === "/handover") {
     renderHandoverPage();
+  }
+
+  if (normalizedRoute === "/design-assistant") {
+    renderDesignPage();
   }
 }
 
@@ -616,6 +627,27 @@ function bindHandoverActions() {
   });
 }
 
+function bindDesignActions() {
+  document.addEventListener("click", async (event) => {
+    const tabButton = event.target.closest("[data-design-tab]");
+    if (tabButton) {
+      designState.activeTab = tabButton.dataset.designTab;
+      renderDesignResult(designState.result);
+      return;
+    }
+
+    const actionButton = event.target.closest("[data-design-action]");
+    if (actionButton) {
+      await handleDesignAction(actionButton.dataset.designAction);
+      return;
+    }
+
+    if (event.target.closest("#design-generate")) {
+      await generateDesignOutput();
+    }
+  });
+}
+
 async function renderTrainingPage() {
   const service = getTrainingService();
   if (!service) {
@@ -913,6 +945,416 @@ function renderRoleBlock(roles = []) {
       </div>
     </article>
   `;
+}
+
+async function renderDesignPage() {
+  const service = getDesignService();
+  if (!service) {
+    return;
+  }
+
+  if (!designState.loaded) {
+    const options = await service.getDesignOptions();
+    populateScenarioSelect("design-output-type", options.outputTypes, "详细文本用例");
+    populateScenarioSelect("design-project", options.projects, "企业知识助手系统");
+    populateScenarioSelect("design-granularity", options.granularities, "标准");
+
+    const input = document.getElementById("design-goal");
+    if (input && !input.value.trim()) {
+      input.value = "基于现有需求文档，为设计辅助模块生成详细文本用例。";
+    }
+
+    const outputs = await service.getDesignOutputs();
+    designState.result = outputs[0] || null;
+    designState.loaded = true;
+  }
+
+  renderDesignResult(designState.result);
+  renderDesignEvidencePanel(designState.result);
+}
+
+async function generateDesignOutput(options = {}) {
+  const service = getDesignService();
+  if (!service) {
+    return;
+  }
+
+  const goal = String(document.getElementById("design-goal")?.value || "").trim();
+  if (!goal) {
+    toast("请输入设计目标。");
+    return;
+  }
+
+  designState.loading = true;
+  const resultNode = document.getElementById("design-result");
+  if (resultNode) {
+    resultNode.innerHTML = renderScenarioLoading("正在检索企业文档并生成结构化设计初稿...");
+  }
+  renderDesignEvidencePanel(null);
+
+  try {
+    designState.result = await service.generateDesignOutput({
+      inputQuestion: goal,
+      outputType: document.getElementById("design-output-type")?.value || "详细文本用例",
+      project: document.getElementById("design-project")?.value || "企业知识助手系统",
+      granularity: document.getElementById("design-granularity")?.value || "标准",
+    });
+    designState.activeTab = "functions";
+    renderDesignResult(designState.result);
+    renderDesignEvidencePanel(designState.result);
+    if (!options.silent) {
+      toast("设计初稿已生成。");
+    }
+  } catch (error) {
+    if (resultNode) {
+      resultNode.innerHTML = `<div class="empty-inline">设计初稿生成失败：${escapeHtml(error.message)}</div>`;
+    }
+  } finally {
+    designState.loading = false;
+  }
+}
+
+function renderDesignResult(result) {
+  const container = document.getElementById("design-result");
+  const tabs = document.querySelectorAll("[data-design-tab]");
+  if (!container) {
+    return;
+  }
+
+  tabs.forEach((tab) => {
+    const isActive = tab.dataset.designTab === designState.activeTab;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+  });
+
+  if (!result) {
+    container.innerHTML = '<div class="empty-inline">请输入设计目标后生成结构化设计产物。</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <section class="design-summary-card">
+      <div>
+        <p class="eyebrow">${escapeHtml(result.outputTypeLabel || result.outputType)}</p>
+        <h3>${escapeHtml(result.title)}</h3>
+        <p>${escapeHtml(result.inputQuestion)}</p>
+      </div>
+      <div class="design-summary-meta">
+        <span>${escapeHtml(result.project)}</span>
+        <span>${escapeHtml(result.granularity || "标准")}</span>
+        ${renderEvidenceLevelBadge(result.evidenceLevel)}
+      </div>
+    </section>
+    ${renderDesignTabContent(result)}
+  `;
+}
+
+function renderDesignTabContent(result) {
+  const renderers = {
+    functions: renderDesignFunctionTable,
+    useCases: renderDesignUseCases,
+    modules: renderDesignModules,
+    risks: renderDesignRisks,
+    actions: renderDesignNextActions,
+  };
+  const renderer = renderers[designState.activeTab] || renderDesignFunctionTable;
+  return renderer(result);
+}
+
+function renderDesignFunctionTable(result) {
+  return `
+    <section class="scenario-section">
+      <h3>功能清单</h3>
+      <div class="table-wrap">
+        <table class="scenario-table design-table">
+          <thead>
+            <tr>
+              <th>功能编号</th>
+              <th>功能名称</th>
+              <th>功能描述</th>
+              <th>优先级</th>
+              <th>关联文档</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(result.functionList || [])
+              .map(
+                (item) => `
+                  <tr>
+                    <td>${escapeHtml(item.id)}</td>
+                    <td><strong>${escapeHtml(item.name)}</strong></td>
+                    <td>${escapeHtml(item.description)}</td>
+                    <td><span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority)}</span></td>
+                    <td>${escapeHtml(item.relatedDocument)}</td>
+                  </tr>
+                `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderDesignUseCases(result) {
+  return `
+    <section class="scenario-section">
+      <h3>详细文本用例</h3>
+      <div class="use-case-grid">
+        ${(result.useCases || [])
+          .map(
+            (item) => `
+              <article class="use-case-card">
+                <div class="use-case-head">
+                  <span>${escapeHtml(item.id)}</span>
+                  <strong>${escapeHtml(item.name)}</strong>
+                </div>
+                <dl class="design-dl">
+                  <div><dt>参与者</dt><dd>${escapeHtml(item.actor)}</dd></div>
+                  <div><dt>前置条件</dt><dd>${renderTextOrList(item.preconditions)}</dd></div>
+                  <div><dt>主成功场景</dt><dd>${renderTextOrList(item.mainSuccessScenario)}</dd></div>
+                  <div><dt>扩展场景</dt><dd>${renderTextOrList(item.extensionScenarios)}</dd></div>
+                  <div><dt>异常场景</dt><dd>${renderTextOrList(item.exceptionScenarios)}</dd></div>
+                  <div><dt>后置条件</dt><dd>${renderTextOrList(item.postconditions)}</dd></div>
+                </dl>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDesignModules(result) {
+  return `
+    <section class="scenario-section">
+      <h3>模块划分建议</h3>
+      <div class="module-grid">
+        ${(result.moduleSuggestions || [])
+          .map(
+            (item) => `
+              <article class="module-card">
+                <strong>${escapeHtml(item.name)}</strong>
+                <p>${escapeHtml(item.responsibility)}</p>
+                <dl class="design-dl compact">
+                  <div><dt>输入</dt><dd>${renderTextOrList(item.input)}</dd></div>
+                  <div><dt>输出</dt><dd>${renderTextOrList(item.output)}</dd></div>
+                  <div><dt>依赖关系</dt><dd>${renderTextOrList(item.dependencies)}</dd></div>
+                </dl>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDesignRisks(result) {
+  return `
+    <section class="scenario-section">
+      <h3>风险与待确认问题</h3>
+      <div class="risk-card-grid">
+        ${(result.risks || [])
+          .map(
+            (item) => `
+              <article class="risk-card design-risk-card">
+                <div class="risk-card-head">
+                  <strong>${escapeHtml(item.description)}</strong>
+                  <span>${escapeHtml(item.needsReview ? "需复核" : "可跟进")}</span>
+                </div>
+                <dl>
+                  <div><dt>影响范围</dt><dd>${escapeHtml(item.impact)}</dd></div>
+                  <div><dt>建议补充材料</dt><dd>${escapeHtml(item.supplement)}</dd></div>
+                  <div><dt>置信度</dt><dd>${escapeHtml(item.confidence)}</dd></div>
+                </dl>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDesignNextActions(result) {
+  return `
+    <section class="scenario-section">
+      <h3>后续动作建议</h3>
+      <div class="table-wrap">
+        <table class="scenario-table design-table">
+          <thead>
+            <tr>
+              <th>后续动作</th>
+              <th>优先级</th>
+              <th>建议负责人</th>
+              <th>依赖文档</th>
+              <th>完成标准</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(result.nextActions || [])
+              .map(
+                (item) => `
+                  <tr>
+                    <td><strong>${escapeHtml(item.action)}</strong></td>
+                    <td><span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority)}</span></td>
+                    <td>${escapeHtml(item.owner)}</td>
+                    <td>${escapeHtml(item.dependentDocument)}</td>
+                    <td>${escapeHtml(item.doneDefinition)}</td>
+                  </tr>
+                `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderDesignEvidencePanel(result) {
+  const levelNode = document.getElementById("design-evidence-level");
+  const warningNode = document.getElementById("design-evidence-warning");
+  const citationNode = document.getElementById("design-citation-list");
+  const qualityNode = document.getElementById("design-quality-checks");
+  if (!levelNode || !warningNode || !citationNode || !qualityNode) {
+    return;
+  }
+
+  if (!result) {
+    levelNode.className = "evidence-level level-medium";
+    levelNode.textContent = "等待生成";
+    warningNode.hidden = true;
+    qualityNode.innerHTML = '<div class="empty-inline">生成设计初稿后展示质量检查。</div>';
+    citationNode.innerHTML = '<div class="empty-inline">暂无引用证据。</div>';
+    return;
+  }
+
+  const level = result.evidenceLevel || inferEvidenceLevel(result.citations);
+  levelNode.className = `evidence-level level-${level}`;
+  levelNode.textContent = getEvidenceLevelLabel(level);
+  warningNode.hidden = level !== "low";
+  qualityNode.innerHTML = renderQualityChecks(result);
+  citationNode.innerHTML = result.citations?.length
+    ? result.citations.map(renderScenarioCitation).join("")
+    : '<div class="empty-inline">暂无引用证据。</div>';
+}
+
+function renderQualityChecks(result) {
+  const checks = result.qualityChecks || {};
+  const items = [
+    {
+      label: "是否存在无引用内容",
+      value: checks.hasUncitedContent ? "存在" : "未发现",
+      tone: checks.hasUncitedContent ? "bad" : "ok",
+    },
+    {
+      label: "是否存在需求缺口",
+      value: checks.hasRequirementGap ? "存在" : "未发现",
+      tone: checks.hasRequirementGap ? "warn" : "ok",
+    },
+    {
+      label: "是否建议人工复核",
+      value: checks.requiresHumanReview ? "建议复核" : "可常规审阅",
+      tone: checks.requiresHumanReview ? "warn" : "ok",
+    },
+    {
+      label: "是否可进入开发评审",
+      value: checks.readyForReview ? "可以" : "暂不建议",
+      tone: checks.readyForReview ? "ok" : "bad",
+    },
+  ];
+
+  return `
+    <div class="quality-check-list">
+      ${items.map(renderQualityCheck).join("")}
+    </div>
+  `;
+}
+
+function renderQualityCheck(item) {
+  return `
+    <div class="quality-check-item quality-${item.tone}">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+    </div>
+  `;
+}
+
+function renderTextOrList(value) {
+  if (Array.isArray(value)) {
+    return `
+      <ul class="scenario-bullet-list compact-list">
+        ${value.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    `;
+  }
+  return escapeHtml(value || "待补充");
+}
+
+async function handleDesignAction(action) {
+  if (action === "regenerate") {
+    await generateDesignOutput();
+    return;
+  }
+
+  if (!designState.result) {
+    toast("请先生成设计初稿。");
+    return;
+  }
+
+  if (action === "copy") {
+    const markdown = buildDesignMarkdown(designState.result);
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(markdown);
+      toast("设计结果已复制为 Markdown。");
+      return;
+    }
+    toast("当前浏览器不支持自动复制，请手动复制页面内容。");
+    return;
+  }
+
+  if (action === "export") {
+    toast("Markdown 导出占位：后续将接入真实导出能力。");
+    return;
+  }
+
+  if (action === "save") {
+    toast("保存历史占位：后续将写入历史记录接口。");
+  }
+}
+
+function buildDesignMarkdown(result) {
+  const lines = [
+    `# ${result.title}`,
+    "",
+    `设计目标：${result.inputQuestion}`,
+    `关联项目：${result.project}`,
+    `证据充分度：${getEvidenceLevelLabel(result.evidenceLevel)}`,
+    "",
+    "## 功能清单",
+    ...(result.functionList || []).map((item) => `- ${item.id} ${item.name}：${item.description}（${item.priority}，${item.relatedDocument}）`),
+    "",
+    "## 详细文本用例",
+    ...(result.useCases || []).map((item) => `- ${item.id} ${item.name}：参与者 ${item.actor}；前置条件 ${formatMarkdownValue(item.preconditions)}`),
+    "",
+    "## 模块划分建议",
+    ...(result.moduleSuggestions || []).map((item) => `- ${item.name}：${item.responsibility}`),
+    "",
+    "## 风险与待确认问题",
+    ...(result.risks || []).map((item) => `- ${item.description}；影响：${item.impact}；置信度：${item.confidence}`),
+    "",
+    "## 后续动作建议",
+    ...(result.nextActions || []).map((item) => `- ${item.action}（${item.priority}，负责人：${item.owner}）`),
+  ];
+  return lines.join("\n");
+}
+
+function formatMarkdownValue(value) {
+  return Array.isArray(value) ? value.join("；") : String(value || "待补充");
 }
 
 function renderScenarioCitation(citation) {
@@ -1584,6 +2026,14 @@ function getHandoverService() {
     return null;
   }
   return window.handoverService;
+}
+
+function getDesignService() {
+  if (!window.designService) {
+    toast("Design service 未加载。");
+    return null;
+  }
+  return window.designService;
 }
 
 function renderStatusBadge(status, customLabel) {

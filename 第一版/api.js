@@ -147,31 +147,44 @@
   function generateMockDesignOutput(input) {
     const payload = typeof input === "object" && input ? input : { inputQuestion: String(input || "") };
     const inputQuestion = payload.inputQuestion || payload.question || "生成一个设计辅助初稿";
-    const citations = clone((mock.mockCitations || []).filter((item) => ["cit-001", "cit-002", "cit-005"].includes(item.id)));
+    const isLowEvidenceQuestion = /权限|安全|审计|证据不足|未覆盖|未知|管理员/.test(inputQuestion);
+    const baseOutputs = clone(mock.mockDesignOutputs || []);
+    const output = baseOutputs.find((item) => (isLowEvidenceQuestion ? item.evidenceLevel === "low" : item.evidenceLevel !== "low")) || baseOutputs[0] || {};
+    const citationIds = output.citations || [];
+    const citations = clone((mock.mockCitations || []).filter((item) => citationIds.includes(item.id))).map((citation) => {
+      if (!isLowEvidenceQuestion) {
+        return citation;
+      }
+      return {
+        ...citation,
+        relevanceScore: Math.min(Number(citation.relevanceScore || 0.48), 0.52),
+        snippet: citation.id === "cit-004"
+          ? "当前资料仅提到不同角色拥有不同可见范围，缺少完整管理员权限、鉴权接口和审计日志说明。"
+          : citation.snippet,
+      };
+    });
 
     return Promise.resolve({
+      ...output,
       id: `design-${Date.now()}`,
-      title: payload.title || "设计辅助 mock 初稿",
+      title: payload.title || (isLowEvidenceQuestion ? "低证据设计初稿" : "设计辅助结构化初稿"),
       inputQuestion,
-      project: payload.project || "SuperRAG 企业软件工程知识助手",
-      outputType: payload.outputType || "module-design",
+      project: payload.project || output.project || "企业知识助手系统",
+      outputType: payload.outputType || output.outputType || "详细文本用例",
+      outputTypeLabel: payload.outputType || output.outputTypeLabel || output.outputType || "详细文本用例",
+      granularity: payload.granularity || output.granularity || "标准",
       createdAt: nowText(),
-      evidenceLevel: "medium",
-      functionList: [
-        "文档上传与入库状态展示",
-        "基于知识库的智能问答",
-        "结构化设计产物生成",
-        "引用证据追溯",
-      ],
-      useCases: [
-        "用户输入设计目标，系统检索相关文档并输出功能清单。",
-        "用户查看引用片段，判断设计建议是否有充分证据。",
-      ],
-      moduleSuggestions: ["DocumentPanel", "AnswerCard", "DesignOutputTabs", "CitationPanel"],
-      risks: ["当前设计结果来自 mock 数据，真实证据强度需要由 Dify 检索结果确认。"],
-      nextActions: ["补充真实 Workflow 输出字段映射。", "为设计产物增加保存和历史记录能力。"],
+      evidenceLevel: isLowEvidenceQuestion ? "low" : output.evidenceLevel || "high",
       citations: citations.map((citation) => citation.id),
       citationItems: citations,
+      qualityChecks: isLowEvidenceQuestion
+        ? {
+            hasUncitedContent: true,
+            hasRequirementGap: true,
+            requiresHumanReview: true,
+            readyForReview: false,
+          }
+        : output.qualityChecks,
     });
   }
 

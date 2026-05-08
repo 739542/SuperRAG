@@ -531,12 +531,94 @@
           <div class="page-header">
             <p class="eyebrow">Design Assistant</p>
             <h1>设计辅助</h1>
-            <p>SuperRAG 设计辅助页建设中。</p>
+            <p>基于企业私有文档生成软件工程设计产物初稿，并通过引用证据支持人工复核。</p>
           </div>
-          <article class="placeholder-card">
-            <h2>设计辅助页建设中</h2>
-            <p>后续将放置设计输入、结构化设计产物、风险提示和引用追溯。</p>
-          </article>
+
+          <div class="design-page">
+            <section class="scenario-hero design-hero dashboard-card">
+              <div>
+                <p class="eyebrow">Engineering Design Output</p>
+                <h2>从企业文档知识到结构化设计产物</h2>
+                <p>围绕需求、接口、用例模板和交接规范生成可复核的设计初稿，保留引用证据、质量检查和人工评审提示。</p>
+              </div>
+              <div class="scenario-hero-metrics" aria-label="设计辅助产出结构">
+                <span>功能</span>
+                <span>用例</span>
+                <span>模块</span>
+                <span>风险</span>
+              </div>
+            </section>
+
+            <section class="design-workbench">
+              <aside class="design-input-card dashboard-card">
+                <label>
+                  设计目标
+                  <textarea id="design-goal" rows="6" placeholder="例如：基于现有需求文档，为新人培训模块生成详细文本用例"></textarea>
+                </label>
+                <label>
+                  产物类型
+                  <select id="design-output-type"></select>
+                </label>
+                <label>
+                  关联项目
+                  <select id="design-project"></select>
+                </label>
+                <label>
+                  输出粒度
+                  <select id="design-granularity"></select>
+                </label>
+                <button class="primary-button design-generate-button" type="button" id="design-generate">生成设计初稿</button>
+              </aside>
+
+              <section class="design-output-card dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Structured Design</p>
+                    <h2>结构化设计产物</h2>
+                  </div>
+                  <div class="design-action-bar">
+                    <button type="button" data-design-action="copy">复制结果</button>
+                    <button type="button" data-design-action="export">导出 Markdown</button>
+                    <button type="button" data-design-action="save">保存到历史记录</button>
+                    <button type="button" data-design-action="regenerate">重新生成</button>
+                  </div>
+                </div>
+
+                <div class="design-tabs" role="tablist" aria-label="设计产物类型">
+                  <button class="active" type="button" role="tab" data-design-tab="functions" aria-selected="true">功能清单</button>
+                  <button type="button" role="tab" data-design-tab="useCases" aria-selected="false">详细文本用例</button>
+                  <button type="button" role="tab" data-design-tab="modules" aria-selected="false">模块划分建议</button>
+                  <button type="button" role="tab" data-design-tab="risks" aria-selected="false">风险与待确认问题</button>
+                  <button type="button" role="tab" data-design-tab="actions" aria-selected="false">后续动作建议</button>
+                </div>
+
+                <div class="design-result" id="design-result"></div>
+              </section>
+
+              <aside class="design-quality-panel dashboard-card" aria-label="引用证据与质量检查">
+                <div class="citation-panel-head">
+                  <div>
+                    <p class="eyebrow">Evidence</p>
+                    <h2>引用证据与质量检查</h2>
+                  </div>
+                  <span class="evidence-level level-medium" id="design-evidence-level">等待生成</span>
+                </div>
+                <div class="evidence-warning" id="design-evidence-warning" hidden>
+                  当前知识库中证据不足，以下设计内容仅可作为初步参考，请补充需求文档或接口文档后再进入正式评审。
+                </div>
+
+                <section class="quality-panel-block">
+                  <h3>质量检查</h3>
+                  <div id="design-quality-checks"></div>
+                </section>
+
+                <section class="quality-panel-block">
+                  <h3>引用文档</h3>
+                  <div class="citation-list-panel" id="design-citation-list"></div>
+                </section>
+              </aside>
+            </section>
+          </div>
         </section>
 
         <section class="page-panel" data-page="/history">
@@ -573,6 +655,7 @@
   <script src="./chat-service.js"></script>
   <script src="./training-service.js"></script>
   <script src="./handover-service.js"></script>
+  <script src="./design-service.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
