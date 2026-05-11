@@ -625,24 +625,206 @@
           <div class="page-header">
             <p class="eyebrow">History</p>
             <h1>历史记录</h1>
-            <p>SuperRAG 历史记录页建设中。</p>
+            <p>查看和复用过往问答、场景分析和设计产物。</p>
           </div>
-          <article class="placeholder-card">
-            <h2>历史记录页建设中</h2>
-            <p>后续将放置历史表格、筛选条件和记录详情面板。</p>
-          </article>
+
+          <div class="history-page">
+            <section class="history-filters dashboard-card" aria-label="历史记录筛选">
+              <label>
+                开始时间
+                <input id="history-date-from" type="date">
+              </label>
+              <label>
+                结束时间
+                <input id="history-date-to" type="date">
+              </label>
+              <label>
+                场景模式
+                <select id="history-scene">
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label>
+                所属项目
+                <select id="history-project">
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label>
+                创建用户
+                <select id="history-creator">
+                  <option value="">全部</option>
+                </select>
+              </label>
+              <label class="history-search">
+                搜索
+                <input id="history-search" type="search" placeholder="搜索标题、问题或摘要">
+              </label>
+            </section>
+
+            <section class="dashboard-card history-list-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Reusable Outputs</p>
+                  <h2>历史记录列表</h2>
+                </div>
+                <span class="table-count" id="history-result-count">0 条记录</span>
+              </div>
+              <div class="history-list" id="history-list"></div>
+            </section>
+          </div>
+
+          <aside class="detail-drawer history-drawer" id="history-detail-drawer" hidden aria-label="历史记录详情">
+            <div class="drawer-head">
+              <div>
+                <p class="eyebrow">History Detail</p>
+                <h2 id="history-detail-title">历史详情</h2>
+              </div>
+              <button class="ghost-icon-button" type="button" id="close-history-drawer" aria-label="关闭历史详情">×</button>
+            </div>
+            <div id="history-detail-content" class="drawer-content"></div>
+          </aside>
         </section>
 
         <section class="page-panel" data-page="/settings">
           <div class="page-header">
             <p class="eyebrow">Settings</p>
             <h1>后台配置</h1>
-            <p>SuperRAG 后台配置页建设中。</p>
+            <p>配置 Workflow 映射、检索参数、模型参数和运行日志。</p>
           </div>
-          <article class="placeholder-card">
-            <h2>后台配置页建设中</h2>
-            <p>后续将放置 Dify Workflow 映射、检索参数、模型配置和日志状态。</p>
-          </article>
+
+          <div class="settings-page">
+            <section class="security-card dashboard-card">
+              <div class="security-icon" aria-hidden="true">!</div>
+              <div>
+                <h2>安全提示</h2>
+                <p>API Key 和 Dify 密钥必须由后端保存，前端不得暴露敏感密钥。本页面仅展示配置映射和运行状态。</p>
+              </div>
+            </section>
+
+            <section class="dashboard-card settings-section">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Workflow Mapping</p>
+                  <h2>Workflow 映射配置</h2>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="scenario-table settings-table">
+                  <thead>
+                    <tr>
+                      <th>场景编码</th>
+                      <th>场景名称</th>
+                      <th>Dify App ID</th>
+                      <th>Dify Workflow ID</th>
+                      <th>状态</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="settings-workflow-body">
+                    <tr>
+                      <td colspan="6">配置加载中...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="settings-grid">
+              <article class="dashboard-card settings-section">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Retrieval</p>
+                    <h2>检索参数配置</h2>
+                  </div>
+                </div>
+                <div class="settings-form">
+                  <label>
+                    TopK
+                    <input id="settings-topk" type="number" min="1" max="20">
+                  </label>
+                  <label>
+                    Score Threshold
+                    <input id="settings-score-threshold" type="number" min="0" max="1" step="0.01">
+                  </label>
+                  <label class="switch-row">
+                    <span>Rerank 开关</span>
+                    <input id="settings-rerank" type="checkbox">
+                  </label>
+                  <label>
+                    默认知识库选择策略
+                    <select id="settings-knowledge-strategy">
+                      <option value="hybrid">混合检索（关键词 + 向量）</option>
+                      <option value="project-first">项目优先</option>
+                      <option value="global">全局知识库</option>
+                    </select>
+                  </label>
+                  <label class="switch-row">
+                    <span>启用证据不足提示</span>
+                    <input id="settings-low-evidence" type="checkbox">
+                  </label>
+                </div>
+              </article>
+
+              <article class="dashboard-card settings-section">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Model</p>
+                    <h2>模型参数配置</h2>
+                  </div>
+                </div>
+                <div class="settings-form">
+                  <label>
+                    模型名称
+                    <input id="settings-model-name" type="text">
+                  </label>
+                  <label>
+                    Temperature
+                    <input id="settings-temperature" type="number" min="0" max="1" step="0.1">
+                  </label>
+                  <label>
+                    最大输出长度
+                    <input id="settings-max-tokens" type="number" min="256" max="8192">
+                  </label>
+                  <label class="switch-row">
+                    <span>是否流式输出</span>
+                    <input id="settings-stream" type="checkbox">
+                  </label>
+                  <button class="primary-button settings-save-button" type="button" id="settings-save">保存配置</button>
+                </div>
+              </article>
+            </section>
+
+            <section class="dashboard-card settings-section">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Runtime Logs</p>
+                  <h2>运行日志</h2>
+                </div>
+                <span class="table-count" id="settings-log-count">最近 0 条</span>
+              </div>
+              <div class="table-wrap">
+                <table class="scenario-table settings-table">
+                  <thead>
+                    <tr>
+                      <th>调用时间</th>
+                      <th>用户</th>
+                      <th>场景模式</th>
+                      <th>Workflow</th>
+                      <th>是否成功</th>
+                      <th>耗时</th>
+                      <th>错误原因</th>
+                    </tr>
+                  </thead>
+                  <tbody id="settings-log-body">
+                    <tr>
+                      <td colspan="7">日志加载中...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </section>
       </main>
     </div>
@@ -656,6 +838,8 @@
   <script src="./training-service.js"></script>
   <script src="./handover-service.js"></script>
   <script src="./design-service.js"></script>
+  <script src="./history-service.js"></script>
+  <script src="./settings-service.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

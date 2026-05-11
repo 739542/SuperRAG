@@ -1023,6 +1023,25 @@ select {
   border-radius: var(--radius);
 }
 
+.access-warning {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+}
+
+.access-warning strong {
+  color: #78350f;
+}
+
+.access-warning p {
+  margin: 0;
+  line-height: 1.65;
+}
+
 .detail-section h3 {
   margin: 0;
   font-size: 14px;
@@ -2231,6 +2250,286 @@ select {
   background: #fffafa;
 }
 
+.history-page,
+.settings-page {
+  display: grid;
+  gap: 16px;
+}
+
+.history-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.history-filters label,
+.settings-form label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.history-filters input,
+.history-filters select,
+.settings-form input,
+.settings-form select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: 0;
+}
+
+.history-filters input:focus,
+.history-filters select:focus,
+.settings-form input:focus,
+.settings-form select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.1);
+}
+
+.history-list-card {
+  min-width: 0;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-record-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 15px;
+  background: #fbfdff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.history-record-card:hover {
+  background: #f8fbff;
+  border-color: #c8defd;
+}
+
+.history-record-main {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.history-record-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.history-record-head h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.history-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.history-record-card p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.7;
+}
+
+.citation-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 190px;
+}
+
+.history-actions button {
+  color: var(--primary-dark);
+  background: transparent;
+  border: 0;
+  font-weight: 800;
+}
+
+.history-actions button:hover {
+  color: var(--primary);
+}
+
+.history-actions .danger-link {
+  color: #b91c1c;
+}
+
+.history-drawer {
+  width: min(520px, 100vw);
+}
+
+.scene-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.scene-chat {
+  color: #0958d9;
+  background: #e8f1ff;
+}
+
+.scene-training {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.scene-handover {
+  color: #b45309;
+  background: #fffbeb;
+}
+
+.scene-design {
+  color: #6d28d9;
+  background: #f3e8ff;
+}
+
+.empty-state {
+  display: grid;
+  gap: 8px;
+  min-height: 128px;
+  place-content: center;
+  padding: 22px;
+  color: var(--muted);
+  background: #fbfdff;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.empty-state strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.empty-state p {
+  max-width: 520px;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.one-column {
+  grid-template-columns: 1fr;
+}
+
+.security-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  background: #f8fbff;
+  border-color: #c8defd;
+}
+
+.security-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #ffffff;
+  background: var(--primary);
+  border-radius: 50%;
+  font-weight: 900;
+}
+
+.security-card h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.security-card p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.settings-section {
+  min-width: 0;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 13px;
+}
+
+.switch-row {
+  display: flex !important;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  background: #fbfdff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.switch-row input {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+}
+
+.settings-save-button {
+  width: fit-content;
+}
+
+.settings-table {
+  min-width: 980px;
+}
+
+.settings-table code {
+  color: var(--primary-dark);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
 .placeholder-card {
   min-height: 220px;
   padding: 28px;
@@ -2323,6 +2622,7 @@ select {
   .scenario-grid,
   .design-workbench,
   .design-dl.compact,
+  .settings-grid,
   .handover-summary-grid,
   .handover-two-column {
     grid-template-columns: 1fr;
@@ -2353,6 +2653,7 @@ select {
   .mode-grid,
   .knowledge-status-grid,
   .document-filters,
+  .history-filters,
   .chat-config-bar,
   .term-grid,
   .recommended-doc-grid,
@@ -2390,6 +2691,7 @@ select {
   .mode-grid,
   .knowledge-status-grid,
   .document-filters,
+  .history-filters,
   .detail-grid,
   .chat-config-bar,
   .answer-grid,
@@ -2403,17 +2705,22 @@ select {
   }
 
   .document-item,
-  .record-item {
+  .record-item,
+  .history-record-card,
+  .history-record-head,
+  .security-card {
     grid-template-columns: 1fr;
   }
 
   .design-summary-card,
-  .card-title-row {
+  .card-title-row,
+  .history-record-head {
     flex-direction: column;
   }
 
   .design-action-bar,
-  .design-summary-meta {
+  .design-summary-meta,
+  .history-actions {
     justify-content: flex-start;
   }
 }

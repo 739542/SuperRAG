@@ -44,6 +44,15 @@ const designState = {
   activeTab: "functions",
   loading: false,
 };
+const historyState = {
+  loaded: false,
+  records: [],
+  options: null,
+};
+const settingsState = {
+  loaded: false,
+  settings: null,
+};
 
 document.addEventListener("DOMContentLoaded", () => {
   bindTopbarActions();
@@ -52,6 +61,8 @@ document.addEventListener("DOMContentLoaded", () => {
   bindTrainingActions();
   bindHandoverActions();
   bindDesignActions();
+  bindHistoryActions();
+  bindSettingsActions();
   bindDocumentsActions();
   window.addEventListener("hashchange", renderCurrentRoute);
   renderCurrentRoute();
@@ -126,6 +137,14 @@ function renderCurrentRoute() {
 
   if (normalizedRoute === "/design-assistant") {
     renderDesignPage();
+  }
+
+  if (normalizedRoute === "/history") {
+    renderHistoryPage();
+  }
+
+  if (normalizedRoute === "/settings") {
+    renderSettingsPage();
   }
 }
 
@@ -644,6 +663,49 @@ function bindDesignActions() {
 
     if (event.target.closest("#design-generate")) {
       await generateDesignOutput();
+    }
+  });
+}
+
+function bindHistoryActions() {
+  document.addEventListener("input", (event) => {
+    if (event.target.id !== "history-search") {
+      return;
+    }
+    renderHistoryList();
+  });
+
+  document.addEventListener("change", (event) => {
+    if (!event.target.matches("#history-date-from, #history-date-to, #history-scene, #history-project, #history-creator")) {
+      return;
+    }
+    renderHistoryList();
+  });
+
+  document.addEventListener("click", async (event) => {
+    if (event.target.closest("#close-history-drawer")) {
+      closeHistoryDrawer();
+      return;
+    }
+
+    const actionButton = event.target.closest("[data-history-action]");
+    if (!actionButton) {
+      return;
+    }
+    await handleHistoryAction(actionButton.dataset.historyAction, actionButton.dataset.historyId);
+  });
+}
+
+function bindSettingsActions() {
+  document.addEventListener("click", async (event) => {
+    const workflowAction = event.target.closest("[data-workflow-action]");
+    if (workflowAction) {
+      await handleWorkflowAction(workflowAction.dataset.workflowAction, workflowAction.dataset.workflowId);
+      return;
+    }
+
+    if (event.target.closest("#settings-save")) {
+      await saveSettingsFromForm();
     }
   });
 }
@@ -1357,6 +1419,427 @@ function formatMarkdownValue(value) {
   return Array.isArray(value) ? value.join("；") : String(value || "待补充");
 }
 
+async function renderHistoryPage() {
+  const service = getHistoryService();
+  if (!service) {
+    return;
+  }
+
+  if (!historyState.loaded) {
+    historyState.options = await service.getHistoryOptions();
+    populateHistoryFilters(historyState.options);
+    historyState.loaded = true;
+  }
+
+  await renderHistoryList();
+}
+
+function populateHistoryFilters(options) {
+  populateScenarioSelect("history-scene", options.sceneModes.map(formatSceneOptionValue), "全部");
+  populateScenarioSelect("history-project", options.projects, "全部");
+  populateScenarioSelect("history-creator", options.creators, "全部");
+
+  const sceneSelect = document.getElementById("history-scene");
+  if (sceneSelect) {
+    sceneSelect.innerHTML = [
+      '<option value="">全部</option>',
+      ...options.sceneModes.map((mode) => `<option value="${escapeHtml(mode)}">${escapeHtml(formatSceneMode(mode))}</option>`),
+    ].join("");
+  }
+
+  ["history-project", "history-creator"].forEach((selectId) => {
+    const select = document.getElementById(selectId);
+    if (!select) {
+      return;
+    }
+    select.innerHTML = [
+      '<option value="">全部</option>',
+      ...Array.from(select.options)
+        .map((option) => option.value)
+        .filter(Boolean)
+        .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`),
+    ].join("");
+  });
+}
+
+function formatSceneOptionValue(value) {
+  return value;
+}
+
+async function renderHistoryList() {
+  const listNode = document.getElementById("history-list");
+  const countNode = document.getElementById("history-result-count");
+  const service = getHistoryService();
+  if (!listNode || !service) {
+    return;
+  }
+
+  listNode.innerHTML = renderLoadingState("正在加载历史记录...");
+  const result = await service.getHistoryRecords(getHistoryQueryParams());
+  historyState.records = result.list;
+  if (countNode) {
+    countNode.textContent = `${result.total} 条记录`;
+  }
+
+  if (!result.list.length) {
+    listNode.innerHTML = renderEmptyState("暂无符合条件的历史记录。", "调整筛选条件后可以继续查找问答、培训、交接或设计产物。");
+    return;
+  }
+
+  listNode.innerHTML = result.list.map(renderHistoryItem).join("");
+}
+
+function getHistoryQueryParams() {
+  return {
+    keyword: getInputValue("history-search"),
+    dateFrom: getInputValue("history-date-from"),
+    dateTo: getInputValue("history-date-to"),
+    sceneMode: getInputValue("history-scene"),
+    project: getInputValue("history-project"),
+    creator: getInputValue("history-creator"),
+  };
+}
+
+function renderHistoryItem(record) {
+  return `
+    <article class="history-record-card">
+      <div class="history-record-main">
+        <div class="history-record-head">
+          <div>
+            <h3>${escapeHtml(record.title)}</h3>
+            <div class="history-record-meta">
+              ${renderSceneBadge(record.sceneMode)}
+              <span>${escapeHtml(record.project)}</span>
+              <span>${escapeHtml(record.creator)}</span>
+              <time>${escapeHtml(formatShortTime(record.createdAt))}</time>
+            </div>
+          </div>
+          <span class="citation-count">${escapeHtml(record.citationCount)} 份引用</span>
+        </div>
+        <p>${escapeHtml(record.summary)}</p>
+      </div>
+      <div class="history-actions">
+        <button type="button" data-history-action="view" data-history-id="${escapeHtml(record.id)}">查看</button>
+        <button type="button" data-history-action="copy" data-history-id="${escapeHtml(record.id)}">复制</button>
+        <button type="button" data-history-action="export" data-history-id="${escapeHtml(record.id)}">导出</button>
+        <button class="danger-link" type="button" data-history-action="delete" data-history-id="${escapeHtml(record.id)}">删除</button>
+      </div>
+    </article>
+  `;
+}
+
+async function handleHistoryAction(action, id) {
+  switch (action) {
+    case "view":
+      await openHistoryDrawer(id);
+      break;
+    case "copy":
+      await copyHistoryRecord(id);
+      break;
+    case "export":
+      toast("历史记录导出占位：后续将接入 Markdown / Word 导出。");
+      break;
+    case "delete":
+      await removeHistoryRecord(id);
+      break;
+    default:
+      break;
+  }
+}
+
+async function openHistoryDrawer(id) {
+  const drawer = document.getElementById("history-detail-drawer");
+  const titleNode = document.getElementById("history-detail-title");
+  const contentNode = document.getElementById("history-detail-content");
+  const service = getHistoryService();
+  if (!drawer || !titleNode || !contentNode || !service) {
+    return;
+  }
+
+  const detail = await service.getHistoryRecordDetail(id);
+  if (!detail) {
+    toast("历史记录不存在或已删除。");
+    return;
+  }
+
+  titleNode.textContent = detail.title;
+  contentNode.innerHTML = renderHistoryDetail(detail);
+  drawer.hidden = false;
+}
+
+function closeHistoryDrawer() {
+  const drawer = document.getElementById("history-detail-drawer");
+  if (drawer) {
+    drawer.hidden = true;
+  }
+}
+
+function renderHistoryDetail(detail) {
+  return `
+    <section class="detail-section">
+      <h3>原始问题</h3>
+      <p>${escapeHtml(detail.originalQuestion)}</p>
+    </section>
+    <section class="detail-section">
+      <h3>输出内容摘要</h3>
+      <p>${escapeHtml(detail.outputSummary)}</p>
+    </section>
+    <section class="detail-grid">
+      ${renderDetailItem("所属场景", renderSceneBadge(detail.sceneMode), true)}
+      ${renderDetailItem("所属项目", detail.project)}
+      ${renderDetailItem("创建用户", detail.creator)}
+      ${renderDetailItem("创建时间", detail.createdAt)}
+    </section>
+    <section class="detail-section">
+      <h3>引用证据</h3>
+      <div class="scenario-evidence-list one-column">${detail.citations.length ? detail.citations.map(renderScenarioCitation).join("") : renderEmptyState("暂无引用证据。")}</div>
+    </section>
+    <section class="detail-section">
+      <h3>版本记录</h3>
+      <ol class="log-list">
+        ${detail.versionRecords
+          .map(
+            (item) => `
+              <li>
+                <strong>${escapeHtml(item.version)} · ${escapeHtml(item.time)} · ${escapeHtml(item.operator)}</strong>
+                <span>${escapeHtml(item.change)}</span>
+              </li>
+            `,
+          )
+          .join("")}
+      </ol>
+    </section>
+  `;
+}
+
+async function copyHistoryRecord(id) {
+  const service = getHistoryService();
+  const detail = await service.getHistoryRecordDetail(id);
+  if (!detail) {
+    toast("历史记录不存在或已删除。");
+    return;
+  }
+  const text = [`# ${detail.title}`, "", `场景：${formatSceneMode(detail.sceneMode)}`, `问题：${detail.originalQuestion}`, "", detail.outputSummary].join("\n");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    toast("历史记录内容已复制。");
+    return;
+  }
+  toast("当前浏览器不支持自动复制，请手动复制详情内容。");
+}
+
+async function removeHistoryRecord(id) {
+  const service = getHistoryService();
+  const detail = await service.getHistoryRecordDetail(id);
+  if (!detail) {
+    return;
+  }
+  const confirmed = window.confirm(`确认删除历史记录“${detail.title}”吗？当前仅删除前端 mock 数据。`);
+  if (!confirmed) {
+    return;
+  }
+  await service.deleteHistoryRecord(id);
+  closeHistoryDrawer();
+  await renderHistoryList();
+  toast("历史记录已删除。");
+}
+
+async function renderSettingsPage() {
+  const service = getSettingsService();
+  if (!service) {
+    return;
+  }
+
+  settingsState.settings = await service.getSettings();
+  settingsState.loaded = true;
+  renderSettingsContent(settingsState.settings);
+}
+
+function renderSettingsContent(settings) {
+  renderWorkflowTable(settings.workflows || []);
+  populateSettingsForm(settings);
+  renderSettingsLogs(settings.logs || []);
+}
+
+function renderWorkflowTable(workflows) {
+  const tbody = document.getElementById("settings-workflow-body");
+  if (!tbody) {
+    return;
+  }
+  tbody.innerHTML = workflows
+    .map(
+      (workflow) => `
+        <tr>
+          <td><code>${escapeHtml(workflow.sceneCode)}</code></td>
+          <td>${escapeHtml(workflow.sceneName)}</td>
+          <td><code>${escapeHtml(workflow.difyAppId)}</code></td>
+          <td><code>${escapeHtml(workflow.difyWorkflowId)}</code></td>
+          <td>${renderWorkflowStatusBadge(workflow.status)}</td>
+          <td>
+            <div class="table-actions">
+              <button type="button" data-workflow-action="edit" data-workflow-id="${escapeHtml(workflow.sceneCode)}">编辑</button>
+              <button type="button" data-workflow-action="test" data-workflow-id="${escapeHtml(workflow.sceneCode)}">测试连接</button>
+            </div>
+          </td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function populateSettingsForm(settings) {
+  const retrieval = settings.retrieval || {};
+  const model = settings.model || {};
+  setFieldValue("settings-topk", retrieval.topK);
+  setFieldValue("settings-score-threshold", retrieval.scoreThreshold);
+  setCheckedValue("settings-rerank", retrieval.rerankEnabled);
+  setFieldValue("settings-knowledge-strategy", retrieval.knowledgeStrategy);
+  setCheckedValue("settings-low-evidence", retrieval.lowEvidenceHintEnabled);
+  setFieldValue("settings-model-name", model.modelName);
+  setFieldValue("settings-temperature", model.temperature);
+  setFieldValue("settings-max-tokens", model.maxTokens);
+  setCheckedValue("settings-stream", model.streamOutput);
+}
+
+function renderSettingsLogs(logs) {
+  const tbody = document.getElementById("settings-log-body");
+  const countNode = document.getElementById("settings-log-count");
+  if (!tbody) {
+    return;
+  }
+  if (countNode) {
+    countNode.textContent = `最近 ${logs.length} 条`;
+  }
+  tbody.innerHTML = logs
+    .map(
+      (log) => `
+        <tr>
+          <td>${escapeHtml(log.time)}</td>
+          <td>${escapeHtml(log.user)}</td>
+          <td>${renderSceneBadge(log.sceneMode)}</td>
+          <td><code>${escapeHtml(log.workflow)}</code></td>
+          <td>${renderBooleanBadge(log.success, "成功", "失败")}</td>
+          <td>${escapeHtml(log.durationMs)} ms</td>
+          <td>${escapeHtml(log.errorReason || "-")}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+async function handleWorkflowAction(action, sceneCode) {
+  const service = getSettingsService();
+  if (!service) {
+    return;
+  }
+
+  if (action === "test") {
+    const result = await service.testWorkflow(sceneCode);
+    settingsState.settings = await service.getSettings();
+    renderSettingsContent(settingsState.settings);
+    toast(result.success ? "Workflow 连接测试成功。" : "Workflow 测试失败，已写入运行日志。");
+    return;
+  }
+
+  if (action === "edit") {
+    const workflow = settingsState.settings?.workflows?.find((item) => item.sceneCode === sceneCode);
+    if (!workflow) {
+      return;
+    }
+    const nextWorkflowId = window.prompt("请输入新的 Dify Workflow ID：", workflow.difyWorkflowId);
+    if (nextWorkflowId === null) {
+      return;
+    }
+    await service.updateWorkflow(sceneCode, { difyWorkflowId: nextWorkflowId.trim() || workflow.difyWorkflowId });
+    settingsState.settings = await service.getSettings();
+    renderSettingsContent(settingsState.settings);
+    toast("Workflow 映射已更新，本地 mock 生效。");
+  }
+}
+
+async function saveSettingsFromForm() {
+  const service = getSettingsService();
+  if (!service) {
+    return;
+  }
+  await service.saveSettings({
+    retrieval: {
+      topK: Number(getInputValue("settings-topk")),
+      scoreThreshold: Number(getInputValue("settings-score-threshold")),
+      rerankEnabled: getCheckedValue("settings-rerank"),
+      knowledgeStrategy: getInputValue("settings-knowledge-strategy"),
+      lowEvidenceHintEnabled: getCheckedValue("settings-low-evidence"),
+    },
+    model: {
+      modelName: getInputValue("settings-model-name"),
+      temperature: Number(getInputValue("settings-temperature")),
+      maxTokens: Number(getInputValue("settings-max-tokens")),
+      streamOutput: getCheckedValue("settings-stream"),
+    },
+  });
+  settingsState.settings = await service.getSettings();
+  renderSettingsContent(settingsState.settings);
+  toast("配置已保存，本地 mock 生效。");
+}
+
+function setFieldValue(id, value) {
+  const node = document.getElementById(id);
+  if (node) {
+    node.value = value ?? "";
+  }
+}
+
+function setCheckedValue(id, value) {
+  const node = document.getElementById(id);
+  if (node) {
+    node.checked = Boolean(value);
+  }
+}
+
+function getCheckedValue(id) {
+  return Boolean(document.getElementById(id)?.checked);
+}
+
+function renderSceneBadge(sceneMode) {
+  return `<span class="scene-badge scene-${escapeHtml(sceneMode)}">${escapeHtml(formatSceneMode(sceneMode))}</span>`;
+}
+
+function renderWorkflowStatusBadge(status) {
+  const labels = {
+    enabled: "已启用",
+    disabled: "已停用",
+    draft: "草稿",
+  };
+  const tone = status === "enabled" ? "indexed" : status === "disabled" ? "pending" : "indexing";
+  return `<span class="status-badge status-${tone}">${escapeHtml(labels[status] || status)}</span>`;
+}
+
+function renderBooleanBadge(value, trueLabel, falseLabel) {
+  return `<span class="status-badge status-${value ? "indexed" : "failed"}">${escapeHtml(value ? trueLabel : falseLabel)}</span>`;
+}
+
+function renderEmptyState(title, description = "") {
+  return `
+    <div class="empty-state">
+      <strong>${escapeHtml(title)}</strong>
+      ${description ? `<p>${escapeHtml(description)}</p>` : ""}
+    </div>
+  `;
+}
+
+function renderLoadingState(message) {
+  return `
+    <div class="scenario-loading">
+      <strong>${escapeHtml(message)}</strong>
+      <div class="loading-lines">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  `;
+}
+
 function renderScenarioCitation(citation) {
   const score = Number(citation.relevanceScore || 0);
   return `
@@ -1864,8 +2347,18 @@ function closeDocumentDrawer() {
 function renderDocumentDetail(documentItem) {
   const linkedQuestionCount = documentItem.referencedQuestionCount ?? 0;
   const category = documentItem.knowledgeCategory || "通用项目知识 / 待细分";
+  const accessWarning =
+    documentItem.visibilityScope === "管理员"
+      ? `
+        <section class="access-warning">
+          <strong>无权限访问部分文档内容</strong>
+          <p>该文档可见范围为管理员。当前项目成员只能查看治理元数据，原文预览和敏感片段需要向管理员申请权限。</p>
+        </section>
+      `
+      : "";
 
   return `
+    ${accessWarning}
     <section class="detail-section">
       <h3>文档摘要</h3>
       <p>${escapeHtml(documentItem.summary)}</p>
@@ -2034,6 +2527,22 @@ function getDesignService() {
     return null;
   }
   return window.designService;
+}
+
+function getHistoryService() {
+  if (!window.historyService) {
+    toast("History service 未加载。");
+    return null;
+  }
+  return window.historyService;
+}
+
+function getSettingsService() {
+  if (!window.settingsService) {
+    toast("Settings service 未加载。");
+    return null;
+  }
+  return window.settingsService;
 }
 
 function renderStatusBadge(status, customLabel) {

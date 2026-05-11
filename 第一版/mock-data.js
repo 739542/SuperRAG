@@ -628,10 +628,109 @@
     citations: ["cit-002", "cit-003", "cit-004"],
   };
 
+  const mockHistoryRecords = [
+    {
+      id: "hist-001",
+      title: "设计辅助模块详细文本用例初稿",
+      sceneMode: "design",
+      project: "企业知识助手系统",
+      creator: "胡俊熙",
+      createdAt: "2026-05-20 10:45",
+      summary: "基于需求文档、接口文档和用例模板生成设计辅助模块的功能清单、详细文本用例、模块建议和风险提示。",
+      originalQuestion: "基于现有需求文档，为设计辅助模块生成详细文本用例。",
+      outputSummary: "产出 5 个功能项、2 个详细文本用例、3 个模块划分建议、3 个风险点和 4 个后续动作建议。",
+      citationCount: 4,
+      citations: ["cit-001", "cit-002", "cit-003", "cit-005"],
+      versionRecords: [
+        {
+          version: "v1.0",
+          time: "2026-05-20 10:45",
+          operator: "胡俊熙",
+          change: "生成设计辅助模块初稿。",
+        },
+        {
+          version: "v1.1",
+          time: "2026-05-20 11:08",
+          operator: "胡俊熙",
+          change: "补充证据充分度和质量检查说明。",
+        },
+      ],
+    },
+    {
+      id: "hist-002",
+      title: "新人一周学习路径",
+      sceneMode: "training",
+      project: "企业知识库",
+      creator: "张晨",
+      createdAt: "2026-05-19 09:55",
+      summary: "为新人整理项目背景、核心术语、模块职责、接口文档阅读顺序和五天学习路径。",
+      originalQuestion: "请给我一周学习路径",
+      outputSummary: "包含背景说明、术语解释、5 天学习路径、推荐阅读资料和引用证据。",
+      citationCount: 3,
+      citations: ["cit-001", "cit-002", "cit-003"],
+      versionRecords: [
+        {
+          version: "v1.0",
+          time: "2026-05-19 09:55",
+          operator: "张晨",
+          change: "生成新人培训说明。",
+        },
+      ],
+    },
+    {
+      id: "hist-003",
+      title: "订单模块交接风险梳理",
+      sceneMode: "handover",
+      project: "阳光用药管控系统",
+      creator: "李想",
+      createdAt: "2026-05-18 15:32",
+      summary: "汇总订单模块当前进度、未完成事项、支付与库存接口联动风险、待办清单和责任角色。",
+      originalQuestion: "当前交接中最大的风险是什么？",
+      outputSummary: "指出接口未确认、测试覆盖不足和文档缺失风险，并给出接手者待办。",
+      citationCount: 3,
+      citations: ["cit-002", "cit-003", "cit-004"],
+      versionRecords: [
+        {
+          version: "v1.0",
+          time: "2026-05-18 15:32",
+          operator: "李想",
+          change: "生成交接摘要。",
+        },
+        {
+          version: "v1.1",
+          time: "2026-05-18 16:05",
+          operator: "王星",
+          change: "补充接口依赖说明。",
+        },
+      ],
+    },
+    {
+      id: "hist-004",
+      title: "文档入库流程问答",
+      sceneMode: "chat",
+      project: "企业知识库",
+      creator: "胡俊熙",
+      createdAt: "2026-05-20 10:21",
+      summary: "说明文档上传、解析、切分、向量化、写入 Dify Dataset 和状态回写的流程。",
+      originalQuestion: "请总结文档入库流程",
+      outputSummary: "回答包含结论、依据、建议和证据不足提示，右侧绑定引用文档。",
+      citationCount: 2,
+      citations: ["cit-001", "cit-005"],
+      versionRecords: [
+        {
+          version: "v1.0",
+          time: "2026-05-20 10:21",
+          operator: "胡俊熙",
+          change: "生成知识检索问答结果。",
+        },
+      ],
+    },
+  ];
+
   const mockWorkflows = [
     {
       sceneCode: "chat",
-      sceneName: "智能问答",
+      sceneName: "通用问答 Workflow",
       difyAppId: "app_general_chat",
       difyWorkflowId: "wf_general_chat_v1.2",
       status: "enabled",
@@ -657,6 +756,79 @@
       difyWorkflowId: "wf_design_assist_v1.3",
       status: "enabled",
     },
+    {
+      sceneCode: "document-summary",
+      sceneName: "文档解析摘要 Workflow",
+      difyAppId: "app_document_summary",
+      difyWorkflowId: "wf_document_summary_v1.0",
+      status: "enabled",
+    },
+    {
+      sceneCode: "low-evidence",
+      sceneName: "证据不足提示 Workflow",
+      difyAppId: "app_low_evidence",
+      difyWorkflowId: "wf_low_evidence_v1.0",
+      status: "disabled",
+    },
+  ];
+
+  const mockSettings = {
+    retrieval: {
+      topK: 8,
+      scoreThreshold: 0.35,
+      rerankEnabled: true,
+      knowledgeStrategy: "hybrid",
+      lowEvidenceHintEnabled: true,
+    },
+    model: {
+      modelName: "qwen-max",
+      temperature: 0.3,
+      maxTokens: 2048,
+      streamOutput: true,
+    },
+  };
+
+  const mockLogs = [
+    {
+      id: "log-001",
+      time: "2026-05-20 10:45",
+      user: "胡俊熙",
+      sceneMode: "design",
+      workflow: "wf_design_assist_v1.3",
+      success: true,
+      durationMs: 8320,
+      errorReason: "",
+    },
+    {
+      id: "log-002",
+      time: "2026-05-20 10:21",
+      user: "张晨",
+      sceneMode: "chat",
+      workflow: "wf_general_chat_v1.2",
+      success: true,
+      durationMs: 2180,
+      errorReason: "",
+    },
+    {
+      id: "log-003",
+      time: "2026-05-19 09:55",
+      user: "张晨",
+      sceneMode: "training",
+      workflow: "wf_training_mode_v1.2",
+      success: true,
+      durationMs: 5420,
+      errorReason: "",
+    },
+    {
+      id: "log-004",
+      time: "2026-05-18 15:32",
+      user: "李想",
+      sceneMode: "handover",
+      workflow: "wf_handoff_mode_v1.1",
+      success: false,
+      durationMs: 12450,
+      errorReason: "引用证据不足，已回退到结构化 mock 结果。",
+    },
   ];
 
   window.SuperRagMock = {
@@ -668,6 +840,9 @@
     mockTrainingResult,
     mockHandoverResult,
     mockDesignOutputs,
+    mockHistoryRecords,
     mockWorkflows,
+    mockSettings,
+    mockLogs,
   };
 })();
