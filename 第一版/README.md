@@ -19,14 +19,14 @@
 最省事的方式是直接运行：
 
 ```powershell
-cd C:\Users\JunxiHu\Desktop\综合设计\第一版
+cd C:\Users\JunxiHu\Desktop\综合设计\SuperRAG\第一版
 .\start.cmd
 ```
 
 如果你希望手动走 PowerShell，也可以执行：
 
 ```powershell
-cd C:\Users\JunxiHu\Desktop\综合设计\第一版
+cd C:\Users\JunxiHu\Desktop\综合设计\SuperRAG\第一版
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
@@ -41,7 +41,7 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 也就是说：
 
 - 还没配置 Dify 时，页面照样能完整跑流程
-- 配好 Dify 地址和 API Key 后，系统会优先尝试调真实接口
+- 配好你们自己的后端地址后，系统会优先尝试调真实接口
 - 如果真实接口失败，会自动回退到 mock，不会卡住演示
 
 如果浏览器对本地文件访问远程接口有限制，也没关系：
@@ -49,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 - 第一版的 mock 演示不受影响
 - 第二版可以把这套前端接到你们自己的轻量后端或静态服务里
 
-## 如何接 Dify
+## 如何接后端 / Dify
 
 建议在 Dify 中准备 4 个应用：
 
@@ -58,12 +58,12 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 3. `交接模式`：建议接 Workflow App
 4. `设计辅助`：建议接 Workflow App
 
-然后把各自的 Service API Key 填到页面里的 `Dify 配置` 区域。
+注意：前端不要直接保存或调用 Dify API Key。Dify API Key、Workflow Key 和模型密钥应由你们自己的后端统一保存，前端只配置并调用后端接口。
 
-默认推荐地址：
+前端默认后端接口地址在 `api-config.js` 中维护：
 
 ```text
-http://localhost/v1
+http://127.0.0.1:8088/api
 ```
 
 ## 这版最适合的用途
@@ -103,7 +103,7 @@ http://localhost/v1
 ## 建议现在怎么用
 
 1. 先在 Dify 里配好培训 / 交接 / 设计三个 workflow
-2. 把 API Key 填到页面里的 `Dify 配置`
-3. 点击 `测试全部连接`
-4. 看每个模式是否显示 `已连通`
+2. 在后端保存 Dify 密钥和 Workflow 映射
+3. 在 `api-config.js` 中确认前端请求的后端地址
+4. 打开后台配置页查看 Workflow 映射和运行日志
 5. 再回到对应页面执行真实问题测试

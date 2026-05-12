@@ -7,6 +7,57 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+  <section class="login-view" data-page="/login" aria-label="登录页">
+    <div class="login-brand-panel">
+      <div class="login-brand-mark" aria-hidden="true">SR</div>
+      <p class="eyebrow">SuperRAG</p>
+      <h1>SuperRAG 企业软件工程知识助手</h1>
+      <p>基于企业私有知识库的培训、交接与设计辅助平台。</p>
+      <div class="login-flow" aria-label="核心业务闭环">
+        <span>文档上传入库</span>
+        <span>知识库检索问答</span>
+        <span>场景化 Workflow</span>
+        <span>引用证据追溯</span>
+      </div>
+      <div class="login-security-note">
+        <strong>安全提示</strong>
+        <span>系统仅展示业务前端，Dify API Key 和模型密钥由后端统一保存。</span>
+      </div>
+    </div>
+
+    <div class="login-form-panel">
+      <div class="login-card">
+        <div>
+          <p class="eyebrow">Account Login</p>
+          <h2>登录系统</h2>
+          <p>进入企业私有知识治理、RAG 问答和软件工程设计辅助工作台。</p>
+        </div>
+        <form class="login-form" id="login-form">
+          <label>
+            用户名
+            <input id="login-username" name="username" type="text" value="胡俊熙" autocomplete="username">
+          </label>
+          <label>
+            密码
+            <input id="login-password" name="password" type="password" value="superrag" autocomplete="current-password">
+          </label>
+          <div class="login-options">
+            <label>
+              <input type="checkbox" checked>
+              记住我
+            </label>
+            <button type="button" class="text-link-button" id="login-forgot">忘记密码？</button>
+          </div>
+          <button class="primary-button login-submit" type="submit">登录</button>
+        </form>
+        <div class="login-demo-note">
+          <strong>演示账号</strong>
+          <span>当前为前端 mock 登录，点击登录后进入首页 / 控制台。</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="app-layout">
     <aside class="sidebar" aria-label="主导航">
       <div class="brand">
@@ -833,6 +884,7 @@
   <script src="./api-config.js"></script>
   <script src="./mock-data.js"></script>
   <script src="./api.js"></script>
+  <script src="./dashboard-service.js"></script>
   <script src="./document-service.js"></script>
   <script src="./chat-service.js"></script>
   <script src="./training-service.js"></script>

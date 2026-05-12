@@ -1,4 +1,5 @@
 const routes = {
+  "/login": "登录",
   "/dashboard": "首页 / 控制台",
   "/documents": "文档管理",
   "/chat": "智能问答",
@@ -55,6 +56,7 @@ const settingsState = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+  bindLoginActions();
   bindTopbarActions();
   bindDashboardActions();
   bindChatActions();
@@ -102,6 +104,7 @@ function renderCurrentRoute() {
   document.querySelectorAll("[data-page]").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.page === normalizedRoute);
   });
+  document.body.classList.toggle("is-login-route", normalizedRoute === "/login");
 
   document.querySelectorAll("[data-route]").forEach((link) => {
     const isActive = link.dataset.route === normalizedRoute;
@@ -114,6 +117,10 @@ function renderCurrentRoute() {
   });
 
   document.title = `${routes[normalizedRoute]} | SuperRAG`;
+
+  if (normalizedRoute === "/login") {
+    return;
+  }
 
   if (normalizedRoute === "/dashboard") {
     renderDashboardPage();
@@ -145,6 +152,25 @@ function renderCurrentRoute() {
 
   if (normalizedRoute === "/settings") {
     renderSettingsPage();
+  }
+}
+
+function bindLoginActions() {
+  const loginForm = document.getElementById("login-form");
+  const forgotButton = document.getElementById("login-forgot");
+
+  if (loginForm) {
+    loginForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      toast("登录成功，已进入 SuperRAG 工作台。");
+      window.location.hash = "#/dashboard";
+    });
+  }
+
+  if (forgotButton) {
+    forgotButton.addEventListener("click", () => {
+      toast("当前为前端演示账号，真实找回密码能力由后端账号体系提供。");
+    });
   }
 }
 
@@ -1898,22 +1924,22 @@ async function renderDashboardPage() {
   }
   dashboardLoaded = true;
 
-  const api = window.SuperRagApi;
-  if (!api) {
-    toast("Mock API 未加载。");
+  const service = getDashboardService();
+  if (!service) {
     return;
   }
 
   try {
-    const [stats, documents, sessions] = await Promise.all([
-      api.getDashboardStats(),
-      api.getDocuments(),
-      api.getSessions(),
+    const [stats, recentDocuments, recentActivities, documents] = await Promise.all([
+      service.getDashboardStats(),
+      service.getRecentDocuments({ limit: 5 }),
+      service.getRecentActivities({ limit: 3 }),
+      service.getKnowledgeDocuments(),
     ]);
 
     renderStats(stats);
-    renderRecentSessions(sessions);
-    renderRecentDocuments(documents);
+    renderRecentSessions(recentActivities);
+    renderRecentDocuments(recentDocuments);
     renderKnowledgeStatus(documents);
   } catch (error) {
     dashboardLoaded = false;
@@ -2495,6 +2521,14 @@ function getDocumentService() {
     return null;
   }
   return window.documentService;
+}
+
+function getDashboardService() {
+  if (!window.dashboardService) {
+    toast("Dashboard service 未加载。");
+    return null;
+  }
+  return window.dashboardService;
 }
 
 function getChatService() {
