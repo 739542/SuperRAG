@@ -164,6 +164,17 @@ class Repository:
             ).fetchone()
         return dict(row) if row else None
 
+    def delete_document(self, document_id: str) -> dict | None:
+        document = self.get_document(document_id)
+        if not document:
+            return None
+
+        with self._connect() as connection:
+            connection.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+            connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            connection.commit()
+        return document
+
     def list_documents(self, collection_id: str | None = None) -> list[dict]:
         query = """
             SELECT d.id, d.collection_id, c.name AS collection_name, d.filename, d.original_name,

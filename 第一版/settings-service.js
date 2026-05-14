@@ -1,8 +1,6 @@
 /**
  * Settings service and adapter layer.
- *
- * The settings page is mock-only for now. Future backend APIs should replace
- * internals here while keeping the returned field names stable.
+ * Reads dify-lite public config and keeps editable UI settings local.
  */
 (function () {
   const mock = window.SuperRagMock || {};
@@ -15,10 +13,11 @@
   }
 
   async function getSettings() {
+    const config = await getBackendConfig();
     return clone({
       workflows: workflows.map(mapBackendWorkflowToWorkflow),
-      retrieval: mapBackendRetrievalToRetrieval(settings.retrieval || {}),
-      model: mapBackendModelToModel(settings.model || {}),
+      retrieval: mapBackendRetrievalToRetrieval(config || settings.retrieval || {}),
+      model: mapBackendModelToModel(config || settings.model || {}),
       logs: logs.map(mapBackendLogToLog),
     });
   }
@@ -43,16 +42,24 @@
   }
 
   async function testWorkflow(sceneCode) {
+    let success = true;
+    let errorReason = "";
+    try {
+      await window.SuperRagBackend?.requestJson?.("/health");
+    } catch (error) {
+      success = false;
+      errorReason = error.message || String(error);
+    }
     logs = [
       {
         id: `log-${Date.now()}`,
         time: nowText(),
-        user: "胡俊熙",
+        user: "course-demo-user",
         sceneMode: sceneCode,
-        workflow: workflows.find((item) => item.sceneCode === sceneCode)?.difyWorkflowId || "unknown",
-        success: sceneCode !== "low-evidence",
-        durationMs: sceneCode === "low-evidence" ? 3860 : 1280,
-        errorReason: sceneCode === "low-evidence" ? "当前为证据不足提示 Workflow mock，未连接真实 Dify。" : "",
+        workflow: sceneCode,
+        success,
+        durationMs: 0,
+        errorReason,
       },
       ...logs,
     ].slice(0, 20);
@@ -83,20 +90,20 @@
 
   function mapBackendRetrievalToRetrieval(raw = {}) {
     return {
-      topK: Number(raw.topK ?? raw.top_k ?? 8),
+      topK: Number(raw.topK ?? raw.top_k ?? raw.max_context_chunks ?? 8),
       scoreThreshold: Number(raw.scoreThreshold ?? raw.score_threshold ?? 0.35),
       rerankEnabled: Boolean(raw.rerankEnabled ?? raw.rerank_enabled ?? true),
-      knowledgeStrategy: raw.knowledgeStrategy || raw.knowledge_strategy || "hybrid",
+      knowledgeStrategy: raw.knowledgeStrategy || raw.knowledge_strategy || raw.embedding_engine || "hybrid",
       lowEvidenceHintEnabled: Boolean(raw.lowEvidenceHintEnabled ?? raw.low_evidence_hint_enabled ?? true),
     };
   }
 
   function mapBackendModelToModel(raw = {}) {
     return {
-      modelName: raw.modelName || raw.model_name || "qwen-max",
+      modelName: raw.modelName || raw.model_name || (raw.model_enabled ? "configured-model" : "mock-rag-summary"),
       temperature: Number(raw.temperature ?? 0.3),
       maxTokens: Number(raw.maxTokens ?? raw.max_tokens ?? 2048),
-      streamOutput: Boolean(raw.streamOutput ?? raw.stream_output ?? true),
+      streamOutput: Boolean(raw.streamOutput ?? raw.stream_output ?? false),
     };
   }
 
@@ -104,13 +111,21 @@
     return {
       id: raw.id || `log-${Date.now()}`,
       time: raw.time || raw.createdAt || raw.created_at || "",
-      user: raw.user || raw.userName || raw.user_name || "系统",
+      user: raw.user || raw.userName || raw.user_name || "course-demo-user",
       sceneMode: raw.sceneMode || raw.scene_mode || "",
       workflow: raw.workflow || raw.workflowId || raw.workflow_id || "",
       success: Boolean(raw.success),
       durationMs: Number(raw.durationMs ?? raw.duration_ms ?? 0),
       errorReason: raw.errorReason || raw.error_reason || "",
     };
+  }
+
+  async function getBackendConfig() {
+    try {
+      return await window.SuperRagBackend?.requestJson?.("/config");
+    } catch (error) {
+      return null;
+    }
   }
 
   function nowText() {

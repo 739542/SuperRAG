@@ -19,7 +19,14 @@ def clean_text(value: str) -> str:
 
 
 def tokenize(value: str) -> list[str]:
-    return [token.lower() for token in TOKEN_RE.findall(value)]
+    tokens: list[str] = []
+    for token in TOKEN_RE.findall(value):
+        normalized = token.lower()
+        tokens.append(normalized)
+        if _contains_cjk(normalized):
+            cjk_text = "".join(char for char in normalized if "\u4e00" <= char <= "\u9fff")
+            tokens.extend(_cjk_ngrams(cjk_text))
+    return tokens
 
 
 def token_count(value: str) -> int:
@@ -38,6 +45,21 @@ def lexical_score(query: str, content: str) -> float:
         overlap += min(count, content_counter.get(token, 0))
     norm = math.sqrt(sum(value * value for value in query_counter.values()))
     return overlap / max(norm, 1.0)
+
+
+def _contains_cjk(value: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in value)
+
+
+def _cjk_ngrams(value: str) -> list[str]:
+    if not value:
+        return []
+    grams: list[str] = []
+    for size in (2, 3, 4, 5, 6):
+        if len(value) < size:
+            continue
+        grams.extend(value[index : index + size] for index in range(0, len(value) - size + 1))
+    return grams
 
 
 def split_text(value: str, chunk_size: int, overlap: int) -> list[str]:

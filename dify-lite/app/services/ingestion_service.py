@@ -46,7 +46,10 @@ class IngestionService:
         if not upload or not upload.filename:
             raise ValueError("file is required")
 
-        safe_name = secure_filename(upload.filename)
+        original_path = Path(upload.filename)
+        safe_stem = secure_filename(original_path.stem) or "document"
+        safe_suffix = original_path.suffix.lower()
+        safe_name = f"{safe_stem}{safe_suffix}"
         unique_name = f"{uuid4()}_{safe_name}"
         target_path = Path(self._settings.uploads_dir / unique_name)
         upload.save(target_path)

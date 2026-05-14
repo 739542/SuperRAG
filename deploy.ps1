@@ -8,15 +8,14 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Join-Path $root "dify-lite"
-$frontendDir = Join-Path $root "frontend"
 $backendEntry = Join-Path $backendDir "run.py"
 $backendStarter = Join-Path $backendDir "start-backend.ps1"
-$frontendEntry = Join-Path $frontendDir "index.html"
 $logDir = Join-Path $root "data\deploy-logs"
 $stdoutLog = Join-Path $logDir "dify-lite.stdout.log"
 $stderrLog = Join-Path $logDir "dify-lite.stderr.log"
 $pidFile = Join-Path $logDir "dify-lite-launcher.pid"
 $healthUrl = "http://${BackendHost}:${BackendPort}/api/health"
+$frontendUrl = "http://${BackendHost}:${BackendPort}/"
 
 function Write-Step([string]$Message, [string]$Color = "Cyan") {
   Write-Host $Message -ForegroundColor $Color
@@ -42,7 +41,6 @@ function Resolve-PythonCommand {
   if ($python) {
     return @{
       FilePath = $python.Source
-      Arguments = @("run.py")
       Display = $python.Source
     }
   }
@@ -51,8 +49,8 @@ function Resolve-PythonCommand {
   if ($py) {
     return @{
       FilePath = $py.Source
-      Arguments = @("-3", "run.py")
       Display = "$($py.Source) -3"
+      UsePyLauncher = $true
     }
   }
 
@@ -61,14 +59,6 @@ function Resolve-PythonCommand {
 
 if (-not (Test-Path $backendEntry -PathType Leaf)) {
   throw "Backend entry not found: $backendEntry"
-}
-
-if (-not (Test-Path $backendStarter -PathType Leaf)) {
-  throw "Backend starter not found: $backendStarter"
-}
-
-if (-not (Test-Path $frontendEntry -PathType Leaf)) {
-  throw "Frontend entry not found: $frontendEntry"
 }
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -86,16 +76,15 @@ if ($backendReady) {
   $pythonCommand = Resolve-PythonCommand
   Write-Step "Starting dify-lite with $($pythonCommand.Display) ..." "Yellow"
 
+  $runCommand = "cd /d `"$backendDir`" && `"$($pythonCommand.FilePath)`" run.py 1>> `"$stdoutLog`" 2>> `"$stderrLog`""
+  if ($pythonCommand.UsePyLauncher) {
+    $runCommand = "cd /d `"$backendDir`" && `"$($pythonCommand.FilePath)`" -3 run.py 1>> `"$stdoutLog`" 2>> `"$stderrLog`""
+  }
+
   $launcher = Start-Process `
-    -FilePath "powershell.exe" `
-    -ArgumentList @(
-      "-NoExit",
-      "-NoProfile",
-      "-ExecutionPolicy", "Bypass",
-      "-File", $backendStarter,
-      "-PythonExe", $pythonCommand.FilePath
-    ) `
-    -WindowStyle Minimized `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/c", $runCommand) `
+    -WindowStyle Hidden `
     -PassThru
 
   Set-Content -Path $pidFile -Value $launcher.Id
@@ -117,19 +106,19 @@ if (-not $backendReady) {
   Write-Step "Check logs:" "Red"
   Write-Step "  STDOUT: $stdoutLog" "Red"
   Write-Step "  STDERR: $stderrLog" "Red"
-  Write-Step "Try running the backend manually: cd dify-lite && python run.py" "Red"
+  Write-Step "Try running manually: cd dify-lite; python run.py" "Red"
   exit 1
 }
 
 Write-Host ""
 Write-Step "Backend is ready." "Green"
 Write-Step "API: $healthUrl"
-Write-Step "Frontend file: $frontendEntry"
+Write-Step "Frontend: $frontendUrl"
 Write-Step "Logs: $stdoutLog"
 
 if (-not $NoOpen) {
   Write-Step "Opening frontend..." "Green"
-  Start-Process $frontendEntry
+  Start-Process $frontendUrl
 }
 
 Write-Host ""

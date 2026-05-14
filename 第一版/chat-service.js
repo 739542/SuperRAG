@@ -18,8 +18,21 @@
     return window.SuperRagApi;
   }
 
+  function getBackend() {
+    return window.SuperRagBackend;
+  }
+
   async function getSessions(params = {}) {
-    const sessions = await getApi().getSessions();
+    const localSessions = getBackend()?.getHistoryRecords?.()
+      ?.filter((record) => record.sceneMode === "chat")
+      ?.map((record) => ({
+        id: record.sessionId || record.id,
+        title: record.title,
+        sceneMode: "chat",
+        createdAt: record.createdAt,
+        updatedAt: record.createdAt,
+      })) || [];
+    const sessions = localSessions.length ? localSessions : await getApi().getSessions();
     const keyword = String(params.keyword || "").trim().toLowerCase();
     const list = sessions
       .filter((session) => {
@@ -36,7 +49,7 @@
   }
 
   async function getKnowledgeOptions() {
-    const documents = await getApi().getDocuments();
+    const documents = await getDocumentsWithBackendFallback();
     const mappedDocuments = documents.map(mapBackendKnowledgeDocument);
     return {
       documents: clone(mappedDocuments),
@@ -65,14 +78,53 @@
   }
 
   async function sendQuestion(payload) {
-    const rawAnswer = await getApi().generateMockAnswer(payload.question);
-    return clone(
-      mapBackendAnswerToMessage({
-        ...rawAnswer,
+    try {
+      const rawAnswer = await getBackend().requestJson("/scenes/general", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        timeoutMs: window.SuperRagConfig?.CHAT_API_TIMEOUT_MS || 90000,
+        body: JSON.stringify({
+          query: payload.question,
+          project: payload.project || "",
+          collection_id: payload.knowledgeBaseId || "",
+          focus: payload.answerMode || "evidence",
+          user: "course-demo-user",
+        }),
+      });
+      const message = mapSceneResultToMessage(rawAnswer, payload);
+      getBackend().appendHistoryRecord({
+        id: message.id,
         sessionId: payload.sessionId,
-        answerMode: payload.answerMode,
-      }),
-    );
+        title: String(payload.question || "").slice(0, 40) || "Knowledge QA",
+        sceneMode: "chat",
+        project: rawAnswer.collection?.name || payload.project || payload.knowledgeBaseId || "",
+        summary: message.content,
+        originalQuestion: payload.question,
+        outputSummary: message.content,
+        citations: message.citationItems,
+      });
+      return clone(message);
+    } catch (error) {
+      console.error(`[SuperRAG ChatService] backend request failed: ${error.message || error}`);
+      const message = String(error.message || error || "Unknown backend error");
+      return clone({
+        id: `answer-error-${Date.now()}`,
+        sessionId: payload.sessionId || "",
+        role: "assistant",
+        content: `后端智能问答调用失败：${message}`,
+        createdAt: nowText(),
+        evidenceLevel: "low",
+        structuredAnswer: {
+          conclusion: "后端智能问答调用失败，当前没有使用 mock 结果替代真实回答。",
+          evidence: message,
+          suggestion: "请检查模型 API 配置、后端进程状态和浏览器缓存，然后重新提问。",
+          uncertainty: "本次回答不是模型生成结果。"
+        },
+        citations: [],
+        citationItems: [],
+        answerMode: payload.answerMode || "evidence",
+      });
+    }
   }
 
   function createLocalSession(title = "新的知识检索会话") {
@@ -158,6 +210,32 @@
     };
   }
 
+  function mapSceneResultToMessage(raw = {}, payload = {}) {
+    const citations = (raw.citations || []).map(mapBackendCitationToCitation);
+    const evidenceLevel = inferEvidenceLevel(citations);
+    const content = raw.summary || raw.answer || "";
+    return {
+      id: raw.id || `answer-${Date.now()}`,
+      sessionId: payload.sessionId || "",
+      role: "assistant",
+      content,
+      createdAt: nowText(),
+      evidenceLevel,
+      structuredAnswer: {
+        conclusion: content,
+        evidence: (raw.evidence || []).join("\n") || citations.map((citation) => citation.snippet).join("\n"),
+        suggestion: (raw.nextActions || []).join("\n") || "继续补充相关知识文档后再次提问。",
+        uncertainty: (raw.risks || []).join("\n") || raw.warning || "",
+      },
+      citations: citations.map((citation) => citation.id),
+      citationItems: citations,
+      evidence: raw.evidence || [],
+      risks: raw.risks || [],
+      nextActions: raw.nextActions || [],
+      answerMode: payload.answerMode || "evidence",
+    };
+  }
+
   function buildStructuredAnswer(raw, citationItems) {
     const content = raw.content || raw.answer || "当前暂无回答内容。";
     const citationSummary = citationItems
@@ -228,6 +306,16 @@
     })
       .format(new Date())
       .replace(/\//g, "-");
+  }
+
+  async function getDocumentsWithBackendFallback() {
+    try {
+      const response = await getBackend().requestJson("/documents");
+      return Array.isArray(response.items) ? response.items : [];
+    } catch (error) {
+      console.warn(`[SuperRAG ChatService] document options fallback: ${error.message || error}`);
+      return getApi().getDocuments();
+    }
   }
 
   window.chatService = {

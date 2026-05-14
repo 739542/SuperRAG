@@ -33,6 +33,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         base_dir = Path(__file__).resolve().parents[1]
+        _load_env_file(base_dir / ".env")
         data_dir = Path(os.getenv("DIFY_LITE_DATA_DIR", base_dir / "data")).resolve()
         uploads_dir = data_dir / "uploads"
         db_path = data_dir / "dify_lite.db"
@@ -76,3 +77,19 @@ class Settings:
             "default_chunk_overlap": self.default_chunk_overlap,
             "max_context_chunks": self.max_context_chunks,
         }
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value

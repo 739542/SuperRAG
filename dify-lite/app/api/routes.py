@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, render_template, request, send_from_directory
 
 api_blueprint = Blueprint("dify_lite", __name__)
 
@@ -12,7 +12,20 @@ def _json() -> dict:
 @api_blueprint.route("/", methods=["GET"])
 def index():
     settings = current_app.config["SETTINGS"]
+    frontend_dir = settings.base_dir.parent / "第一版"
+    if (frontend_dir / "index.html").is_file():
+        return send_from_directory(frontend_dir, "index.html")
     return render_template("index.html", settings=settings.public_config())
+
+
+@api_blueprint.route("/<path:asset_path>", methods=["GET"])
+def frontend_asset(asset_path: str):
+    settings = current_app.config["SETTINGS"]
+    frontend_dir = settings.base_dir.parent / "第一版"
+    target_path = (frontend_dir / asset_path).resolve()
+    if frontend_dir.is_dir() and target_path.is_file() and frontend_dir.resolve() in target_path.parents:
+        return send_from_directory(frontend_dir, asset_path)
+    return jsonify({"error": "not found"}), 404
 
 
 @api_blueprint.route("/api/health", methods=["GET"])
@@ -59,6 +72,29 @@ def documents():
         items = repository.list_documents(collection_id=collection_id)
         return jsonify({"items": items})
     return jsonify({"items": frontend_service.list_documents()})
+
+
+@api_blueprint.route("/api/documents/<document_id>", methods=["DELETE", "OPTIONS"])
+def delete_document(document_id: str):
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    repository = current_app.config["REPOSITORY"]
+    settings = current_app.config["SETTINGS"]
+    document = repository.delete_document(document_id)
+    if not document:
+        return jsonify({"error": "document not found"}), 404
+
+    filename = document.get("filename") or ""
+    if filename:
+        upload_path = (settings.uploads_dir / filename).resolve()
+        try:
+            if upload_path.is_file() and settings.uploads_dir.resolve() in upload_path.parents:
+                upload_path.unlink()
+        except OSError:
+            pass
+
+    return jsonify({"success": True, "id": document_id})
 
 
 @api_blueprint.route("/api/documents/import", methods=["POST", "OPTIONS"])

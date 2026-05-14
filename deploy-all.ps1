@@ -15,12 +15,12 @@ $dockerConfigDir = Join-Path $root ".docker-config"
 $backendDir = Join-Path $root "dify-lite"
 $backendEntry = Join-Path $backendDir "run.py"
 $backendStarter = Join-Path $backendDir "start-backend.ps1"
-$frontendEntry = Join-Path $root "frontend\index.html"
 $logDir = Join-Path $root "data\deploy-logs"
 $stdoutLog = Join-Path $logDir "dify-lite.stdout.log"
 $stderrLog = Join-Path $logDir "dify-lite.stderr.log"
 $pidFile = Join-Path $logDir "dify-lite-launcher.pid"
 $liteHealthUrl = "http://${BackendHost}:${LitePort}/api/health"
+$liteFrontendUrl = "http://${BackendHost}:${LitePort}/"
 $difyWebUrl = "http://${BackendHost}:${DifyWebPort}"
 $difyApiUrl = "http://${BackendHost}:${DifyApiPort}"
 $weaviateUrl = "http://${BackendHost}:${WeaviatePort}"
@@ -116,27 +116,15 @@ function Start-DifyLite {
   $pythonCommand = Resolve-PythonCommand
   Write-Step "Starting dify-lite with $($pythonCommand.Display) ..." "Yellow"
 
-  $argList = @(
-    "-NoExit",
-    "-NoProfile",
-    "-ExecutionPolicy", "Bypass",
-    "-File", $backendStarter,
-    "-PythonExe", $pythonCommand.FilePath
-  )
-
+  $runCommand = "cd /d `"$backendDir`" && `"$($pythonCommand.FilePath)`" run.py 1>> `"$stdoutLog`" 2>> `"$stderrLog`""
   if ($pythonCommand.UsePyLauncher) {
-    $argList = @(
-      "-NoExit",
-      "-NoProfile",
-      "-ExecutionPolicy", "Bypass",
-      "-Command", "Set-Location '$backendDir'; py -3 run.py 1>> '$stdoutLog' 2>> '$stderrLog'"
-    )
+    $runCommand = "cd /d `"$backendDir`" && `"$($pythonCommand.FilePath)`" -3 run.py 1>> `"$stdoutLog`" 2>> `"$stderrLog`""
   }
 
   $launcher = Start-Process `
-    -FilePath "powershell.exe" `
-    -ArgumentList $argList `
-    -WindowStyle Minimized `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/c", $runCommand) `
+    -WindowStyle Hidden `
     -PassThru
 
   Set-Content -Path $pidFile -Value $launcher.Id
@@ -159,13 +147,6 @@ if (-not (Test-Path $dockerDir -PathType Container)) {
 if (-not (Test-Path $backendEntry -PathType Leaf)) {
   throw "Backend entry not found: $backendEntry"
 }
-if (-not (Test-Path $backendStarter -PathType Leaf)) {
-  throw "Backend starter not found: $backendStarter"
-}
-if (-not (Test-Path $frontendEntry -PathType Leaf)) {
-  throw "Frontend entry not found: $frontendEntry"
-}
-
 New-Item -ItemType Directory -Force -Path $dockerConfigDir | Out-Null
 $env:DOCKER_CONFIG = $dockerConfigDir
 
@@ -201,13 +182,13 @@ Write-Step "Dify Web: $difyWebUrl"
 Write-Step "Dify API: $difyApiUrl"
 Write-Step "Weaviate: $weaviateUrl"
 Write-Step "dify-lite: $liteHealthUrl"
-Write-Step "Frontend file: $frontendEntry"
+Write-Step "SuperRAG frontend: $liteFrontendUrl"
 
 if (-not $NoOpen) {
   Write-Step "Opening Dify Web..." "Green"
   Start-Process $difyWebUrl
   Write-Step "Opening frontend..." "Green"
-  Start-Process $frontendEntry
+  Start-Process $liteFrontendUrl
 }
 
 Write-Host ""

@@ -21,8 +21,12 @@
     return window.SuperRagApi;
   }
 
+  function getBackend() {
+    return window.SuperRagBackend;
+  }
+
   async function getDesignOptions() {
-    const documents = getMock().mockDocuments || [];
+    const documents = await getDocumentsWithFallback();
     return {
       outputTypes: ["功能清单", "详细文本用例", "模块划分建议", "接口设计建议", "风险分析", "答辩说明稿"],
       projects: [
@@ -42,8 +46,36 @@
   }
 
   async function generateDesignOutput(payload = {}) {
-    const raw = await getApi().generateMockDesignOutput(payload);
-    return clone(mapWorkflowDesignOutputToDesignOutput(raw));
+    try {
+      const raw = await getBackend().requestJson("/scenes/design", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        timeoutMs: window.SuperRagConfig?.CHAT_API_TIMEOUT_MS || 90000,
+        body: JSON.stringify({
+          query: payload.inputQuestion || payload.question,
+          project: payload.project,
+          module: payload.outputType,
+          focus: payload.granularity,
+          user: "course-demo-user",
+        }),
+      });
+      const result = mapSceneResultToDesignOutput(raw, payload);
+      getBackend().appendHistoryRecord({
+        id: result.id,
+        title: result.title,
+        sceneMode: "design",
+        project: result.project,
+        summary: result.inputQuestion,
+        originalQuestion: result.inputQuestion,
+        outputSummary: result.functionList.map((item) => item.description).join("\n"),
+        citations: result.citations,
+      });
+      return clone(result);
+    } catch (error) {
+      console.warn(`[SuperRAG DesignService] backend unavailable, using mock: ${error.message || error}`);
+      const raw = await getApi().generateMockDesignOutput(payload);
+      return clone(mapWorkflowDesignOutputToDesignOutput(raw));
+    }
   }
 
   function mapWorkflowDesignOutputToDesignOutput(raw = {}) {
@@ -74,6 +106,147 @@
       nextActions: nextActions.map(mapNextActionItem),
       citations: citationItems.map(mapCitationToEvidence),
       qualityChecks: mapQualityChecks(raw.qualityChecks || raw.quality_checks || {}, raw.evidenceLevel || raw.evidence_level),
+    };
+  }
+
+  function mapSceneResultToDesignOutput(raw = {}, payload = {}) {
+    const citations = (raw.citations || []).map(mapCitationToEvidence);
+    const evidenceLevel = inferEvidenceLevel(citations);
+    const artifacts = raw.artifacts || [];
+    const artifactItems = artifacts.flatMap((artifact) => artifact.items || [artifact.content].filter(Boolean));
+    const evidence = raw.evidence || [];
+    const actions = raw.nextActions || [];
+    const risks = raw.risks || [];
+    const backendFunctions = raw.functionList || raw.function_list || raw.functions || [];
+    const backendUseCases = raw.useCases || raw.use_cases || raw.textUseCases || raw.text_use_cases || [];
+    const backendModules = raw.moduleSuggestions || raw.module_suggestions || raw.modules || [];
+    const hasStructuredDesign = backendFunctions.length || backendUseCases.length || backendModules.length;
+
+    if (hasStructuredDesign) {
+      return {
+        id: raw.id || `design-${Date.now()}`,
+        title: raw.title || "设计助手输出",
+        inputQuestion: payload.inputQuestion || payload.question || "",
+        project: raw.collection?.name || payload.project || "",
+        outputType: payload.outputType || "设计输出",
+        outputTypeLabel: payload.outputType || "设计输出",
+        granularity: payload.granularity || "标准",
+        createdAt: nowText(),
+        evidenceLevel,
+        functionList: backendFunctions.map(mapFunctionItem),
+        useCases: backendUseCases.map(mapUseCaseItem),
+        moduleSuggestions: backendModules.map(mapModuleItem),
+        risks: risks.map(mapRiskItem),
+        nextActions: actions.map(mapNextActionItem),
+        citations,
+        qualityChecks: mapQualityChecks({}, evidenceLevel),
+      };
+    }
+
+    if (!hasBusinessDesignSignals(artifactItems, evidence)) {
+      return buildInsufficientDesignOutput(raw, payload, citations, evidenceLevel, actions, risks);
+    }
+
+    return {
+      id: raw.id || `design-${Date.now()}`,
+      title: raw.title || "设计助手输出",
+      inputQuestion: payload.inputQuestion || payload.question || "",
+      project: raw.collection?.name || payload.project || "",
+      outputType: payload.outputType || "设计输出",
+      outputTypeLabel: payload.outputType || "设计输出",
+      granularity: payload.granularity || "标准",
+      createdAt: nowText(),
+      evidenceLevel,
+      functionList: (artifactItems.length ? artifactItems : evidence).slice(0, 8).map((item, index) => ({
+        id: `F-${String(index + 1).padStart(3, "0")}`,
+        name: String(item).slice(0, 28) || `功能 ${index + 1}`,
+        description: String(item),
+        priority: index < 2 ? "high" : "medium",
+        relatedDocument: citations[index]?.documentTitle || raw.source || "Dify Lite",
+      })),
+      useCases: evidence.slice(0, 4).map((item, index) => ({
+        id: `UC-${String(index + 1).padStart(3, "0")}`,
+        name: `用例 ${index + 1}`,
+        actor: "业务用户",
+        preconditions: [item],
+        mainSuccessScenario: [raw.summary || item],
+        extensionScenarios: actions.slice(0, 2),
+        exceptionScenarios: risks.slice(0, 2),
+        postconditions: "输出可进入人工评审。",
+      })),
+      moduleSuggestions: artifacts.slice(0, 4).map((artifact, index) => ({
+        name: artifact.title || `模块 ${index + 1}`,
+        responsibility: (artifact.items || [artifact.content]).filter(Boolean).join("；"),
+        input: [payload.inputQuestion || ""],
+        output: artifact.items || [artifact.content].filter(Boolean),
+        dependencies: citations.slice(0, 3).map((citation) => citation.documentTitle),
+      })),
+      risks: risks.map((risk) => ({
+        description: risk,
+        impact: risk,
+        supplement: "补充资料或人工确认后再进入开发。",
+        confidence: evidenceLevel,
+        needsReview: evidenceLevel !== "high",
+      })),
+      nextActions: actions.map((action, index) => ({
+        action,
+        priority: index === 0 ? "high" : "medium",
+        owner: "产品/研发",
+        dependentDocument: citations[index]?.documentTitle || "",
+        doneDefinition: "完成评审并补齐引用依据。",
+      })),
+      citations,
+      qualityChecks: mapQualityChecks({}, evidenceLevel),
+    };
+  }
+
+  function hasBusinessDesignSignals(items = [], evidence = []) {
+    const text = [...items, ...evidence].join(" ");
+    const positiveSignals = /(业务|用户|角色|流程|预约|访客|门禁|巡检|能耗|会议室|告警|审批|管理|登记|权限|工单|看板|通知|报表)/;
+    const technicalNoise = /(磁盘|Docker|NVMe|SSD|向量|Reranker|LLM|chunk|Top-K|MinIO|Milvus|日志|端口|CPU|内存|部署|测试指标|成功率)/i;
+    return positiveSignals.test(text) && !technicalNoise.test(text.slice(0, 260));
+  }
+
+  function buildInsufficientDesignOutput(raw = {}, payload = {}, citations = [], evidenceLevel = "low", actions = [], risks = []) {
+    const goal = payload.inputQuestion || payload.question || "";
+    return {
+      id: raw.id || `design-${Date.now()}`,
+      title: "设计信息不足",
+      inputQuestion: goal,
+      project: raw.collection?.name || payload.project || "",
+      outputType: payload.outputType || "设计输出",
+      outputTypeLabel: payload.outputType || "设计输出",
+      granularity: payload.granularity || "标准",
+      createdAt: nowText(),
+      evidenceLevel: "low",
+      functionList: [{
+        id: "F-001",
+        name: "待确认业务功能",
+        description: `当前检索上下文主要是技术配置或部署信息，无法从“${goal}”稳定抽取业务功能。请补充需求说明、业务流程、角色权限或页面原型文档。`,
+        priority: "medium",
+        relatedDocument: citations[0]?.documentTitle || raw.source || "Dify Lite",
+      }],
+      useCases: [{
+        id: "UC-001",
+        name: "补充需求后生成用例",
+        actor: "业务用户",
+        preconditions: ["已补充明确的业务需求、用户角色和流程边界"],
+        mainSuccessScenario: [raw.summary || "系统根据补充后的业务需求生成结构化用例。"],
+        extensionScenarios: actions.slice(0, 2),
+        exceptionScenarios: risks.slice(0, 2),
+        postconditions: "设计结果可进入人工评审。",
+      }],
+      moduleSuggestions: [{
+        name: "待确认模块",
+        responsibility: "当前上下文不足以稳定划分业务模块，需要补充业务功能和系统边界。",
+        input: [goal],
+        output: ["结构化功能清单", "文本用例", "模块边界"],
+        dependencies: citations.slice(0, 3).map((citation) => citation.documentTitle),
+      }],
+      risks: risks.map(mapRiskItem),
+      nextActions: actions.map(mapNextActionItem),
+      citations,
+      qualityChecks: mapQualityChecks({}, evidenceLevel),
     };
   }
 
@@ -249,6 +422,15 @@
     })
       .format(new Date())
       .replace(/\//g, "-");
+  }
+
+  async function getDocumentsWithFallback() {
+    try {
+      const response = await getBackend().requestJson("/documents");
+      return Array.isArray(response.items) ? response.items : [];
+    } catch (error) {
+      return getMock().mockDocuments || [];
+    }
   }
 
   window.designService = {

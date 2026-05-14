@@ -72,7 +72,14 @@ class ChatService:
                 headers=headers,
                 json=payload,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                detail = response.text[:1000]
+                raise RuntimeError(
+                    f"model API returned {response.status_code} for "
+                    f"{self._settings.model_base_url}/chat/completions: {detail}"
+                ) from exc
             data = response.json()
         return data["choices"][0]["message"]["content"]
 

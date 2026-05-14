@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 from app.config import Settings
@@ -67,7 +69,16 @@ class FrontendService:
         if not query:
             raise ValueError("query is required")
 
-        collection = self._resolve_collection((payload.get("project") or "").strip())
+        collection = self._resolve_collection(
+            project=(payload.get("project") or "").strip(),
+            collection_id=(
+                payload.get("collection_id")
+                or payload.get("collectionId")
+                or payload.get("knowledge_base_id")
+                or payload.get("knowledgeBaseId")
+                or ""
+            ).strip(),
+        )
         retrieval = self._retrieval_service.retrieve(collection_id=collection["id"], query=query, top_k=5)
         answer = self._chat_service.answer(
             collection_id=collection["id"],
@@ -94,6 +105,10 @@ class FrontendService:
         }
         if retrieval.get("warning"):
             result["warning"] = retrieval["warning"]
+        if scene == "design":
+            structured_design = self._parse_design_json(answer["answer"])
+            if structured_design:
+                result.update(structured_design)
         return result
 
     def health(self) -> dict[str, Any]:
@@ -113,8 +128,16 @@ class FrontendService:
             return existing
         return self._repository.create_collection(project_name, f"{project_name} 的知识库")
 
-    def _resolve_collection(self, project: str) -> dict[str, Any]:
+    def _resolve_collection(self, project: str, collection_id: str = "") -> dict[str, Any]:
+        if collection_id:
+            collection = self._repository.get_collection(collection_id)
+            if collection:
+                return collection
+
         if project:
+            collection = self._repository.get_collection(project)
+            if collection:
+                return collection
             collection = self._repository.get_collection_by_name(project)
             if collection:
                 return collection
@@ -152,6 +175,9 @@ class FrontendService:
         }.get(scene, scene)
 
     def _build_system_prompt(self, scene: str, payload: dict[str, Any]) -> str:
+        if scene == "design":
+            return self._build_design_prompt(payload)
+
         focus = (payload.get("focus") or "").strip()
         role = (payload.get("role") or "").strip()
         module = (payload.get("module") or "").strip()
@@ -169,6 +195,51 @@ class FrontendService:
             f"{extra}"
         )
 
+    def _build_design_prompt(self, payload: dict[str, Any]) -> str:
+        output_type = (payload.get("module") or "").strip()
+        focus = (payload.get("focus") or "").strip()
+        return (
+            "你是软件工程设计助手。请只根据检索上下文抽取业务设计产物。"
+            "不要把硬件配置、部署参数、测试指标、日志路径、Docker、磁盘、向量维度、chunk、Top-K、Reranker、LLM 等技术配置当成功能。"
+            "如果上下文缺少业务需求，请不要编造，返回少量待确认项并在 risks 中说明证据不足。"
+            "必须只输出 JSON，不要输出 Markdown，不要输出解释文字。"
+            "JSON 顶层字段必须包含 functionList、useCases、moduleSuggestions、risks、nextActions。"
+            "functionList 每项包含 id、name、description、priority、relatedDocument。"
+            "useCases 每项包含 id、name、actor、preconditions、mainSuccessScenario、extensionScenarios、exceptionScenarios、postconditions。"
+            "moduleSuggestions 每项包含 name、responsibility、input、output、dependencies。"
+            f"用户期望产物类型：{output_type or '设计输出'}。输出粒度：{focus or '标准'}。"
+        )
+
+    def _parse_design_json(self, value: str) -> dict[str, Any] | None:
+        text = value.strip()
+        if not text:
+            return None
+
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+        if fence_match:
+            text = fence_match.group(1)
+        else:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start >= 0 and end > start:
+                text = text[start : end + 1]
+
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        return {
+            "functionList": payload.get("functionList") or payload.get("function_list") or [],
+            "useCases": payload.get("useCases") or payload.get("use_cases") or [],
+            "moduleSuggestions": payload.get("moduleSuggestions") or payload.get("module_suggestions") or [],
+            "risks": payload.get("risks") or [],
+            "nextActions": payload.get("nextActions") or payload.get("next_actions") or [],
+        }
+
     def _build_evidence(self, hits: list[dict[str, Any]]) -> list[str]:
         evidence = []
         for item in hits[:4]:
@@ -185,7 +256,20 @@ class FrontendService:
             metadata = item.get("metadata", {})
             source = metadata.get("source_name") or "知识库片段"
             snippet = item.get("content", "").strip().replace("\n", " ")
-            citations.append({"title": source, "snippet": snippet[:220]})
+            score = float(item.get("score") or 0)
+            citations.append(
+                {
+                    "id": item.get("id", ""),
+                    "title": source,
+                    "documentTitle": source,
+                    "snippet": snippet[:220],
+                    "score": score,
+                    "relevanceScore": score,
+                    "vectorScore": float(item.get("vector_score") or 0),
+                    "lexicalScore": float(item.get("lexical_score") or 0),
+                    "segmentId": item.get("id", ""),
+                }
+            )
         return citations
 
     def _build_risks(self, scene: str) -> list[str]:

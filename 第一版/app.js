@@ -486,24 +486,81 @@ function renderAnswerCard(message) {
       </div>
       <div class="answer-section conclusion">
         <h3>结论</h3>
-        <p>${escapeHtml(sections.conclusion)}</p>
+        <div class="rich-answer">${renderRichText(sections.conclusion)}</div>
       </div>
       <div class="answer-grid">
         <section class="answer-section">
           <h3>依据</h3>
-          <p>${escapeHtml(sections.evidence)}</p>
+          <div class="rich-answer">${renderRichText(sections.evidence)}</div>
         </section>
         <section class="answer-section">
           <h3>建议</h3>
-          <p>${escapeHtml(sections.suggestion)}</p>
+          <div class="rich-answer">${renderRichText(sections.suggestion)}</div>
         </section>
       </div>
       <section class="answer-section uncertainty">
         <h3>不确定性</h3>
-        <p>${escapeHtml(sections.uncertainty)}</p>
+        <div class="rich-answer">${renderRichText(sections.uncertainty)}</div>
       </section>
     </article>
   `;
+}
+
+function renderRichText(value) {
+  const lines = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n");
+  const blocks = [];
+  let listItems = [];
+
+  function flushList() {
+    if (!listItems.length) {
+      return;
+    }
+    blocks.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    listItems = [];
+  }
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      return;
+    }
+
+    const headingMatch = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (headingMatch) {
+      flushList();
+      const level = Math.min(headingMatch[1].length + 3, 6);
+      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      return;
+    }
+
+    const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
+    if (bulletMatch) {
+      listItems.push(bulletMatch[1]);
+      return;
+    }
+
+    const numberedMatch = /^\d+\.\s+(.+)$/.exec(line);
+    if (numberedMatch) {
+      listItems.push(numberedMatch[1]);
+      return;
+    }
+
+    flushList();
+    blocks.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  });
+
+  flushList();
+  return blocks.join("");
+}
+
+function renderInlineMarkdown(value) {
+  return escapeHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function getAnswerSections(message) {
@@ -2155,7 +2212,11 @@ function bindDocumentsActions() {
       return;
     }
     event.preventDefault();
-    await submitMockUpload(event.target);
+    try {
+      await submitMockUpload(event.target);
+    } catch (error) {
+      toast(`上传失败：${error.message || error}`);
+    }
   });
 
   const closeDrawerButton = document.getElementById("close-document-drawer");
@@ -2317,6 +2378,7 @@ async function submitMockUpload(form) {
     project: String(formData.get("project") || "企业知识库").trim(),
     tags,
     visibilityScope: formData.get("visibilityScope"),
+    file,
   });
 
   dashboardLoaded = false;

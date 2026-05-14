@@ -17,7 +17,7 @@
   function getConfig() {
     return {
       API_BASE_URL: window.SuperRagConfig?.API_BASE_URL || "http://127.0.0.1:8088/api",
-      DOCUMENT_API_TIMEOUT_MS: window.SuperRagConfig?.DOCUMENT_API_TIMEOUT_MS || 5000,
+      DOCUMENT_API_TIMEOUT_MS: window.SuperRagConfig?.DOCUMENT_API_TIMEOUT_MS || 60000,
       USE_REAL_DOCUMENT_API: window.SuperRagConfig?.USE_REAL_DOCUMENT_API !== false,
     };
   }
@@ -267,6 +267,10 @@
       warnFallback("真实上传接口失败，已回退到 mock 上传", error);
     }
 
+    if (resolveUploadFile(payload)) {
+      throw new Error("真实文档上传失败：请检查文件格式、后端状态或上传解析日志。");
+    }
+
     const rawDocument = await getApi().createDocument({
       title: payload.title,
       type: payload.type,
@@ -360,17 +364,31 @@
   }
 
   async function deleteDocument(id) {
-    // TODO: backend currently has no DELETE /api/documents/{id}.
-    // Hide the row locally and keep mock deletion for demo documents.
-    locallyDeletedDocumentIds.add(id);
+    try {
+      await deleteDocumentFromBackend(id);
+      locallyDeletedDocumentIds.add(id);
+      return { success: true, id };
+    } catch (error) {
+      warnFallback("真实删除接口失败，仅保留本地删除状态", error);
+    }
 
+    locallyDeletedDocumentIds.add(id);
     try {
       await getApi().deleteDocument(id);
     } catch (error) {
       warnFallback("mock 删除同步失败，仅保留本地删除状态", error);
     }
-
     return { success: true, id };
+  }
+
+  async function deleteDocumentFromBackend(id) {
+    const config = getConfig();
+    if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL) {
+      return null;
+    }
+    return requestBackendJson(`/documents/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
   }
 
   async function updateDocumentTags(id, tags) {

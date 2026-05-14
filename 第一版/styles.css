@@ -1606,6 +1606,41 @@ select {
   line-height: 1.75;
 }
 
+.rich-answer {
+  display: grid;
+  gap: 8px;
+  color: #475569;
+  line-height: 1.75;
+}
+
+.rich-answer p,
+.rich-answer ul,
+.rich-answer h4,
+.rich-answer h5,
+.rich-answer h6 {
+  margin: 0;
+}
+
+.rich-answer ul {
+  display: grid;
+  gap: 5px;
+  padding-left: 18px;
+}
+
+.rich-answer strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.rich-answer code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #e2e8f0;
+  color: #334155;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .loading-lines {
   display: grid;
   gap: 9px;

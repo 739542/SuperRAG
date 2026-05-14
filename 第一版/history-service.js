@@ -1,8 +1,6 @@
 /**
  * History service and adapter layer.
- *
- * The history page calls window.historyService only. Current data is mock-based
- * and can be replaced with real backend APIs without changing page rendering.
+ * Combines local real-run records with bundled mock history.
  */
 (function () {
   let records = clone((window.SuperRagMock || {}).mockHistoryRecords || []);
@@ -19,7 +17,7 @@
     const dateFrom = String(params.dateFrom || "");
     const dateTo = String(params.dateTo || "");
 
-    const list = records
+    const list = getCombinedRecords()
       .filter((record) => {
         const haystack = [record.title, record.summary, record.originalQuestion, record.outputSummary]
           .join(" ")
@@ -43,7 +41,7 @@
   }
 
   async function getHistoryRecordDetail(id) {
-    const record = records.find((item) => item.id === id);
+    const record = getCombinedRecords().find((item) => item.id === id);
     if (!record) {
       return null;
     }
@@ -51,6 +49,7 @@
   }
 
   async function deleteHistoryRecord(id) {
+    window.SuperRagBackend?.deleteHistoryRecord?.(id);
     records = records.filter((item) => item.id !== id);
     return {
       success: true,
@@ -59,20 +58,21 @@
   }
 
   async function getHistoryOptions() {
+    const sourceRecords = getCombinedRecords();
     return {
       sceneModes: ["chat", "training", "handover", "design"],
-      projects: uniqueValues(records.map((record) => record.project)),
-      creators: uniqueValues(records.map((record) => record.creator)),
+      projects: uniqueValues(sourceRecords.map((record) => record.project)),
+      creators: uniqueValues(sourceRecords.map((record) => record.creator)),
     };
   }
 
   function mapBackendHistoryToHistory(raw = {}) {
     return {
       id: raw.id || raw.historyId || raw.history_id,
-      title: raw.title || "未命名历史记录",
+      title: raw.title || raw.originalQuestion || raw.original_question || "SuperRAG record",
       sceneMode: raw.sceneMode || raw.scene_mode || raw.mode || "chat",
-      project: raw.project || raw.projectName || raw.project_name || "企业知识库",
-      creator: raw.creator || raw.createdByName || raw.created_by_name || "项目成员",
+      project: raw.project || raw.projectName || raw.project_name || "SuperRAG",
+      creator: raw.creator || raw.createdByName || raw.created_by_name || "course-demo-user",
       createdAt: raw.createdAt || raw.created_at || "",
       summary: raw.summary || raw.outputSummary || raw.output_summary || "",
       citationCount: Number(raw.citationCount ?? raw.citation_count ?? raw.citations?.length ?? 0),
@@ -80,8 +80,11 @@
   }
 
   function mapBackendHistoryToHistoryDetail(raw = {}) {
-    const citationIds = new Set(raw.citations || []);
-    const citations = ((window.SuperRagMock || {}).mockCitations || []).filter((citation) => citationIds.has(citation.id));
+    const rawCitations = raw.citations || [];
+    const citationIds = new Set(rawCitations.filter((item) => typeof item !== "object"));
+    const citations = rawCitations.some((item) => typeof item === "object")
+      ? rawCitations
+      : ((window.SuperRagMock || {}).mockCitations || []).filter((citation) => citationIds.has(citation.id));
     return {
       ...mapBackendHistoryToHistory(raw),
       originalQuestion: raw.originalQuestion || raw.original_question || raw.input || "",
@@ -94,12 +97,25 @@
   function mapCitationToEvidence(raw = {}) {
     return {
       id: raw.id || raw.segmentId || raw.segment_id || "",
-      documentTitle: raw.documentTitle || raw.document_title || raw.title || "知识库片段",
+      documentTitle: raw.documentTitle || raw.document_title || raw.title || "知识片段",
       snippet: raw.snippet || raw.content || "",
       relevanceScore: Number(raw.relevanceScore ?? raw.relevance_score ?? raw.score ?? 0),
       page: raw.page || raw.pageNo || raw.page_no || "",
       segmentId: raw.segmentId || raw.segment_id || raw.id || "",
     };
+  }
+
+  function getCombinedRecords() {
+    const backendRecords = window.SuperRagBackend?.getHistoryRecords?.() || [];
+    const seen = new Set();
+    return [...backendRecords, ...records].filter((record) => {
+      const id = record.id || `${record.sceneMode}-${record.createdAt}-${record.title}`;
+      if (seen.has(id)) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    });
   }
 
   function uniqueValues(values) {
