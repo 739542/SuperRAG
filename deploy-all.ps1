@@ -42,14 +42,14 @@ function Test-BackendHealth {
 
 function Test-TcpPort {
   param(
-    [string]$Host,
+    [string]$HostName,
     [int]$Port
   )
 
   $client = $null
   try {
     $client = New-Object System.Net.Sockets.TcpClient
-    $iar = $client.BeginConnect($Host, $Port, $null, $null)
+    $iar = $client.BeginConnect($HostName, $Port, $null, $null)
     if (-not $iar.AsyncWaitHandle.WaitOne(1500, $false)) {
       return $false
     }
@@ -88,21 +88,21 @@ function Resolve-PythonCommand {
 function Wait-ForPort {
   param(
     [string]$Name,
-    [string]$Host,
+    [string]$HostName,
     [int]$Port,
     [int]$MaxAttempts = 120
   )
 
   for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-    if (Test-TcpPort -Host $Host -Port $Port) {
-      Write-Step "$Name is ready on ${Host}:$Port" "Green"
+    if (Test-TcpPort -HostName $HostName -Port $Port) {
+      Write-Step "$Name is ready on ${HostName}:$Port" "Green"
       return
     }
     Write-Step "Waiting for $Name... ($attempt/$MaxAttempts)" "DarkYellow"
     Start-Sleep -Seconds 1
   }
 
-  throw "$Name did not become ready on ${Host}:$Port."
+  throw "$Name did not become ready on ${HostName}:$Port."
 }
 
 function Start-DifyLite {
@@ -163,16 +163,17 @@ Push-Location $dockerDir
 try {
   & docker compose up -d
   if ($LASTEXITCODE -ne 0) {
-    throw "docker compose up -d failed."
+    Write-Step "docker compose returned a non-zero exit code. Continuing with readiness checks because core services may already be up." "Yellow"
+    Write-Step "If only the sandbox container is unhealthy, Dify code execution features may be unavailable, but the main web/api stack can still be accessed." "DarkYellow"
   }
 } finally {
   Pop-Location
 }
 
 Write-Step "Waiting for Dify services..." "Yellow"
-Wait-ForPort -Name "Dify Web" -Host $BackendHost -Port $DifyWebPort -MaxAttempts 180
-Wait-ForPort -Name "Dify API" -Host $BackendHost -Port $DifyApiPort -MaxAttempts 180
-Wait-ForPort -Name "Weaviate" -Host $BackendHost -Port $WeaviatePort -MaxAttempts 180
+Wait-ForPort -Name "Dify Web" -HostName $BackendHost -Port $DifyWebPort -MaxAttempts 180
+Wait-ForPort -Name "Dify API" -HostName $BackendHost -Port $DifyApiPort -MaxAttempts 180
+Wait-ForPort -Name "Weaviate" -HostName $BackendHost -Port $WeaviatePort -MaxAttempts 180
 
 Start-DifyLite
 

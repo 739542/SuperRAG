@@ -1198,6 +1198,64 @@ select {
   padding-top: 8px;
 }
 
+.source-preview-panel {
+  width: min(860px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.source-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.source-preview-meta span {
+  padding: 5px 10px;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.source-preview-body {
+  display: grid;
+  gap: 14px;
+}
+
+.source-preview-chunk,
+.source-preview-content {
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.source-preview-chunk {
+  background: #eef6ff;
+  border-color: #bfdbfe;
+}
+
+.source-preview-chunk h3,
+.source-preview-content h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.source-preview-chunk pre,
+.source-preview-content pre {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  line-height: 1.7;
+}
+
 .detail-drawer {
   position: fixed;
   top: 0;
@@ -1613,11 +1671,28 @@ select {
   line-height: 1.75;
 }
 
+.compact-rich-answer {
+  gap: 6px;
+  line-height: 1.68;
+}
+
+.inline-rich-answer {
+  display: block;
+}
+
 .rich-answer p,
 .rich-answer ul,
 .rich-answer h4,
 .rich-answer h5,
 .rich-answer h6 {
+  margin: 0;
+}
+
+.compact-rich-answer p,
+.compact-rich-answer ul,
+.compact-rich-answer h4,
+.compact-rich-answer h5,
+.compact-rich-answer h6 {
   margin: 0;
 }
 
@@ -1627,9 +1702,19 @@ select {
   padding-left: 18px;
 }
 
+.compact-rich-answer ul {
+  gap: 4px;
+  padding-left: 16px;
+}
+
 .rich-answer strong {
   color: var(--text);
   font-weight: 700;
+}
+
+.rich-answer em {
+  color: #334155;
+  font-style: normal;
 }
 
 .rich-answer code {
@@ -2486,6 +2571,78 @@ select {
 
 .design-risk-card {
   background: #fffafa;
+}
+
+.design-diagram-section {
+  gap: 14px;
+}
+
+.design-diagram-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.design-diagram-head p {
+  max-width: 680px;
+}
+
+.design-diagram-host {
+  min-height: 280px;
+  padding: 14px;
+  background: #f8fbff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.diagram-loading,
+.mermaid-error-state {
+  display: grid;
+  gap: 8px;
+  place-content: center;
+  min-height: 240px;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.mermaid-error-state strong {
+  color: #b45309;
+}
+
+.mermaid-rendered {
+  overflow: auto;
+}
+
+.mermaid-rendered svg {
+  display: block;
+  min-width: 720px;
+  margin: 0 auto;
+}
+
+.diagram-source-panel {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.diagram-source-panel summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.diagram-source-code {
+  margin: 0;
+  padding: 0 14px 14px;
+  overflow: auto;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  line-height: 1.65;
 }
 
 .history-page,

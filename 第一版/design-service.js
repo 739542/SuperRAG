@@ -89,7 +89,7 @@
     const risks = raw.risks || raw.riskItems || raw.risk_items || [];
     const nextActions = raw.nextActions || raw.next_actions || raw.actions || [];
 
-    return {
+    const result = {
       id: raw.id || `design-${Date.now()}`,
       title: raw.title || "设计辅助初稿",
       inputQuestion: raw.inputQuestion || raw.input_question || raw.query || "",
@@ -107,6 +107,8 @@
       citations: citationItems.map(mapCitationToEvidence),
       qualityChecks: mapQualityChecks(raw.qualityChecks || raw.quality_checks || {}, raw.evidenceLevel || raw.evidence_level),
     };
+    result.diagram = resolveDiagramSource(raw, result);
+    return result;
   }
 
   function mapSceneResultToDesignOutput(raw = {}, payload = {}) {
@@ -123,7 +125,7 @@
     const hasStructuredDesign = backendFunctions.length || backendUseCases.length || backendModules.length;
 
     if (hasStructuredDesign) {
-      return {
+      const result = {
         id: raw.id || `design-${Date.now()}`,
         title: raw.title || "设计助手输出",
         inputQuestion: payload.inputQuestion || payload.question || "",
@@ -141,13 +143,15 @@
         citations,
         qualityChecks: mapQualityChecks({}, evidenceLevel),
       };
+      result.diagram = resolveDiagramSource(raw, result);
+      return result;
     }
 
     if (!hasBusinessDesignSignals(artifactItems, evidence)) {
       return buildInsufficientDesignOutput(raw, payload, citations, evidenceLevel, actions, risks);
     }
 
-    return {
+    const result = {
       id: raw.id || `design-${Date.now()}`,
       title: raw.title || "设计助手输出",
       inputQuestion: payload.inputQuestion || payload.question || "",
@@ -198,6 +202,8 @@
       citations,
       qualityChecks: mapQualityChecks({}, evidenceLevel),
     };
+    result.diagram = resolveDiagramSource(raw, result);
+    return result;
   }
 
   function hasBusinessDesignSignals(items = [], evidence = []) {
@@ -209,7 +215,7 @@
 
   function buildInsufficientDesignOutput(raw = {}, payload = {}, citations = [], evidenceLevel = "low", actions = [], risks = []) {
     const goal = payload.inputQuestion || payload.question || "";
-    return {
+    const result = {
       id: raw.id || `design-${Date.now()}`,
       title: "设计信息不足",
       inputQuestion: goal,
@@ -248,6 +254,75 @@
       citations,
       qualityChecks: mapQualityChecks({}, evidenceLevel),
     };
+    result.diagram = resolveDiagramSource(raw, result);
+    return result;
+  }
+
+  function resolveDiagramSource(raw = {}, mapped = {}) {
+    const explicit = normalizeDiagramSource(
+      raw.diagram || raw.diagram_source || raw.diagramSource || raw.mermaid || raw.mermaidSource || raw.mermaid_source || "",
+    );
+    return explicit || buildFallbackMermaidDiagram(mapped);
+  }
+
+  function normalizeDiagramSource(value) {
+    const text = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/```(?:mermaid)?/gi, "")
+      .trim();
+    if (!text) {
+      return "";
+    }
+    if (/^(flowchart|graph|mindmap|classDiagram|sequenceDiagram|erDiagram|journey|stateDiagram)/.test(text)) {
+      return text;
+    }
+    return "";
+  }
+
+  function buildFallbackMermaidDiagram(result = {}) {
+    const lines = ["flowchart TD"];
+    const goalLabel = escapeMermaidLabel(result.inputQuestion || result.title || "设计输出");
+    lines.push(`GOAL["${goalLabel}"]`);
+
+    const modules = (result.moduleSuggestions || []).slice(0, 4);
+    const functions = (result.functionList || []).slice(0, 6);
+    const useCases = (result.useCases || []).slice(0, 4);
+    const moduleIds = [];
+    const functionIds = [];
+
+    modules.forEach((item, index) => {
+      const nodeId = `M${index + 1}`;
+      moduleIds.push(nodeId);
+      lines.push(`${nodeId}["${escapeMermaidLabel(item.name || `模块 ${index + 1}`)}"]`);
+      lines.push(`GOAL --> ${nodeId}`);
+    });
+
+    functions.forEach((item, index) => {
+      const nodeId = `F${index + 1}`;
+      functionIds.push(nodeId);
+      lines.push(`${nodeId}["${escapeMermaidLabel(item.name || `功能 ${index + 1}`)}"]`);
+      const parent = moduleIds.length ? moduleIds[index % moduleIds.length] : "GOAL";
+      lines.push(`${parent} --> ${nodeId}`);
+    });
+
+    useCases.forEach((item, index) => {
+      const nodeId = `UC${index + 1}`;
+      lines.push(`${nodeId}["${escapeMermaidLabel(item.name || `用例 ${index + 1}`)}"]`);
+      const parent = functionIds.length ? functionIds[index % functionIds.length] : (moduleIds[0] || "GOAL");
+      lines.push(`${parent} --> ${nodeId}`);
+    });
+
+    return lines.join("\n");
+  }
+
+  function escapeMermaidLabel(value) {
+    return String(value || "")
+      .replace(/"/g, "'")
+      .replace(/\n+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 48) || "未命名节点";
   }
 
   function mapFunctionItem(raw = {}, index) {
@@ -374,6 +449,9 @@
       relevanceScore: Number(raw.relevanceScore ?? raw.relevance_score ?? raw.score ?? 0),
       page: raw.page || raw.pageNo || raw.page_no || "",
       segmentId: raw.segmentId || raw.segment_id || raw.id || "",
+      chunkId: raw.chunkId || raw.chunk_id || raw.segmentId || raw.segment_id || raw.id || "",
+      documentId: raw.documentId || raw.document_id || "",
+      sourceName: raw.sourceName || raw.source_name || raw.documentTitle || raw.document_title || raw.title || "",
     };
   }
 
@@ -398,11 +476,21 @@
     if (!citations.length) {
       return "low";
     }
-    const bestScore = Math.max(...citations.map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0)));
-    if (bestScore >= 0.88 && citations.length >= 3) {
+
+    const scores = citations
+      .map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0))
+      .filter((score) => Number.isFinite(score))
+      .sort((a, b) => b - a);
+    const positiveScores = scores.filter((score) => score > 0);
+    if (!positiveScores.length) {
+      return citations.length >= 2 ? "medium" : "low";
+    }
+
+    const bestScore = positiveScores[0];
+    if (bestScore >= 0.5 && citations.length >= 3) {
       return "high";
     }
-    if (bestScore >= 0.65) {
+    if (bestScore >= 0.25 || citations.length >= 2) {
       return "medium";
     }
     return "low";

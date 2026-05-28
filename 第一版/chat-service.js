@@ -258,6 +258,9 @@
       relevanceScore: Number(raw.relevanceScore ?? raw.relevance_score ?? raw.score ?? 0),
       page: raw.page || raw.pageNo || raw.page_no || "",
       segmentId: raw.segmentId || raw.segment_id || raw.id || "",
+      chunkId: raw.chunkId || raw.chunk_id || raw.segmentId || raw.segment_id || raw.id || "",
+      documentId: raw.documentId || raw.document_id || "",
+      sourceName: raw.sourceName || raw.source_name || raw.documentTitle || raw.document_title || raw.title || "",
     };
   }
 
@@ -276,11 +279,21 @@
     if (!citations.length) {
       return "low";
     }
-    const bestScore = Math.max(...citations.map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0)));
-    if (bestScore >= 0.88 && citations.length >= 2) {
+
+    const scores = citations
+      .map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0))
+      .filter((score) => Number.isFinite(score))
+      .sort((a, b) => b - a);
+    const positiveScores = scores.filter((score) => score > 0);
+    if (!positiveScores.length) {
+      return citations.length >= 2 ? "medium" : "low";
+    }
+
+    const bestScore = positiveScores[0];
+    if (bestScore >= 0.5 && citations.length >= 3) {
       return "high";
     }
-    if (bestScore >= 0.65) {
+    if (bestScore >= 0.25 || citations.length >= 2) {
       return "medium";
     }
     return "low";

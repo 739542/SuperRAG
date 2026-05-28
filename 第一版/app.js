@@ -45,6 +45,7 @@ const designState = {
   activeTab: "functions",
   loading: false,
 };
+let mermaidLoaderPromise = null;
 const historyState = {
   loaded: false,
   records: [],
@@ -221,7 +222,7 @@ function bindChatActions() {
 
     const citationButton = event.target.closest("[data-citation-title]");
     if (citationButton) {
-      toast(`原文预览占位：${citationButton.dataset.citationTitle}`);
+      openCitationSource(citationButton);
     }
   });
 
@@ -507,10 +508,12 @@ function renderAnswerCard(message) {
 }
 
 function renderRichText(value) {
-  const lines = String(value || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n");
+  const normalized = normalizeRichTextSource(value);
+  if (!normalized) {
+    return "<p>待补充</p>";
+  }
+
+  const lines = normalized.split("\n");
   const blocks = [];
   let listItems = [];
 
@@ -558,9 +561,49 @@ function renderRichText(value) {
 }
 
 function renderInlineMarkdown(value) {
-  return escapeHtml(value)
+  return escapeHtml(stripMarkdownDecorators(value))
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/(^|[\s(])\*([^*]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>");
+}
+
+function normalizeRichTextSource(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/```(?:[a-zA-Z0-9_-]+)?/g, "")
+    .replace(/^\s{0,3}(#{1,6})([^\s#])/gm, "$1 $2")
+    .replace(/^\s*([*+-])([^\s*+-])/gm, "$1 $2")
+    .replace(/^\s*(\d+)\.([^\s])/gm, "$1. $2")
+    .replace(/^\s*[-*_]{3,}\s*$/gm, "")
+    .trim();
+}
+
+function stripMarkdownDecorators(value) {
+  return String(value || "")
+    .replace(/^\s*#{1,6}\s*/g, "")
+    .replace(/^\s*[-*+]\s+/g, "")
+    .replace(/^\s*\d+\.\s+/g, "")
+    .replace(/^\s*>\s*/g, "")
+    .trim();
+}
+
+function renderRichTextBlock(value, className = "") {
+  const extraClass = className ? ` ${className}` : "";
+  return `<div class="rich-answer${extraClass}">${renderRichText(value)}</div>`;
+}
+
+function renderRichList(items = [], className = "scenario-bullet-list") {
+  const list = Array.isArray(items) ? items.filter((item) => item !== null && item !== undefined && String(item).trim()) : [];
+  if (!list.length) {
+    return '<div class="empty-inline">待补充</div>';
+  }
+
+  return `
+    <ul class="${className}">
+      ${list.map((item) => `<li>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</li>`).join("")}
+    </ul>
+  `;
 }
 
 function getAnswerSections(message) {
@@ -630,30 +673,143 @@ function renderChatCitationPanel() {
 function renderCitationCard(citation) {
   const score = Number(citation.relevanceScore ?? citation.score ?? 0);
   const displayScore = score ? score.toFixed(2) : "0.00";
+  const title = citation.documentTitle || citation.title || "知识库片段";
+  const chunkId = citation.chunkId || citation.segmentId || citation.id || "";
   return `
     <article class="citation-card">
       <div class="citation-card-head">
-        <strong>${escapeHtml(citation.documentTitle || citation.title || "知识库片段")}</strong>
+        <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(displayScore)}</span>
       </div>
       <p>${escapeHtml(citation.snippet || citation.content || "暂无片段摘要。")}</p>
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
-        <button type="button" data-citation-title="${escapeHtml(citation.documentTitle || citation.title || "知识库片段")}">查看原文</button>
+        <button
+          type="button"
+          data-citation-title="${escapeHtml(title)}"
+          data-document-id="${escapeHtml(citation.documentId || citation.document_id || "")}"
+          data-source-name="${escapeHtml(citation.sourceName || citation.source_name || title)}"
+          data-chunk-id="${escapeHtml(chunkId)}"
+        >查看原文</button>
       </div>
     </article>
   `;
+}
+
+async function openCitationSource(button) {
+  const title = button.dataset.citationTitle || "知识库片段";
+  const params = new URLSearchParams();
+  const documentId = button.dataset.documentId || "";
+  const sourceName = button.dataset.sourceName || title;
+  const chunkId = button.dataset.chunkId || "";
+
+  if (documentId) {
+    params.set("document_id", documentId);
+  }
+  if (sourceName) {
+    params.set("source_name", sourceName);
+  }
+  if (chunkId) {
+    params.set("chunk_id", chunkId);
+  }
+
+  if (!params.toString()) {
+    toast("缺少原文定位信息。");
+    return;
+  }
+
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "加载中...";
+
+  try {
+    const payload = await window.SuperRagBackend.requestJson(`/documents/source?${params.toString()}`, {
+      timeoutMs: 30000,
+    });
+    showCitationSourceModal(payload, title);
+  } catch (error) {
+    toast(`原文加载失败：${error.message || error}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
+function showCitationSourceModal(payload, fallbackTitle) {
+  document.querySelector(".source-preview-modal")?.remove();
+
+  const documentInfo = payload.document || {};
+  const chunkInfo = payload.chunk || {};
+  const title = documentInfo.title || fallbackTitle || "知识库原文";
+  const content = payload.content || chunkInfo.content || "暂未找到可展示的原文内容。";
+  const chunkContent = chunkInfo.content || "";
+  const sourceType = payload.sourceType || "knowledge";
+  const chunkLabel = chunkInfo.id ? `片段：${chunkInfo.id}` : "片段：未标注";
+
+  const modal = document.createElement("div");
+  modal.className = "modal-backdrop source-preview-modal";
+  modal.innerHTML = `
+    <section class="modal-panel source-preview-panel" role="dialog" aria-modal="true" aria-label="引用原文">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">SOURCE PREVIEW</p>
+          <h2>${escapeHtml(title)}</h2>
+        </div>
+        <button class="icon-button" type="button" data-source-preview-close aria-label="关闭">×</button>
+      </div>
+      <div class="source-preview-meta">
+        <span>${escapeHtml(sourceType === "uploaded" ? "上传原文" : "知识库片段")}</span>
+        <span>${escapeHtml(chunkLabel)}</span>
+        ${documentInfo.id ? `<span>文档 ID：${escapeHtml(documentInfo.id)}</span>` : ""}
+      </div>
+      <div class="source-preview-body">
+        ${
+          chunkContent
+            ? `<section class="source-preview-chunk">
+                <h3>命中片段</h3>
+                <pre>${escapeHtml(chunkContent)}</pre>
+              </section>`
+            : ""
+        }
+        <section class="source-preview-content">
+          <h3>原文内容</h3>
+          <pre>${escapeHtml(content)}</pre>
+        </section>
+      </div>
+      <div class="modal-actions">
+        <button type="button" data-source-preview-close>关闭</button>
+      </div>
+    </section>
+  `;
+
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal || event.target.closest("[data-source-preview-close]")) {
+      modal.remove();
+    }
+  });
+
+  document.body.appendChild(modal);
 }
 
 function inferEvidenceLevel(citations = []) {
   if (!citations.length) {
     return "low";
   }
-  const bestScore = Math.max(...citations.map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0)));
-  if (bestScore >= 0.88 && citations.length >= 2) {
+
+  const scores = citations
+    .map((citation) => Number(citation.relevanceScore ?? citation.score ?? 0))
+    .filter((score) => Number.isFinite(score))
+    .sort((a, b) => b - a);
+  const positiveScores = scores.filter((score) => score > 0);
+  if (!positiveScores.length) {
+    return citations.length >= 2 ? "medium" : "low";
+  }
+
+  const bestScore = positiveScores[0];
+  if (bestScore >= 0.5 && citations.length >= 3) {
     return "high";
   }
-  if (bestScore >= 0.65) {
+  if (bestScore >= 0.25 || citations.length >= 2) {
     return "medium";
   }
   return "low";
@@ -855,12 +1011,12 @@ function renderTrainingResult(result) {
       <div>
         <p class="eyebrow">${escapeHtml(result.topic)}</p>
         <h3>结论摘要</h3>
-        <p>${escapeHtml(result.summary)}</p>
+        ${renderRichTextBlock(result.summary, "compact-rich-answer")}
       </div>
     </section>
     <section class="scenario-section">
       <h3>背景说明</h3>
-      <p>${escapeHtml(result.background)}</p>
+      ${renderRichTextBlock(result.background, "compact-rich-answer")}
     </section>
     <section class="scenario-section">
       <h3>核心术语解释</h3>
@@ -884,8 +1040,8 @@ function renderTrainingResult(result) {
 function renderTermCard(item) {
   return `
     <article class="term-card">
-      <strong>${escapeHtml(item.term)}</strong>
-      <p>${escapeHtml(item.explanation)}</p>
+      <strong>${escapeHtml(stripMarkdownDecorators(item.term))}</strong>
+      ${renderRichTextBlock(item.explanation, "compact-rich-answer")}
     </article>
   `;
 }
@@ -893,10 +1049,10 @@ function renderTermCard(item) {
 function renderLearningStep(item) {
   return `
     <article class="timeline-step">
-      <span>${escapeHtml(item.day)}</span>
+      <span>${escapeHtml(stripMarkdownDecorators(item.day))}</span>
       <div>
-        <strong>${escapeHtml(item.title)}</strong>
-        <p>${escapeHtml(item.description)}</p>
+        <strong>${escapeHtml(stripMarkdownDecorators(item.title))}</strong>
+        ${renderRichTextBlock(item.description, "compact-rich-answer")}
       </div>
     </article>
   `;
@@ -906,10 +1062,10 @@ function renderRecommendedDoc(item) {
   return `
     <article class="recommended-doc-card">
       <div class="recommended-doc-head">
-        <strong>${escapeHtml(item.title)}</strong>
+        <strong>${escapeHtml(stripMarkdownDecorators(item.title))}</strong>
         <span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority)}</span>
       </div>
-      <p>${escapeHtml(item.reason)}</p>
+      ${renderRichTextBlock(item.reason, "compact-rich-answer")}
       <small>预计阅读时间：${escapeHtml(item.estimatedReadTime)}</small>
     </article>
   `;
@@ -1004,7 +1160,7 @@ function renderInfoBlock(title, content) {
   return `
     <article class="scenario-section">
       <h3>${escapeHtml(title)}</h3>
-      <p>${escapeHtml(content)}</p>
+      ${renderRichTextBlock(content, "compact-rich-answer")}
     </article>
   `;
 }
@@ -1013,9 +1169,7 @@ function renderListBlock(title, items = []) {
   return `
     <article class="scenario-section">
       <h3>${escapeHtml(title)}</h3>
-      <ul class="scenario-bullet-list">
-        ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-      </ul>
+      ${renderRichList(items)}
     </article>
   `;
 }
@@ -1059,14 +1213,14 @@ function renderHandoverRisk(risk) {
   return `
     <article class="risk-card">
       <div class="risk-card-head">
-        <strong>${escapeHtml(risk.type)}</strong>
+        <strong>${escapeHtml(stripMarkdownDecorators(risk.type))}</strong>
         <span>风险</span>
       </div>
-      <p>${escapeHtml(risk.description)}</p>
+      ${renderRichTextBlock(risk.description, "compact-rich-answer")}
       <dl>
-        <div><dt>影响范围</dt><dd>${escapeHtml(risk.impact)}</dd></div>
-        <div><dt>建议处理</dt><dd>${escapeHtml(risk.suggestion)}</dd></div>
-        <div><dt>证据来源</dt><dd>${escapeHtml(risk.evidenceSource)}</dd></div>
+        <div><dt>影响范围</dt><dd>${renderRichTextBlock(risk.impact, "compact-rich-answer inline-rich-answer")}</dd></div>
+        <div><dt>建议处理</dt><dd>${renderRichTextBlock(risk.suggestion, "compact-rich-answer inline-rich-answer")}</dd></div>
+        <div><dt>证据来源</dt><dd>${escapeHtml(stripMarkdownDecorators(risk.evidenceSource))}</dd></div>
       </dl>
     </article>
   `;
@@ -1081,8 +1235,8 @@ function renderRoleBlock(roles = []) {
           .map(
             (item) => `
               <div>
-                <strong>${escapeHtml(item.role)}</strong>
-                <p>${escapeHtml(item.responsibility)}</p>
+                <strong>${escapeHtml(stripMarkdownDecorators(item.role))}</strong>
+                ${renderRichTextBlock(item.responsibility, "compact-rich-answer")}
               </div>
             `,
           )
@@ -1181,8 +1335,8 @@ function renderDesignResult(result) {
     <section class="design-summary-card">
       <div>
         <p class="eyebrow">${escapeHtml(result.outputTypeLabel || result.outputType)}</p>
-        <h3>${escapeHtml(result.title)}</h3>
-        <p>${escapeHtml(result.inputQuestion)}</p>
+        <h3>${escapeHtml(stripMarkdownDecorators(result.title))}</h3>
+        ${renderRichTextBlock(result.inputQuestion, "compact-rich-answer")}
       </div>
       <div class="design-summary-meta">
         <span>${escapeHtml(result.project)}</span>
@@ -1192,6 +1346,7 @@ function renderDesignResult(result) {
     </section>
     ${renderDesignTabContent(result)}
   `;
+  scheduleDesignDiagramRender(result);
 }
 
 function renderDesignTabContent(result) {
@@ -1199,6 +1354,7 @@ function renderDesignTabContent(result) {
     functions: renderDesignFunctionTable,
     useCases: renderDesignUseCases,
     modules: renderDesignModules,
+    diagram: renderDesignDiagram,
     risks: renderDesignRisks,
     actions: renderDesignNextActions,
   };
@@ -1227,10 +1383,10 @@ function renderDesignFunctionTable(result) {
                 (item) => `
                   <tr>
                     <td>${escapeHtml(item.id)}</td>
-                    <td><strong>${escapeHtml(item.name)}</strong></td>
-                    <td>${escapeHtml(item.description)}</td>
+                    <td><strong>${escapeHtml(stripMarkdownDecorators(item.name))}</strong></td>
+                    <td>${renderRichTextBlock(item.description, "compact-rich-answer inline-rich-answer")}</td>
                     <td><span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority)}</span></td>
-                    <td>${escapeHtml(item.relatedDocument)}</td>
+                    <td>${escapeHtml(stripMarkdownDecorators(item.relatedDocument))}</td>
                   </tr>
                 `,
               )
@@ -1253,10 +1409,10 @@ function renderDesignUseCases(result) {
               <article class="use-case-card">
                 <div class="use-case-head">
                   <span>${escapeHtml(item.id)}</span>
-                  <strong>${escapeHtml(item.name)}</strong>
+                  <strong>${escapeHtml(stripMarkdownDecorators(item.name))}</strong>
                 </div>
                 <dl class="design-dl">
-                  <div><dt>参与者</dt><dd>${escapeHtml(item.actor)}</dd></div>
+                  <div><dt>参与者</dt><dd>${escapeHtml(stripMarkdownDecorators(item.actor))}</dd></div>
                   <div><dt>前置条件</dt><dd>${renderTextOrList(item.preconditions)}</dd></div>
                   <div><dt>主成功场景</dt><dd>${renderTextOrList(item.mainSuccessScenario)}</dd></div>
                   <div><dt>扩展场景</dt><dd>${renderTextOrList(item.extensionScenarios)}</dd></div>
@@ -1281,8 +1437,8 @@ function renderDesignModules(result) {
           .map(
             (item) => `
               <article class="module-card">
-                <strong>${escapeHtml(item.name)}</strong>
-                <p>${escapeHtml(item.responsibility)}</p>
+                <strong>${escapeHtml(stripMarkdownDecorators(item.name))}</strong>
+                ${renderRichTextBlock(item.responsibility, "compact-rich-answer")}
                 <dl class="design-dl compact">
                   <div><dt>输入</dt><dd>${renderTextOrList(item.input)}</dd></div>
                   <div><dt>输出</dt><dd>${renderTextOrList(item.output)}</dd></div>
@@ -1307,19 +1463,41 @@ function renderDesignRisks(result) {
             (item) => `
               <article class="risk-card design-risk-card">
                 <div class="risk-card-head">
-                  <strong>${escapeHtml(item.description)}</strong>
+                  <strong>${escapeHtml(stripMarkdownDecorators(item.description))}</strong>
                   <span>${escapeHtml(item.needsReview ? "需复核" : "可跟进")}</span>
                 </div>
                 <dl>
-                  <div><dt>影响范围</dt><dd>${escapeHtml(item.impact)}</dd></div>
-                  <div><dt>建议补充材料</dt><dd>${escapeHtml(item.supplement)}</dd></div>
-                  <div><dt>置信度</dt><dd>${escapeHtml(item.confidence)}</dd></div>
+                  <div><dt>影响范围</dt><dd>${renderRichTextBlock(item.impact, "compact-rich-answer inline-rich-answer")}</dd></div>
+                  <div><dt>建议补充材料</dt><dd>${renderRichTextBlock(item.supplement, "compact-rich-answer inline-rich-answer")}</dd></div>
+                  <div><dt>置信度</dt><dd>${escapeHtml(stripMarkdownDecorators(item.confidence))}</dd></div>
                 </dl>
               </article>
             `,
           )
           .join("")}
       </div>
+    </section>
+  `;
+}
+
+function renderDesignDiagram(result) {
+  const diagramSource = String(result.diagram || "").trim();
+  return `
+    <section class="scenario-section design-diagram-section">
+      <div class="design-diagram-head">
+        <div>
+          <h3>Mermaid 图示输出</h3>
+          <p>当前先渲染 Mermaid 第一版图示，渲染失败时保留源码，便于继续调整提示词或手工修正。</p>
+        </div>
+        <button type="button" class="secondary-button" data-design-action="copy-diagram">复制图示源码</button>
+      </div>
+      <div class="design-diagram-host" id="design-diagram-host">
+        <div class="empty-inline">正在准备图示渲染容器...</div>
+      </div>
+      <details class="diagram-source-panel">
+        <summary>查看 Mermaid 源码</summary>
+        <pre class="diagram-source-code" id="design-diagram-source">${escapeHtml(diagramSource || "flowchart TD\nGOAL[\"设计输出\"]")}</pre>
+      </details>
     </section>
   `;
 }
@@ -1344,11 +1522,11 @@ function renderDesignNextActions(result) {
               .map(
                 (item) => `
                   <tr>
-                    <td><strong>${escapeHtml(item.action)}</strong></td>
+                    <td><strong>${escapeHtml(stripMarkdownDecorators(item.action))}</strong></td>
                     <td><span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority)}</span></td>
-                    <td>${escapeHtml(item.owner)}</td>
-                    <td>${escapeHtml(item.dependentDocument)}</td>
-                    <td>${escapeHtml(item.doneDefinition)}</td>
+                    <td>${escapeHtml(stripMarkdownDecorators(item.owner))}</td>
+                    <td>${escapeHtml(stripMarkdownDecorators(item.dependentDocument))}</td>
+                    <td>${renderRichTextBlock(item.doneDefinition, "compact-rich-answer inline-rich-answer")}</td>
                   </tr>
                 `,
               )
@@ -1431,13 +1609,9 @@ function renderQualityCheck(item) {
 
 function renderTextOrList(value) {
   if (Array.isArray(value)) {
-    return `
-      <ul class="scenario-bullet-list compact-list">
-        ${value.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-      </ul>
-    `;
+    return renderRichList(value, "scenario-bullet-list compact-list");
   }
-  return escapeHtml(value || "待补充");
+  return renderRichTextBlock(value, "compact-rich-answer inline-rich-answer");
 }
 
 async function handleDesignAction(action) {
@@ -1459,6 +1633,21 @@ async function handleDesignAction(action) {
       return;
     }
     toast("当前浏览器不支持自动复制，请手动复制页面内容。");
+    return;
+  }
+
+  if (action === "copy-diagram") {
+    const diagramText = String(designState.result.diagram || "").trim();
+    if (!diagramText) {
+      toast("当前没有可复制的图示源码。");
+      return;
+    }
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(diagramText);
+      toast("Mermaid 图示源码已复制。");
+      return;
+    }
+    toast("当前浏览器不支持自动复制，请手动复制图示源码。");
     return;
   }
 
@@ -1494,12 +1683,138 @@ function buildDesignMarkdown(result) {
     "",
     "## 后续动作建议",
     ...(result.nextActions || []).map((item) => `- ${item.action}（${item.priority}，负责人：${item.owner}）`),
+    "",
+    "## Mermaid 图示",
+    "```mermaid",
+    result.diagram || 'flowchart TD\nGOAL["设计输出"]',
+    "```",
   ];
   return lines.join("\n");
 }
 
 function formatMarkdownValue(value) {
   return Array.isArray(value) ? value.join("；") : String(value || "待补充");
+}
+
+function scheduleDesignDiagramRender(result) {
+  if (!result || designState.activeTab !== "diagram") {
+    return;
+  }
+  const host = document.getElementById("design-diagram-host");
+  if (!host) {
+    return;
+  }
+
+  const diagram = String(result.diagram || "").trim();
+  if (!diagram) {
+    host.innerHTML = '<div class="empty-inline">当前没有可渲染的 Mermaid 图示源码。</div>';
+    return;
+  }
+
+  const renderToken = `diagram-${Date.now()}`;
+  host.dataset.renderToken = renderToken;
+  host.innerHTML = '<div class="diagram-loading">正在渲染 Mermaid 图示...</div>';
+  renderMermaidIntoHost(host, diagram, renderToken);
+}
+
+async function renderMermaidIntoHost(host, source, renderToken) {
+  try {
+    const mermaid = await ensureMermaidLibrary();
+    if (!host.isConnected || host.dataset.renderToken !== renderToken) {
+      return;
+    }
+    const renderId = `superrag-mermaid-${Date.now()}`;
+    const { svg } = await mermaid.render(renderId, source);
+    if (!host.isConnected || host.dataset.renderToken !== renderToken) {
+      return;
+    }
+    host.innerHTML = `<div class="mermaid-rendered">${svg}</div>`;
+  } catch (error) {
+    if (!host.isConnected || host.dataset.renderToken !== renderToken) {
+      return;
+    }
+    host.innerHTML = `
+      <div class="mermaid-error-state">
+        <strong>图示渲染失败</strong>
+        <p>${escapeHtml(error.message || String(error))}</p>
+      </div>
+    `;
+  }
+}
+
+async function ensureMermaidLibrary() {
+  if (window.mermaid) {
+    initializeMermaidLibrary(window.mermaid);
+    return window.mermaid;
+  }
+
+  if (!mermaidLoaderPromise) {
+    mermaidLoaderPromise = loadScript("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js")
+      .then(() => {
+        if (!window.mermaid) {
+          throw new Error("Mermaid 脚本已加载，但全局对象不可用。");
+        }
+        initializeMermaidLibrary(window.mermaid);
+        return window.mermaid;
+      })
+      .catch((error) => {
+        mermaidLoaderPromise = null;
+        throw error;
+      });
+  }
+
+  return mermaidLoaderPromise;
+}
+
+function initializeMermaidLibrary(mermaid) {
+  if (mermaid.__superragInitialized) {
+    return;
+  }
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "base",
+    themeVariables: {
+      primaryColor: "#eef6ff",
+      primaryBorderColor: "#8fb8f8",
+      primaryTextColor: "#1f2937",
+      lineColor: "#4f7db8",
+      secondaryColor: "#ffffff",
+      tertiaryColor: "#f8fbff",
+      fontFamily: "Segoe UI, PingFang SC, Microsoft YaHei, sans-serif",
+    },
+    flowchart: {
+      curve: "basis",
+      htmlLabels: true,
+    },
+  });
+  mermaid.__superragInitialized = true;
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-dynamic-src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === "true") {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("图示脚本加载失败。")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.dataset.dynamicSrc = src;
+    script.addEventListener("load", () => {
+      script.dataset.loaded = "true";
+      resolve();
+    }, { once: true });
+    script.addEventListener("error", () => reject(new Error("无法加载 Mermaid 渲染库，请检查网络或稍后重试。")), { once: true });
+    document.head.appendChild(script);
+  });
 }
 
 async function renderHistoryPage() {
@@ -1925,16 +2240,24 @@ function renderLoadingState(message) {
 
 function renderScenarioCitation(citation) {
   const score = Number(citation.relevanceScore || 0);
+  const title = citation.documentTitle || citation.title || "知识库片段";
+  const chunkId = citation.chunkId || citation.segmentId || citation.id || "";
   return `
     <article class="citation-card">
       <div class="citation-card-head">
-        <strong>${escapeHtml(citation.documentTitle)}</strong>
+        <strong>${escapeHtml(title)}</strong>
         <span>${score ? score.toFixed(2) : "0.00"}</span>
       </div>
       <p>${escapeHtml(citation.snippet)}</p>
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
-        <button type="button" data-citation-title="${escapeHtml(citation.documentTitle)}">查看原文</button>
+        <button
+          type="button"
+          data-citation-title="${escapeHtml(title)}"
+          data-document-id="${escapeHtml(citation.documentId || citation.document_id || "")}"
+          data-source-name="${escapeHtml(citation.sourceName || citation.source_name || title)}"
+          data-chunk-id="${escapeHtml(chunkId)}"
+        >查看原文</button>
       </div>
     </article>
   `;

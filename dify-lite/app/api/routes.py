@@ -74,6 +74,23 @@ def documents():
     return jsonify({"items": frontend_service.list_documents()})
 
 
+@api_blueprint.route("/api/documents/source", methods=["GET", "OPTIONS"])
+def document_source():
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    try:
+        result = frontend_service.get_document_source(
+            document_id=(request.args.get("document_id") or "").strip(),
+            chunk_id=(request.args.get("chunk_id") or "").strip(),
+            source_name=(request.args.get("source_name") or "").strip(),
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
 @api_blueprint.route("/api/documents/<document_id>", methods=["DELETE", "OPTIONS"])
 def delete_document(document_id: str):
     if request.method == "OPTIONS":
@@ -157,11 +174,19 @@ def retrieval_query():
 
     payload = _json()
     try:
-        result = retrieval_service.retrieve(
-            collection_id=(payload.get("collection_id") or "").strip(),
-            query=(payload.get("query") or "").strip(),
-            top_k=int(payload.get("top_k", 5)),
-        )
+        queries = payload.get("queries") or []
+        if queries:
+            result = retrieval_service.retrieve_many(
+                collection_id=(payload.get("collection_id") or "").strip(),
+                queries=[str(item) for item in queries],
+                top_k=int(payload.get("top_k", 5)),
+            )
+        else:
+            result = retrieval_service.retrieve(
+                collection_id=(payload.get("collection_id") or "").strip(),
+                query=(payload.get("query") or "").strip(),
+                top_k=int(payload.get("top_k", 5)),
+            )
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -181,6 +206,8 @@ def chat_completions():
             top_k=int(payload.get("top_k", 5)),
             history=payload.get("history") or [],
             model_name=payload.get("model"),
+            scene=(payload.get("scene") or "general").strip() or "general",
+            context=payload.get("context") if isinstance(payload.get("context"), dict) else None,
         )
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400

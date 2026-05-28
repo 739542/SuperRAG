@@ -79,7 +79,7 @@ class WeaviateStore:
             f'where:{{path:["collection_id"],operator:Equal,valueText:"{collection_id}"}} '
             f"nearVector:{{vector:[{vector_literal}]}} "
             f"limit:{limit}"
-            ") { chunk_id content source_name metadata_json "
+            ") { chunk_id document_id source_name content metadata_json "
             "_additional { id distance certainty } } } }"
         )
         with httpx.Client(timeout=30.0) as client:

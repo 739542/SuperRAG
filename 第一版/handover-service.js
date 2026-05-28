@@ -127,6 +127,9 @@
       relevanceScore: Number(raw.relevanceScore ?? raw.relevance_score ?? raw.score ?? 0),
       page: raw.page || raw.pageNo || raw.page_no || "",
       segmentId: raw.segmentId || raw.segment_id || raw.id || "",
+      chunkId: raw.chunkId || raw.chunk_id || raw.segmentId || raw.segment_id || raw.id || "",
+      documentId: raw.documentId || raw.document_id || "",
+      sourceName: raw.sourceName || raw.source_name || raw.documentTitle || raw.document_title || raw.title || "",
     };
   }
 

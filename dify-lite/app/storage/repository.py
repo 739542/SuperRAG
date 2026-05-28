@@ -164,6 +164,26 @@ class Repository:
             ).fetchone()
         return dict(row) if row else None
 
+    def find_document_by_source_name(self, source_name: str) -> dict | None:
+        value = source_name.strip()
+        if not value:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT d.id, d.collection_id, c.name AS collection_name, d.filename, d.original_name,
+                       d.title, d.doc_type, d.project, d.version, d.scene, d.summary, d.status,
+                       d.content_type, d.char_count, d.chunk_count, d.created_at
+                FROM documents d
+                LEFT JOIN collections c ON c.id = d.collection_id
+                WHERE d.original_name = ? OR d.title = ? OR d.filename = ?
+                ORDER BY d.created_at DESC
+                LIMIT 1
+                """,
+                (value, value, value),
+            ).fetchone()
+        return dict(row) if row else None
+
     def delete_document(self, document_id: str) -> dict | None:
         document = self.get_document(document_id)
         if not document:
@@ -210,3 +230,40 @@ class Repository:
             record["metadata"] = json.loads(record.pop("metadata_json"))
             records.append(record)
         return records
+
+    def get_chunks_for_document(self, document_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, document_id, collection_id, position, content,
+                       cleaned_content, token_count, metadata_json
+                FROM chunks
+                WHERE document_id = ?
+                ORDER BY position ASC
+                """,
+                (document_id,),
+            ).fetchall()
+        records = []
+        for row in rows:
+            record = dict(row)
+            record["metadata"] = json.loads(record.pop("metadata_json"))
+            records.append(record)
+        return records
+
+    def get_chunk(self, chunk_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, document_id, collection_id, position, content,
+                       cleaned_content, token_count, metadata_json
+                FROM chunks
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (chunk_id,),
+            ).fetchone()
+        if not row:
+            return None
+        record = dict(row)
+        record["metadata"] = json.loads(record.pop("metadata_json"))
+        return record
