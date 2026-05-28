@@ -128,6 +128,9 @@ class FrontendService:
             "evidenceCollector": answer.get("evidence_collector", {}),
             "answerGenerator": answer.get("answer_generator", {}),
             "validator": answer.get("validator", {}),
+            "missingInformation": answer.get("missing_information", []),
+            "implementationSuggestions": answer.get("implementation_suggestions", []),
+            "uncertainPoints": answer.get("uncertain_points", []),
             "collection": {
                 "id": collection["id"],
                 "name": collection["name"],

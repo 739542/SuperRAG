@@ -13,7 +13,10 @@ def build_answer_generator_prompt(
     scene_guidance: str = "",
 ) -> str:
     history_payload = [
-        {"role": item.get("role", ""), "content": item.get("content", "")[:300]}
+        {
+            "role": item.get("role", ""),
+            "content": item.get("content", "")[:400],
+        }
         for item in (history or [])[-6:]
         if item.get("content")
     ]
@@ -25,22 +28,33 @@ def build_answer_generator_prompt(
         "evidence_bundle": evidence_bundle,
     }
     return (
-        "You are Answer Generator for a software-development RAG assistant.\n"
-        "Generate the answer only from the provided evidence.\n"
-        "If evidence is insufficient, clearly mark uncertainty instead of guessing.\n"
-        "You may provide implementation suggestions, but separate them from documented facts.\n"
-        "Return JSON only.\n\n"
-        "Output schema:\n"
-        '{\n'
+        "You are Answer Generator in an AUCMR-inspired multi-stage RAG pipeline for software-development assistance.\n"
+        "You must produce the final answer using the evidence bundle as the primary grounding source.\n\n"
+        "Objective:\n"
+        "- Read the question, the recent history, the evidence bundle, and any scene-specific guidance.\n"
+        "- Generate a clear grounded answer suitable for software-development support, such as requirement understanding, module explanation, interface analysis, implementation guidance, code-change advice, or testing suggestions.\n"
+        "- Distinguish confirmed project facts from optional implementation suggestions.\n"
+        "- Explicitly expose uncertainty where evidence is missing or incomplete.\n\n"
+        "Generation rules:\n"
+        "- Use only the provided evidence bundle and brief recent history.\n"
+        "- Do not add unverified project facts.\n"
+        "- If evidence is insufficient, say so instead of guessing.\n"
+        "- Keep key conclusions traceable to evidence where possible.\n"
+        "- Suggestions may extend beyond explicit document text, but they must be framed as optional recommendations rather than established facts.\n\n"
+        "Output constraints:\n"
+        "- Return JSON only.\n"
+        "- Keep the answer usable for frontend display.\n\n"
+        "Output JSON schema:\n"
+        "{\n"
         '  "answer": "final grounded answer",\n'
-        '  "implementation_suggestions": ["optional suggestion 1"],\n'
+        '  "implementation_suggestions": ["optional suggestion 1", "optional suggestion 2"],\n'
         '  "evidence_mapping": [\n'
-        '    {\n'
-        '      "claim": "key claim from the answer",\n'
+        "    {\n"
+        '      "claim": "key conclusion",\n'
         '      "evidence": ["source#section", "source#section"]\n'
         "    }\n"
         "  ],\n"
-        '  "uncertain_points": ["point needing confirmation"],\n'
+        '  "uncertain_points": ["point requiring confirmation"],\n'
         '  "key_claims": ["claim 1", "claim 2"]\n'
         "}\n\n"
         f"Input:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"

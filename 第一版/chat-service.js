@@ -1,10 +1,9 @@
 /**
  * Chat service and adapter layer.
  *
- * The intelligent QA page should call window.chatService only. It currently
- * returns mock data through SuperRagApi. When the real backend is ready,
- * replace internals here while preserving citations, evidenceLevel and
- * structuredAnswer in the returned shape.
+ * The intelligent QA page should call window.chatService only.
+ * This adapter keeps the frontend-facing message shape stable while
+ * exposing the new AUCMR-inspired multi-stage pipeline fields.
  */
 (function () {
   function clone(value) {
@@ -19,6 +18,9 @@
   }
 
   function getBackend() {
+    if (!window.SuperRagBackend) {
+      throw new Error("SuperRagBackend is not loaded");
+    }
     return window.SuperRagBackend;
   }
 
@@ -115,14 +117,25 @@
         createdAt: nowText(),
         evidenceLevel: "low",
         structuredAnswer: {
-          conclusion: "后端智能问答调用失败，当前没有使用 mock 结果替代真实回答。",
+          conclusion: "后端智能问答调用失败，当前没有可用的正式回答。",
           evidence: message,
-          suggestion: "请检查模型 API 配置、后端进程状态和浏览器缓存，然后重新提问。",
-          uncertainty: "本次回答不是模型生成结果。"
+          suggestion: "请检查模型 API 配置、后端进程状态和浏览器缓存后再重试。",
+          uncertainty: "本次结果不是正常生成的回答。",
         },
         citations: [],
         citationItems: [],
         answerMode: payload.answerMode || "evidence",
+        pipelineVersion: "",
+        pipelineSteps: [],
+        pipeline: {},
+        queryDesigner: {},
+        retriever: {},
+        evidenceCollector: {},
+        answerGenerator: {},
+        validator: {},
+        missingInformation: [],
+        implementationSuggestions: [],
+        uncertainPoints: [message],
       });
     }
   }
@@ -189,6 +202,7 @@
 
   function mapBackendAnswerToMessage(raw = {}) {
     const citationItems = (raw.citationItems || raw.citationsDetail || raw.citation_items || []).map(mapBackendCitationToCitation);
+    const evidenceLevel = mapEvidenceLevel(raw.evidenceLevel || raw.evidence_level || inferEvidenceLevel(citationItems));
     const structuredAnswer =
       raw.structuredAnswer ||
       raw.structured_answer ||
@@ -202,18 +216,45 @@
       role: "assistant",
       content: raw.content || raw.answer || structuredAnswer.conclusion || "",
       createdAt: raw.createdAt || raw.created_at || nowText(),
-      evidenceLevel: mapEvidenceLevel(raw.evidenceLevel || raw.evidence_level || inferEvidenceLevel(citationItems)),
+      evidenceLevel,
       structuredAnswer,
       citations: raw.citations || citationItems.map((citation) => citation.id),
       citationItems,
+      pipelineVersion: raw.pipelineVersion || raw.pipeline_version || "",
+      pipelineSteps: raw.pipelineSteps || raw.pipeline_steps || [],
+      pipeline: raw.pipeline || {},
+      queryDesigner: raw.queryDesigner || raw.query_designer || {},
+      retriever: raw.retriever || raw.retrieval || {},
+      evidenceCollector: raw.evidenceCollector || raw.evidence_collector || {},
+      answerGenerator: raw.answerGenerator || raw.answer_generator || {},
+      validator: raw.validator || {},
+      missingInformation: raw.missingInformation || raw.missing_information || [],
+      implementationSuggestions: raw.implementationSuggestions || raw.implementation_suggestions || [],
+      uncertainPoints: raw.uncertainPoints || raw.uncertain_points || [],
+      evidence: raw.evidence || [],
+      risks: raw.risks || [],
+      nextActions: raw.nextActions || [],
       answerMode: raw.answerMode || raw.answer_mode || "evidence",
     };
   }
 
   function mapSceneResultToMessage(raw = {}, payload = {}) {
     const citations = (raw.citations || []).map(mapBackendCitationToCitation);
-    const evidenceLevel = inferEvidenceLevel(citations);
+    const evidenceLevel = mapEvidenceLevel(raw.evidenceLevel || raw.evidence_level || inferEvidenceLevel(citations));
     const content = raw.summary || raw.answer || "";
+    const structuredAnswer =
+      raw.structuredAnswer ||
+      raw.structured_answer ||
+      buildStructuredAnswer(
+        {
+          ...raw,
+          answer: content,
+          implementation_suggestions: raw.implementationSuggestions || raw.implementation_suggestions || raw.nextActions || [],
+          uncertain_points: raw.uncertainPoints || raw.uncertain_points || raw.risks || [],
+        },
+        citations,
+      );
+
     return {
       id: raw.id || `answer-${Date.now()}`,
       sessionId: payload.sessionId || "",
@@ -221,32 +262,59 @@
       content,
       createdAt: nowText(),
       evidenceLevel,
-      structuredAnswer: {
-        conclusion: content,
-        evidence: (raw.evidence || []).join("\n") || citations.map((citation) => citation.snippet).join("\n"),
-        suggestion: (raw.nextActions || []).join("\n") || "继续补充相关知识文档后再次提问。",
-        uncertainty: (raw.risks || []).join("\n") || raw.warning || "",
-      },
+      structuredAnswer,
       citations: citations.map((citation) => citation.id),
       citationItems: citations,
       evidence: raw.evidence || [],
       risks: raw.risks || [],
       nextActions: raw.nextActions || [],
+      pipelineVersion: raw.pipelineVersion || raw.pipeline_version || "",
+      pipelineSteps: raw.pipelineSteps || raw.pipeline_steps || [],
+      pipeline: raw.pipeline || {},
+      queryDesigner: raw.queryDesigner || raw.query_designer || {},
+      retriever: raw.retriever || raw.retrieval || {},
+      evidenceCollector: raw.evidenceCollector || raw.evidence_collector || {},
+      answerGenerator: raw.answerGenerator || raw.answer_generator || {},
+      validator: raw.validator || {},
+      missingInformation: raw.missingInformation || raw.missing_information || [],
+      implementationSuggestions: raw.implementationSuggestions || raw.implementation_suggestions || [],
+      uncertainPoints: raw.uncertainPoints || raw.uncertain_points || [],
       answerMode: payload.answerMode || "evidence",
     };
   }
 
   function buildStructuredAnswer(raw, citationItems) {
     const content = raw.content || raw.answer || "当前暂无回答内容。";
-    const citationSummary = citationItems
-      .slice(0, 2)
-      .map((citation) => citation.snippet)
-      .join("；");
+    const evidenceLines = []
+      .concat(raw.evidence || [])
+      .concat(citationItems.slice(0, 3).map((citation) => citation.snippet))
+      .filter((item) => String(item || "").trim());
+    const suggestionLines = []
+      .concat(raw.implementationSuggestions || raw.implementation_suggestions || [])
+      .concat(raw.nextActions || [])
+      .filter((item) => String(item || "").trim());
+    const uncertaintyLines = []
+      .concat(raw.uncertainPoints || raw.uncertain_points || [])
+      .concat(raw.missingInformation || raw.missing_information || [])
+      .concat(raw.risks || [])
+      .filter((item) => String(item || "").trim());
+    const validator = raw.validator || {};
+
+    if (Array.isArray(validator.unsupported_claims) && validator.unsupported_claims.length) {
+      uncertaintyLines.push(`Unsupported claims: ${validator.unsupported_claims.join("; ")}`);
+    }
+    if (Array.isArray(validator.uncertain_claims) && validator.uncertain_claims.length) {
+      uncertaintyLines.push(`Uncertain claims: ${validator.uncertain_claims.join("; ")}`);
+    }
+    if (raw.pipelineVersion || raw.pipeline_version) {
+      suggestionLines.push(`Pipeline version: ${raw.pipelineVersion || raw.pipeline_version}`);
+    }
+
     return {
       conclusion: content,
-      evidence: raw.evidence?.[0] || citationSummary || "当前回答没有足够引用片段。",
-      suggestion: raw.nextActions?.[0] || "建议继续补充相关文档，并在正式结论前核对引用证据。",
-      uncertainty: raw.risks?.[0] || "该回答基于当前知识库片段生成，未入库资料不会被覆盖。",
+      evidence: evidenceLines.join("\n") || "当前回答没有足够的可引用证据。",
+      suggestion: suggestionLines.join("\n") || "建议继续补充相关项目文档后再确认结论。",
+      uncertainty: uncertaintyLines.join("\n") || "当前没有识别到明显的不确定项。",
     };
   }
 

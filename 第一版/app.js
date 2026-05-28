@@ -3080,3 +3080,134 @@ function escapeHtml(input) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+
+function renderAnswerCard(message) {
+  const sections = getAnswerSections(message);
+  const evidenceLevel = message.evidenceLevel || inferEvidenceLevel(message.citationItems || []);
+  const answerMode = getAnswerModeLabel(message.answerMode || document.getElementById("chat-answer-mode")?.value || "evidence");
+  const validatorBlock = renderValidatorSummary(message.validator);
+  const pipelineBlock = renderPipelineSummary(message);
+
+  return `
+    <article class="answer-card chat-message">
+      <div class="answer-card-head">
+        <div>
+          <p class="eyebrow">RAG Answer</p>
+          <h2>Knowledge-grounded answer</h2>
+        </div>
+        <div class="answer-card-tags">
+          <span>${escapeHtml(answerMode)}</span>
+          ${renderEvidenceLevelBadge(evidenceLevel)}
+        </div>
+      </div>
+      <div class="answer-section conclusion">
+        <h3>Conclusion</h3>
+        <div class="rich-answer">${renderRichText(sections.conclusion)}</div>
+      </div>
+      <div class="answer-grid">
+        <section class="answer-section">
+          <h3>Evidence</h3>
+          <div class="rich-answer">${renderRichText(sections.evidence)}</div>
+        </section>
+        <section class="answer-section">
+          <h3>Suggestions</h3>
+          <div class="rich-answer">${renderRichText(sections.suggestion)}</div>
+        </section>
+      </div>
+      <section class="answer-section uncertainty">
+        <h3>Uncertainty</h3>
+        <div class="rich-answer">${renderRichText(sections.uncertainty)}</div>
+      </section>
+      ${validatorBlock}
+      ${pipelineBlock}
+    </article>
+  `;
+}
+
+function getAnswerSections(message) {
+  if (message.structuredAnswer) {
+    return message.structuredAnswer;
+  }
+
+  const citationSummary = (message.citationItems || [])
+    .slice(0, 2)
+    .map((citation) => citation.snippet)
+    .join("\n");
+
+  return {
+    conclusion: message.content || "当前回答为空。",
+    evidence: citationSummary || "当前回答没有足够的引用证据。",
+    suggestion: message.nextActions?.[0] || "建议继续补充相关文档后再确认结论。",
+    uncertainty: message.risks?.[0] || "当前回答基于已有知识库片段生成，未入库资料不会被覆盖。",
+  };
+}
+
+function renderValidatorSummary(validator = {}) {
+  const validClaims = Array.isArray(validator.valid_claims) ? validator.valid_claims.filter(Boolean) : [];
+  const unsupportedClaims = Array.isArray(validator.unsupported_claims) ? validator.unsupported_claims.filter(Boolean) : [];
+  const uncertainClaims = Array.isArray(validator.uncertain_claims) ? validator.uncertain_claims.filter(Boolean) : [];
+  const advice = String(validator.final_revision_advice || "").trim();
+
+  if (!validClaims.length && !unsupportedClaims.length && !uncertainClaims.length && !advice) {
+    return "";
+  }
+
+  const lines = [];
+  if (validClaims.length) {
+    lines.push(`Supported claims:\n${validClaims.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (unsupportedClaims.length) {
+    lines.push(`Unsupported claims:\n${unsupportedClaims.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (uncertainClaims.length) {
+    lines.push(`Uncertain claims:\n${uncertainClaims.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (advice) {
+    lines.push(`Revision advice:\n- ${advice}`);
+  }
+
+  return `
+    <section class="answer-section">
+      <h3>Validation</h3>
+      <div class="rich-answer">${renderRichText(lines.join("\n\n"))}</div>
+    </section>
+  `;
+}
+
+function renderPipelineSummary(message = {}) {
+  const queryDesigner = message.queryDesigner || {};
+  const evidenceCollector = message.evidenceCollector || {};
+  const answerGenerator = message.answerGenerator || {};
+  const pipelineVersion = message.pipelineVersion || "";
+  const pipelineSteps = Array.isArray(message.pipelineSteps) ? message.pipelineSteps.filter(Boolean) : [];
+  const designedQueries = Array.isArray(queryDesigner.queries) ? queryDesigner.queries.filter(Boolean) : [];
+  const evidenceCount = Array.isArray(evidenceCollector.evidence) ? evidenceCollector.evidence.length : 0;
+  const mappingCount = Array.isArray(answerGenerator.evidence_mapping) ? answerGenerator.evidence_mapping.length : 0;
+
+  if (!pipelineVersion && !pipelineSteps.length && !designedQueries.length && !evidenceCount && !mappingCount) {
+    return "";
+  }
+
+  const lines = [];
+  if (pipelineVersion) {
+    lines.push(`Pipeline version: ${pipelineVersion}`);
+  }
+  if (pipelineSteps.length) {
+    lines.push(`Pipeline steps: ${pipelineSteps.join(" -> ")}`);
+  }
+  if (designedQueries.length) {
+    lines.push(`Designed queries:\n${designedQueries.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (typeof queryDesigner.reason === "string" && queryDesigner.reason.trim()) {
+    lines.push(`Query rationale:\n- ${queryDesigner.reason.trim()}`);
+  }
+  lines.push(`Evidence items: ${evidenceCount}`);
+  lines.push(`Claim-evidence mappings: ${mappingCount}`);
+
+  return `
+    <section class="answer-section">
+      <h3>Pipeline</h3>
+      <div class="rich-answer">${renderRichText(lines.join("\n\n"))}</div>
+    </section>
+  `;
+}
