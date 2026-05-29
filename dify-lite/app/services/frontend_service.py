@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -139,9 +140,12 @@ class FrontendService:
         if answer.get("warning"):
             result["warning"] = answer["warning"]
         if scene == "design":
-            structured_design = self._parse_design_json(answer["answer"])
-            if structured_design:
-                result.update(structured_design)
+            result.update(self._resolve_design_scene_output(payload=payload, answer=answer))
+            result["intermediateDocument"] = self._write_design_intermediate_document(
+                payload=payload,
+                answer=answer,
+                result=result,
+            )
         return result
 
     def health(self) -> dict[str, Any]:
@@ -296,18 +300,127 @@ class FrontendService:
     def _build_design_prompt(self, payload: dict[str, Any]) -> str:
         output_type = (payload.get("module") or "").strip()
         focus = (payload.get("focus") or "").strip()
+        strategy = self._build_design_output_strategy(output_type)
         return (
-            "你是软件工程设计助手。请只根据检索上下文抽取业务设计产物。"
-            "不要把硬件配置、部署参数、测试指标、日志路径、Docker、磁盘、向量维度、chunk、Top-K、Reranker、LLM 等技术配置当成功能。"
-            "如果上下文缺少业务需求，请不要编造，返回少量待确认项并在 risks 中说明证据不足。"
-            "必须只输出 JSON，不要输出 Markdown，不要输出解释文字。"
-            "JSON 顶层字段必须包含 functionList、useCases、moduleSuggestions、risks、nextActions、diagram。"
-            "functionList 每项包含 id、name、description、priority、relatedDocument。"
-            "useCases 每项包含 id、name、actor、preconditions、mainSuccessScenario、extensionScenarios、exceptionScenarios、postconditions。"
-            "moduleSuggestions 每项包含 name、responsibility、input、output、dependencies。"
-            "diagram 必须是 Mermaid 图表源码字符串，优先使用 flowchart TD，节点 id 使用 ASCII 字母数字下划线，节点文案可以是简短中文。"
-            f"用户期望产物类型：{output_type or '设计输出'}。输出粒度：{focus or '标准'}。"
+            "You are a software engineering design assistant working on top of retrieved project evidence. "
+            "Use only grounded evidence from the current knowledge base. "
+            "Do not treat infrastructure settings, deployment parameters, testing metrics, log paths, Docker settings, "
+            "vector dimensions, chunk parameters, top-k values, reranker settings, or LLM settings as business functions. "
+            "If the evidence does not support a conclusion, do not invent content. Put the gap into risks or nextActions.\n\n"
+            "Return JSON only. Do not return Markdown. Do not return explanation text outside JSON.\n\n"
+            "The top-level JSON object must always contain these fields:\n"
+            "- functionList\n"
+            "- useCases\n"
+            "- moduleSuggestions\n"
+            "- risks\n"
+            "- nextActions\n"
+            "- diagram\n\n"
+            "Field schemas:\n"
+            "- functionList items: id, name, description, priority, relatedDocument\n"
+            "- useCases items: id, name, actor, preconditions, mainSuccessScenario, extensionScenarios, exceptionScenarios, postconditions\n"
+            "- moduleSuggestions items: name, responsibility, input, output, dependencies\n"
+            "- diagram: Mermaid source string, preferably flowchart TD\n\n"
+            "Non-focused fields may be empty arrays or an empty diagram string. "
+            "Do not fabricate content just to fill every field.\n\n"
+            f"Requested output type: {output_type or 'design output'}.\n"
+            f"Requested granularity: {focus or 'standard'}.\n\n"
+            f"{strategy['focus_instruction']}\n"
+            f"{strategy['field_instruction']}\n"
+            f"{strategy['quality_instruction']}"
         )
+
+    def _build_design_output_strategy(self, output_type: str) -> dict[str, str]:
+        normalized = output_type.strip()
+        default_strategy = {
+            "focus_instruction": (
+                "Generate a balanced design result with grounded functions, textual use cases, module suggestions, "
+                "risks, and next actions."
+            ),
+            "field_instruction": (
+                "Distribute output across the main fields, but still prefer the fields best supported by evidence."
+            ),
+            "quality_instruction": (
+                "Keep the output concise but useful. Prefer fewer grounded items over many speculative items."
+            ),
+        }
+
+        strategies = {
+            "功能清单": {
+                "focus_instruction": (
+                    "Prioritize functionList as the main output. If evidence is sufficient, provide 5 to 8 grounded functions."
+                ),
+                "field_instruction": (
+                    "Each function should describe a distinct business capability, not a technical configuration. "
+                    "useCases and moduleSuggestions may stay brief or empty if evidence is weak."
+                ),
+                "quality_instruction": (
+                    "Keep each function description concrete and traceable to evidence. risks and nextActions should still be provided."
+                ),
+            },
+            "详细文本用例": {
+                "focus_instruction": (
+                    "Prioritize useCases as the main output. If evidence is sufficient, provide 3 to 5 grounded use cases. "
+                    "functionList and moduleSuggestions may be empty arrays when the evidence mainly supports detailed use cases."
+                ),
+                "field_instruction": (
+                    "For each use case, provide 1 to 3 preconditions, 4 to 6 mainSuccessScenario steps, "
+                    "1 to 3 extensionScenarios when applicable, 1 to 2 exceptionScenarios when applicable, and a non-empty postconditions field."
+                ),
+                "quality_instruction": (
+                    "Spend the output budget on richer use case details instead of spreading content thinly across unrelated fields. "
+                    "If evidence is limited, return fewer use cases, but keep them grounded and complete."
+                ),
+            },
+            "模块划分建议": {
+                "focus_instruction": (
+                    "Prioritize moduleSuggestions as the main output. If evidence is sufficient, provide 3 to 6 grounded modules."
+                ),
+                "field_instruction": (
+                    "Each module should have a clear responsibility plus explicit input, output, and dependencies. "
+                    "functionList and useCases may be brief or empty if the evidence is mainly architectural."
+                ),
+                "quality_instruction": (
+                    "Prefer clear module boundaries over broad summaries. risks and nextActions should explain unresolved boundaries."
+                ),
+            },
+            "接口设计建议": {
+                "focus_instruction": (
+                    "Prioritize interface-oriented design suggestions. Represent major interface capabilities in functionList "
+                    "and supporting service boundaries in moduleSuggestions."
+                ),
+                "field_instruction": (
+                    "Function descriptions should mention request purpose, key inputs, key outputs, or upstream/downstream relationships when supported by evidence. "
+                    "useCases may stay short or empty if the evidence is mainly interface-focused."
+                ),
+                "quality_instruction": (
+                    "Do not invent endpoints or protocols. If the evidence does not define an interface detail, put it into risks or nextActions."
+                ),
+            },
+            "风险分析": {
+                "focus_instruction": (
+                    "Prioritize risks and nextActions as the main output. If evidence is sufficient, provide 4 to 6 grounded risks and 3 to 5 next actions."
+                ),
+                "field_instruction": (
+                    "functionList, useCases, and moduleSuggestions may be empty or minimal if the user mainly requested risk analysis."
+                ),
+                "quality_instruction": (
+                    "Each risk should describe the issue, its impact, and what evidence is still missing. Each next action should be concrete and reviewable."
+                ),
+            },
+            "答辩说明稿": {
+                "focus_instruction": (
+                    "Prioritize a compact, defense-ready project summary using the structured fields already available."
+                ),
+                "field_instruction": (
+                    "Use functionList for key capabilities, useCases for representative business flows, moduleSuggestions for architecture talking points, "
+                    "risks for known limitations, and nextActions for future work."
+                ),
+                "quality_instruction": (
+                    "Keep the structure concise and evidence-backed. Do not invent achievements or requirements that are not supported."
+                ),
+            },
+        }
+        return strategies.get(normalized, default_strategy)
 
     def _parse_design_json(self, value: str) -> dict[str, Any] | None:
         text = value.strip()
@@ -342,6 +455,154 @@ class FrontendService:
         if not result["diagram"]:
             result["diagram"] = self._build_design_diagram(result)
         return result
+
+    def _resolve_design_scene_output(
+        self,
+        *,
+        payload: dict[str, Any],
+        answer: dict[str, Any],
+    ) -> dict[str, Any]:
+        direct_payload = self._normalize_design_payload(
+            {
+                "functionList": answer.get("functionList") or answer.get("function_list") or [],
+                "useCases": answer.get("useCases") or answer.get("use_cases") or [],
+                "moduleSuggestions": answer.get("moduleSuggestions") or answer.get("module_suggestions") or [],
+                "risks": answer.get("risks") or [],
+                "nextActions": answer.get("nextActions") or answer.get("next_actions") or [],
+                "diagram": answer.get("diagram") or "",
+            }
+        )
+        if self._has_design_structure(direct_payload):
+            return self._decorate_design_payload(payload=payload, answer=answer, structured=direct_payload)
+
+        parsed_payload = self._parse_design_json(answer.get("answer", ""))
+        if parsed_payload and self._has_design_structure(parsed_payload):
+            normalized_payload = self._normalize_design_payload(parsed_payload)
+            return self._decorate_design_payload(payload=payload, answer=answer, structured=normalized_payload)
+
+        return self._build_design_backend_fallback(payload=payload, answer=answer)
+
+    def _has_design_structure(self, payload: dict[str, Any]) -> bool:
+        return any(
+            payload.get(field)
+            for field in ("functionList", "useCases", "moduleSuggestions")
+        )
+
+    def _normalize_design_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        result = {
+            "functionList": payload.get("functionList") or payload.get("function_list") or [],
+            "useCases": payload.get("useCases") or payload.get("use_cases") or [],
+            "moduleSuggestions": payload.get("moduleSuggestions") or payload.get("module_suggestions") or [],
+            "risks": payload.get("risks") or [],
+            "nextActions": payload.get("nextActions") or payload.get("next_actions") or [],
+            "diagram": str(payload.get("diagram") or payload.get("mermaid") or "").strip(),
+        }
+        if not result["diagram"]:
+            result["diagram"] = self._build_design_diagram(result)
+        return result
+
+    def _decorate_design_payload(
+        self,
+        *,
+        payload: dict[str, Any],
+        answer: dict[str, Any],
+        structured: dict[str, Any],
+    ) -> dict[str, Any]:
+        query = (payload.get("query") or "").strip()
+        output_type = (payload.get("module") or "").strip() or "Design Output"
+        granularity = (payload.get("focus") or "").strip() or "standard"
+        project = (payload.get("project") or "").strip() or answer.get("collection", {}).get("name", "")
+        citations = answer.get("citations", [])
+        evidence_level = answer.get("evidenceLevel", "low")
+        missing_information = answer.get("missing_information", [])
+        unsupported_claims = answer.get("validator", {}).get("unsupported_claims", [])
+
+        return {
+            "title": f"{output_type} Structured Output",
+            "inputQuestion": query,
+            "project": project,
+            "outputType": output_type,
+            "outputTypeLabel": output_type,
+            "granularity": granularity,
+            "functionList": structured.get("functionList", []),
+            "useCases": structured.get("useCases", []),
+            "moduleSuggestions": structured.get("moduleSuggestions", []),
+            "risks": structured.get("risks", []),
+            "nextActions": structured.get("nextActions", []),
+            "diagram": structured.get("diagram", ""),
+            "qualityChecks": {
+                "hasUncitedContent": not bool(citations),
+                "hasRequirementGap": bool(missing_information),
+                "requiresHumanReview": bool(missing_information or unsupported_claims),
+                "readyForReview": bool(citations)
+                and not missing_information
+                and not unsupported_claims
+                and self._has_design_structure(structured),
+            },
+            "structuredFromBackend": True,
+            "structuredSource": "backend-structured",
+            "evidenceLevel": evidence_level,
+        }
+
+    def _build_design_backend_fallback(
+        self,
+        *,
+        payload: dict[str, Any],
+        answer: dict[str, Any],
+    ) -> dict[str, Any]:
+        query = (payload.get("query") or "").strip()
+        output_type = (payload.get("module") or "").strip() or "Design Output"
+        granularity = (payload.get("focus") or "").strip() or "standard"
+        project = (payload.get("project") or "").strip() or answer.get("collection", {}).get("name", "")
+        missing_information = answer.get("missing_information", [])
+        warnings = []
+        if missing_information:
+            warnings.extend(missing_information[:3])
+        if answer.get("validator", {}).get("unsupported_claims"):
+            warnings.append("Structured design output could not be verified from grounded evidence.")
+        if not warnings:
+            warnings.append("The backend could not produce a valid structured design JSON payload.")
+
+        structured = {
+            "functionList": [],
+            "useCases": [],
+            "moduleSuggestions": [],
+            "risks": [
+                {
+                    "description": warning,
+                    "impact": "Structured design output is incomplete.",
+                    "supplement": "Regenerate after importing requirement, workflow, API, or prototype documents.",
+                    "confidence": answer.get("evidenceLevel", "low"),
+                    "needsReview": True,
+                }
+                for warning in warnings
+            ],
+            "nextActions": [
+                {
+                    "action": "Import more grounded project documents and regenerate the design output.",
+                    "priority": "high",
+                    "owner": "project team",
+                    "dependentDocument": "requirements / API / workflow docs",
+                    "doneDefinition": "The backend returns functionList, useCases, moduleSuggestions, risks, nextActions, and diagram.",
+                }
+            ],
+            "diagram": "",
+        }
+        normalized = self._normalize_design_payload(structured)
+        decorated = self._decorate_design_payload(payload=payload, answer=answer, structured=normalized)
+        decorated.update(
+            {
+                "title": f"{output_type} Structured Output Unavailable",
+                "inputQuestion": query,
+                "project": project,
+                "outputType": output_type,
+                "outputTypeLabel": output_type,
+                "granularity": granularity,
+                "structuredFromBackend": True,
+                "structuredSource": "backend-fallback",
+            }
+        )
+        return decorated
 
     def _build_design_diagram(self, payload: dict[str, Any]) -> str:
         lines = ["flowchart TD"]
@@ -418,6 +679,125 @@ class FrontendService:
         if missing_information:
             return missing_information
         return ["No grounded evidence was found in the current knowledge base. Please import more project documents or refine the question."]
+
+    def _write_design_intermediate_document(
+        self,
+        *,
+        payload: dict[str, Any],
+        answer: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        target_dir = self._settings.data_dir / "design_intermediate"
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_type = str(result.get("outputTypeLabel") or result.get("outputType") or "design-output")
+        slug = self._slugify_filename(output_type) or "design-output"
+        filename = f"{timestamp}_{slug}.md"
+        target_path = target_dir / filename
+
+        content = self._build_design_intermediate_markdown(
+            payload=payload,
+            answer=answer,
+            result=result,
+        )
+        target_path.write_text(content, encoding="utf-8")
+        return {
+            "filename": filename,
+            "path": str(target_path),
+            "format": "markdown",
+            "content": content,
+        }
+
+    def _build_design_intermediate_markdown(
+        self,
+        *,
+        payload: dict[str, Any],
+        answer: dict[str, Any],
+        result: dict[str, Any],
+    ) -> str:
+        model_raw_output = str(answer.get("answer") or "")
+        structured_view = {
+            "title": result.get("title", ""),
+            "inputQuestion": result.get("inputQuestion", ""),
+            "project": result.get("project", ""),
+            "outputType": result.get("outputType", ""),
+            "outputTypeLabel": result.get("outputTypeLabel", ""),
+            "granularity": result.get("granularity", ""),
+            "evidenceLevel": result.get("evidenceLevel", ""),
+            "structuredSource": result.get("structuredSource", ""),
+            "pipelineVersion": result.get("pipelineVersion", ""),
+            "pipelineSteps": result.get("pipelineSteps", []),
+            "functionList": result.get("functionList", []),
+            "useCases": result.get("useCases", []),
+            "moduleSuggestions": result.get("moduleSuggestions", []),
+            "risks": result.get("risks", []),
+            "nextActions": result.get("nextActions", []),
+            "diagram": result.get("diagram", ""),
+            "citations": result.get("citations", []),
+            "qualityChecks": result.get("qualityChecks", {}),
+            "queryDesigner": result.get("queryDesigner", {}),
+            "retriever": result.get("retriever", {}),
+            "evidenceCollector": result.get("evidenceCollector", {}),
+            "answerGenerator": result.get("answerGenerator", {}),
+            "validator": result.get("validator", {}),
+            "missingInformation": result.get("missingInformation", []),
+            "implementationSuggestions": result.get("implementationSuggestions", []),
+            "uncertainPoints": result.get("uncertainPoints", []),
+        }
+        metadata = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "scene": "design",
+            "query": str(payload.get("query") or "").strip(),
+            "project": str(payload.get("project") or "").strip(),
+            "module": str(payload.get("module") or "").strip(),
+            "focus": str(payload.get("focus") or "").strip(),
+            "structured_source": result.get("structuredSource", ""),
+            "evidence_level": result.get("evidenceLevel", ""),
+        }
+        model_output_stats = {
+            "character_count": len(model_raw_output),
+            "non_whitespace_character_count": len("".join(model_raw_output.split())),
+            "line_count": len(model_raw_output.splitlines()) if model_raw_output else 0,
+            "use_case_count": len(result.get("useCases") or []),
+            "function_count": len(result.get("functionList") or []),
+            "module_suggestion_count": len(result.get("moduleSuggestions") or []),
+        }
+
+        sections = [
+            "# Design Intermediate Document",
+            "",
+            "## Metadata",
+            "```json",
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            "```",
+            "",
+            "## Structured Design Output",
+            "```json",
+            json.dumps(structured_view, ensure_ascii=False, indent=2),
+            "```",
+            "",
+            "## Model Raw Output Stats",
+            "```json",
+            json.dumps(model_output_stats, ensure_ascii=False, indent=2),
+            "```",
+            "",
+            "## Model Raw Output Text",
+            "```text",
+            model_raw_output or "[empty]",
+            "```",
+            "",
+            "## Backend Raw Design Response",
+            "```json",
+            json.dumps(answer, ensure_ascii=False, indent=2),
+            "```",
+        ]
+        return "\n".join(sections).strip() + "\n"
+
+    def _slugify_filename(self, value: str) -> str:
+        lowered = value.lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", lowered)
+        return slug.strip("-")
 
     def _build_scene_context(self, scene: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {

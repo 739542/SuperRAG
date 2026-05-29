@@ -12,7 +12,7 @@
   window.SuperRagConfig = {
     API_BASE_URL: existing.API_BASE_URL || sameOriginApi,
     DOCUMENT_API_TIMEOUT_MS: existing.DOCUMENT_API_TIMEOUT_MS || 60000,
-    CHAT_API_TIMEOUT_MS: existing.CHAT_API_TIMEOUT_MS || 90000,
+    CHAT_API_TIMEOUT_MS: existing.CHAT_API_TIMEOUT_MS || 210000,
     USE_REAL_DOCUMENT_API: existing.USE_REAL_DOCUMENT_API !== false,
   };
 

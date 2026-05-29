@@ -1305,8 +1305,9 @@ async function generateDesignOutput(options = {}) {
       toast("设计初稿已生成。");
     }
   } catch (error) {
+    console.error("[Design Generate Failed]", error);
     if (resultNode) {
-      resultNode.innerHTML = `<div class="empty-inline">设计初稿生成失败：${escapeHtml(error.message)}</div>`;
+      resultNode.innerHTML = `<div class="empty-inline">设计初稿生成失败：${escapeHtml(formatErrorMessage(error))}</div>`;
     }
   } finally {
     designState.loading = false;
@@ -3079,6 +3080,179 @@ function escapeHtml(input) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatErrorMessage(error) {
+  if (error && typeof error === "object") {
+    if (typeof error.message === "string" && error.message.trim()) {
+      return error.message;
+    }
+    if (typeof error.error === "string" && error.error.trim()) {
+      return error.error;
+    }
+  }
+
+  const fallback = String(error || "").trim();
+  return fallback || "Unknown error";
+}
+
+function renderDesignResult(result) {
+  const container = document.getElementById("design-result");
+  const tabs = document.querySelectorAll("[data-design-tab]");
+  if (!container) {
+    return;
+  }
+
+  tabs.forEach((tab) => {
+    const isActive = tab.dataset.designTab === designState.activeTab;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+  });
+
+  if (!result) {
+    container.innerHTML = '<div class="empty-inline">请输入设计目标后生成结构化设计产物。</div>';
+    return;
+  }
+
+  const debugPanel = renderDesignDebugPanel(result);
+  const intermediateDocumentBlock = renderDesignIntermediateDocument(result);
+
+  container.innerHTML = `
+    <section class="design-summary-card">
+      <div>
+        <p class="eyebrow">${escapeHtml(result.outputTypeLabel || result.outputType)}</p>
+        <h3>${escapeHtml(stripMarkdownDecorators(result.title))}</h3>
+        ${renderRichTextBlock(result.inputQuestion, "compact-rich-answer")}
+      </div>
+      <div class="design-summary-meta">
+        <span>${escapeHtml(result.project)}</span>
+        <span>${escapeHtml(result.granularity || "标准")}</span>
+        ${renderEvidenceLevelBadge(result.evidenceLevel)}
+      </div>
+    </section>
+    ${debugPanel}
+    ${intermediateDocumentBlock}
+    ${renderDesignTabContent(result)}
+  `;
+  scheduleDesignDiagramRender(result);
+}
+
+function renderDesignDebugPanel(result) {
+  const queryDesigner = result?.queryDesigner || {};
+  const evidenceCollector = result?.evidenceCollector || {};
+  const answerGenerator = result?.answerGenerator || {};
+  const validator = result?.validator || {};
+  const pipelineSteps = Array.isArray(result?.pipelineSteps) ? result.pipelineSteps.filter(Boolean) : [];
+  const designedQueries = Array.isArray(queryDesigner.queries) ? queryDesigner.queries.filter(Boolean) : [];
+  const evidenceItems = Array.isArray(evidenceCollector.evidence) ? evidenceCollector.evidence.filter(Boolean) : [];
+  const missingInformation = Array.isArray(result?.missingInformation) ? result.missingInformation.filter(Boolean) : [];
+  const uncertainPoints = Array.isArray(result?.uncertainPoints) ? result.uncertainPoints.filter(Boolean) : [];
+  const unsupportedClaims = Array.isArray(validator.unsupported_claims) ? validator.unsupported_claims.filter(Boolean) : [];
+  const claimMappings = Array.isArray(answerGenerator.evidence_mapping) ? answerGenerator.evidence_mapping.filter(Boolean) : [];
+  const citations = Array.isArray(result?.citations) ? result.citations.filter(Boolean) : [];
+  const structuredSource = String(result?.structuredSource || "unknown");
+  const isFallback = structuredSource.toLowerCase().includes("fallback");
+  const answerText = String(answerGenerator.answer || result?.summary || "");
+  const evidenceLengthItems = evidenceItems.map((item, index) => {
+    const source = item?.source || `evidence-${index + 1}`;
+    const section = item?.section || "chunk";
+    const contentLength = getTextLength(item?.content);
+    const relevanceLength = getTextLength(item?.relevance);
+    return `
+      <li>
+        <strong>${escapeHtml(`${source}#${section}`)}</strong>
+        <span>content=${contentLength} chars</span>
+        <span>relevance=${relevanceLength} chars</span>
+      </li>
+    `;
+  });
+
+  return `
+    <section class="scenario-section">
+      <h3>设计调试信息</h3>
+      <div class="design-summary-meta">
+        <span>${escapeHtml(`structuredSource: ${structuredSource}`)}</span>
+        <span>${escapeHtml(`fallback: ${isFallback ? "yes" : "no"}`)}</span>
+        <span>${escapeHtml(`evidence: ${evidenceItems.length}`)}</span>
+        <span>${escapeHtml(`citations: ${citations.length}`)}</span>
+        <span>${escapeHtml(`useCases: ${(result?.useCases || []).length}`)}</span>
+        <span>${escapeHtml(`functions: ${(result?.functionList || []).length}`)}</span>
+        <span>${escapeHtml(`modules: ${(result?.moduleSuggestions || []).length}`)}</span>
+      </div>
+      <dl class="design-dl compact">
+        <div>
+          <dt>Pipeline</dt>
+          <dd>${escapeHtml(result?.pipelineVersion || "unknown")}</dd>
+        </div>
+        <div>
+          <dt>Steps</dt>
+          <dd>${escapeHtml(pipelineSteps.join(" -> ") || "unknown")}</dd>
+        </div>
+        <div>
+          <dt>Answer Length</dt>
+          <dd>${escapeHtml(`${getTextLength(answerText)} chars`)}</dd>
+        </div>
+      </dl>
+      <dl class="design-dl">
+        <div>
+          <dt>Designed Queries</dt>
+          <dd>${renderDebugList(designedQueries, "No designed queries.")}</dd>
+        </div>
+        <div>
+          <dt>Evidence Lengths</dt>
+          <dd>${evidenceLengthItems.length ? `<ul class="scenario-bullet-list">${evidenceLengthItems.join("")}</ul>` : '<div class="empty-inline">No evidence items.</div>'}</dd>
+        </div>
+        <div>
+          <dt>Missing Information</dt>
+          <dd>${renderDebugList(missingInformation, "No missing-information items.")}</dd>
+        </div>
+        <div>
+          <dt>Uncertain Points</dt>
+          <dd>${renderDebugList(uncertainPoints, "No uncertain points.")}</dd>
+        </div>
+        <div>
+          <dt>Unsupported Claims</dt>
+          <dd>${renderDebugList(unsupportedClaims, "No unsupported claims.")}</dd>
+        </div>
+        <div>
+          <dt>Claim Mappings</dt>
+          <dd>${escapeHtml(`${claimMappings.length}`)}</dd>
+        </div>
+      </dl>
+    </section>
+  `;
+}
+
+function renderDebugList(items, emptyText) {
+  const list = Array.isArray(items) ? items.filter((item) => String(item || "").trim()) : [];
+  if (!list.length) {
+    return `<div class="empty-inline">${escapeHtml(emptyText)}</div>`;
+  }
+  return `<ul class="scenario-bullet-list">${list.map((item) => `<li>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</li>`).join("")}</ul>`;
+}
+
+function getTextLength(value) {
+  return String(value || "").trim().length;
+}
+
+function renderDesignIntermediateDocument(result) {
+  const doc = result?.intermediateDocument;
+  if (!doc || !doc.content) {
+    return "";
+  }
+
+  return `
+    <section class="scenario-section">
+      <details class="diagram-source-panel">
+        <summary>查看中间文档</summary>
+        <div class="design-summary-meta" style="margin-top: 12px;">
+          <span>${escapeHtml(doc.filename || "design-intermediate.md")}</span>
+          <span>${escapeHtml(doc.path || "")}</span>
+        </div>
+        <pre class="diagram-source-code">${escapeHtml(doc.content)}</pre>
+      </details>
+    </section>
+  `;
 }
 
 function renderAnswerCard(message) {

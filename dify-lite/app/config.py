@@ -55,7 +55,7 @@ class Settings:
             model_base_url=os.getenv("DIFY_LITE_MODEL_BASE_URL", "").rstrip("/"),
             model_api_key=os.getenv("DIFY_LITE_MODEL_API_KEY", ""),
             model_name=os.getenv("DIFY_LITE_MODEL_NAME", ""),
-            model_timeout_seconds=float(os.getenv("DIFY_LITE_MODEL_TIMEOUT", "60")),
+            model_timeout_seconds=float(os.getenv("DIFY_LITE_MODEL_TIMEOUT", "180")),
             default_chunk_size=int(os.getenv("DIFY_LITE_CHUNK_SIZE", "800")),
             default_chunk_overlap=int(os.getenv("DIFY_LITE_CHUNK_OVERLAP", "120")),
             max_context_chunks=int(os.getenv("DIFY_LITE_MAX_CONTEXT_CHUNKS", "6")),
