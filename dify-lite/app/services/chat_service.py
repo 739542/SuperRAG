@@ -211,6 +211,69 @@ class ChatService:
             "warning": retrieval.get("warning", ""),
         }
 
+    def generate_json_with_task_prompt(
+        self,
+        *,
+        task_prompt: str,
+        user_payload: dict[str, Any],
+        model_name: str | None = None,
+        temperature: float = 0.12,
+        max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        if not self._llm_available():
+            return {
+                "provider": "retrieval-fallback",
+                "answer": "",
+                "parsed": None,
+                "warning": "model is not configured; retrieval fallback was used",
+            }
+
+        try:
+            answer = self._call_openai_compatible(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a grounded software-engineering RAG analyst. "
+                            "Use only the provided retrieval evidence. "
+                            "Return strict JSON only.\n\n"
+                            f"{task_prompt}"
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(user_payload, ensure_ascii=False, indent=2),
+                    },
+                ],
+                model_name or self._settings.model_name,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+            )
+        except Exception as exc:
+            return {
+                "provider": "openai-compatible",
+                "answer": "",
+                "parsed": None,
+                "warning": f"model generation failed: {type(exc).__name__}: {exc}",
+            }
+
+        parsed = self._parse_json_object(answer)
+        if isinstance(parsed, dict):
+            return {
+                "provider": "openai-compatible",
+                "answer": answer,
+                "parsed": parsed,
+                "warning": "",
+            }
+        return {
+            "provider": "openai-compatible",
+            "answer": answer,
+            "parsed": None,
+            "warning": "structured JSON parsing failed; caller may attempt JSON repair",
+        }
+
     def _design_queries(
         self,
         *,
@@ -670,13 +733,17 @@ class ChatService:
         model_name: str,
         *,
         temperature: float = 0.2,
+        max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         payload = {"model": model_name, "messages": messages, "temperature": temperature}
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
         headers = {
             "Authorization": f"Bearer {self._settings.model_api_key}",
             "Content-Type": "application/json",
         }
-        with httpx.Client(timeout=self._settings.model_timeout_seconds) as client:
+        with httpx.Client(timeout=timeout_seconds or self._settings.model_timeout_seconds) as client:
             response = client.post(
                 f"{self._settings.model_base_url}/chat/completions",
                 headers=headers,

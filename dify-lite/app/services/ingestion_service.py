@@ -98,13 +98,17 @@ class IngestionService:
 
         chunks_for_index = [{**chunk, "document_id": document["id"], "collection_id": collection_id} for chunk in chunks]
         warnings: list[str] = []
-        try:
-            vectors = self._embedding_client.embed_many([chunk["content"] for chunk in chunks_for_index])
-            self._weaviate_store.index_chunks(chunks_for_index, vectors)
-        except Exception as exc:
-            warnings.append(f"向量索引不可用，已回退为仅词法检索: {exc}")
-            self._repository.update_document_status(document["id"], "已入库（仅词法检索）")
-            document["status"] = "已入库（仅词法检索）"
+        if self._settings.vector_store == "weaviate":
+            try:
+                vectors = self._embedding_client.embed_many([chunk["content"] for chunk in chunks_for_index])
+                self._weaviate_store.index_chunks(chunks_for_index, vectors)
+            except Exception as exc:
+                warnings.append(f"向量索引不可用，已回退为本地检索：{exc}")
+                self._repository.update_document_status(document["id"], "已入库（本地检索）")
+                document["status"] = "已入库（本地检索）"
+        else:
+            self._repository.update_document_status(document["id"], "已入库（本地检索）")
+            document["status"] = "已入库（本地检索）"
 
         return {
             "document": self._repository.get_document(document["id"]) or document,

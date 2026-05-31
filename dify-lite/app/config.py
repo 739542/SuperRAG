@@ -15,6 +15,7 @@ class Settings:
     data_dir: Path
     uploads_dir: Path
     db_path: Path
+    vector_store: str
     weaviate_url: str
     weaviate_api_key: str
     weaviate_class_name: str
@@ -46,6 +47,7 @@ class Settings:
             data_dir=data_dir,
             uploads_dir=uploads_dir,
             db_path=db_path,
+            vector_store=os.getenv("DIFY_LITE_VECTOR_STORE", "local").lower(),
             weaviate_url=os.getenv("DIFY_LITE_WEAVIATE_URL", "http://127.0.0.1:8080").rstrip("/"),
             weaviate_api_key=os.getenv("DIFY_LITE_WEAVIATE_API_KEY", ""),
             weaviate_class_name=os.getenv("DIFY_LITE_WEAVIATE_CLASS", "DifyLiteChunk"),
@@ -71,6 +73,7 @@ class Settings:
             "app_name": self.app_name,
             "embedding_engine": self.embedding_engine,
             "embedding_dimension": self.embedding_dimension,
+            "vector_store": self.vector_store,
             "weaviate_url": self.weaviate_url,
             "model_enabled": bool(self.model_base_url and self.model_name),
             "default_chunk_size": self.default_chunk_size,

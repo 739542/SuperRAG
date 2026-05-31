@@ -92,11 +92,14 @@ class RetrievalService:
     def _retrieve_core(self, *, collection: dict, collection_id: str, query: str, top_k: int) -> dict:
         query_vector = self._embedding_client.embed_one(query)
         vector_error = ""
-        try:
-            vector_hits = self._weaviate_store.vector_search(collection_id, query_vector, max(top_k * 2, top_k))
-        except Exception as exc:
+        if self._settings.vector_store == "weaviate":
+            try:
+                vector_hits = self._weaviate_store.vector_search(collection_id, query_vector, max(top_k * 2, top_k))
+            except Exception as exc:
+                vector_hits = []
+                vector_error = str(exc)
+        else:
             vector_hits = []
-            vector_error = str(exc)
         lexical_hits = self._repository.get_chunks_for_collection(collection_id)
 
         merged_scores: dict[str, dict] = defaultdict(lambda: {"vector": 0.0, "lexical": 0.0, "payload": None})
@@ -130,6 +133,10 @@ class RetrievalService:
             score = lexical_score(query, chunk["content"])
             if score <= 0:
                 continue
+            if self._settings.vector_store != "weaviate":
+                chunk_vector = self._embedding_client.embed_one(chunk["content"])
+                vector_score = _cosine_similarity(query_vector, chunk_vector)
+                merged_scores[chunk["id"]]["vector"] = max(vector_score, merged_scores[chunk["id"]]["vector"])
             merged_scores[chunk["id"]]["lexical"] = score
             if not merged_scores[chunk["id"]]["payload"]:
                 merged_scores[chunk["id"]]["payload"] = chunk
@@ -158,3 +165,10 @@ class RetrievalService:
         if vector_error:
             result["warning"] = f"vector search unavailable: {vector_error}"
         return result
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right:
+        return 0.0
+    total = sum(a * b for a, b in zip(left, right, strict=False))
+    return max(0.0, min(1.0, total))

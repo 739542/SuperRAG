@@ -601,7 +601,7 @@ function renderRichList(items = [], className = "scenario-bullet-list") {
 
   return `
     <ul class="${className}">
-      ${list.map((item) => `<li>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</li>`).join("")}
+      ${list.map((item) => `<li>${renderRichTextBlock(formatDisplayValue(item), "compact-rich-answer inline-rich-answer")}</li>`).join("")}
     </ul>
   `;
 }
@@ -881,6 +881,12 @@ function bindHandoverActions() {
 
     if (event.target.closest("#handover-generate")) {
       await generateHandoverResult(document.getElementById("handover-query")?.value);
+      return;
+    }
+
+    const actionButton = event.target.closest("[data-handover-action]");
+    if (actionButton) {
+      await handleHandoverAction(actionButton.dataset.handoverAction);
     }
   });
 }
@@ -1129,29 +1135,50 @@ function renderHandoverResult(result) {
   }
 
   container.innerHTML = `
+    <section class="design-summary-card handover-report-head">
+      <div>
+        <p class="eyebrow">Executable Handover</p>
+        <h3>${escapeHtml(stripMarkdownDecorators(result.title || "项目交接报告生成器"))}</h3>
+        ${renderRichTextBlock(result.query || "基于当前项目知识库生成可执行交接清单。", "compact-rich-answer")}
+      </div>
+      <div class="design-summary-meta">
+        <span>${escapeHtml(result.project || "当前项目")}</span>
+        <span>${escapeHtml(result.scope || "整个项目")}</span>
+        ${renderGenerationModeBadge(result.generationMode || result.source)}
+      </div>
+    </section>
+    ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
     <section class="handover-summary-grid">
       ${renderInfoBlock("项目背景", result.projectBackground)}
       ${renderInfoBlock("当前进度", result.currentProgress)}
     </section>
     <section class="handover-two-column">
-      ${renderListBlock("已完成功能", result.completedFeatures)}
+      ${renderListBlock("已完成事项", result.completedItems?.length ? result.completedItems : result.completedFeatures)}
       ${renderListBlock("未完成事项", result.unfinishedItems)}
     </section>
     <section class="scenario-section">
-      <h3>待办清单</h3>
-      ${renderTodoTable(result.todos)}
+      <h3>接手者待办清单</h3>
+      ${renderTodoTable(result.todoList?.length ? result.todoList : result.todos)}
     </section>
     <section class="scenario-section">
-      <h3>风险点</h3>
-      <div class="risk-card-grid">${result.risks.map(renderHandoverRisk).join("")}</div>
+      <h3>风险登记表</h3>
+      ${renderHandoverRiskTable(result.riskRegister?.length ? result.riskRegister : result.risks)}
     </section>
     <section class="handover-two-column">
-      ${renderRoleBlock(result.roles)}
-      ${renderListBlock("依赖文档", result.dependentDocs)}
+      ${renderRoleBlock(result.responsibilityBoundary?.length ? result.responsibilityBoundary : result.roles)}
+      ${renderListBlock("依赖文档", result.dependentDocuments?.length ? result.dependentDocuments : result.dependentDocs)}
+    </section>
+    <section class="handover-two-column">
+      ${renderInformationGapsBlock(result.informationGaps)}
+      ${renderChecklistBlock(result.handoverChecklist)}
+    </section>
+    <section class="scenario-section">
+      <h3>证据映射</h3>
+      ${renderEvidenceMapTable(result.evidenceMap)}
     </section>
     <section class="scenario-section">
       <h3>引用证据</h3>
-      <div class="scenario-evidence-list">${result.citations.map(renderScenarioCitation).join("")}</div>
+      <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : '<div class="empty-inline">暂无引用证据。</div>'}</div>
     </section>
   `;
 }
@@ -1175,6 +1202,9 @@ function renderListBlock(title, items = []) {
 }
 
 function renderTodoTable(todos = []) {
+  if (!todos.length) {
+    return '<div class="empty-inline">当前文档证据不足，暂未生成明确待办。</div>';
+  }
   return `
     <div class="table-wrap">
       <table class="scenario-table">
@@ -1184,7 +1214,7 @@ function renderTodoTable(todos = []) {
             <th>优先级</th>
             <th>风险等级</th>
             <th>建议负责人</th>
-            <th>截止时间</th>
+            <th>依赖文档</th>
             <th>状态</th>
           </tr>
         </thead>
@@ -1196,8 +1226,8 @@ function renderTodoTable(todos = []) {
                   <td>${escapeHtml(todo.taskName)}</td>
                   <td><span class="priority-badge priority-${getPriorityClass(todo.priority)}">${escapeHtml(todo.priority)}</span></td>
                   <td>${escapeHtml(todo.riskLevel)}</td>
-                  <td>${escapeHtml(todo.owner)}</td>
-                  <td>${escapeHtml(todo.dueDate)}</td>
+                  <td>${escapeHtml(todo.suggestedOwner || todo.owner)}</td>
+                  <td>${escapeHtml(todo.dependentDocument || todo.evidenceSource || "待确认文档")}</td>
                   <td>${escapeHtml(todo.status)}</td>
                 </tr>
               `,
@@ -1226,6 +1256,39 @@ function renderHandoverRisk(risk) {
   `;
 }
 
+function renderHandoverRiskTable(risks = []) {
+  if (!risks.length) {
+    return '<div class="empty-inline">当前文档证据不足，暂未识别明确交接风险。</div>';
+  }
+
+  return `
+    <div class="table-wrap">
+      <table class="scenario-table">
+        <thead>
+          <tr>
+            <th>风险</th>
+            <th>影响范围</th>
+            <th>建议处理</th>
+            <th>证据片段</th>
+            <th>来源文档</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${risks.map((risk) => `
+            <tr>
+              <td><strong>${escapeHtml(stripMarkdownDecorators(risk.risk || risk.description || "待确认风险"))}</strong></td>
+              <td>${renderRichTextBlock(risk.impact || "待确认影响范围", "compact-rich-answer inline-rich-answer")}</td>
+              <td>${renderRichTextBlock(risk.suggestion || "补充文档或人工确认。", "compact-rich-answer inline-rich-answer")}</td>
+              <td>${renderEvidenceSnippet(risk.evidenceSnippet)}</td>
+              <td>${escapeHtml(stripMarkdownDecorators(risk.sourceDocument || risk.evidenceSource || "待关联文档"))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderRoleBlock(roles = []) {
   return `
     <article class="scenario-section">
@@ -1246,6 +1309,93 @@ function renderRoleBlock(roles = []) {
   `;
 }
 
+function renderInformationGapsBlock(gaps = []) {
+  return `
+    <article class="scenario-section gap-section">
+      <h3>信息缺口</h3>
+      <p>系统不会编造文档中没有说明的负责人、进度、测试或部署状态，缺失信息会进入人工确认清单。</p>
+      ${renderRichList(gaps, "scenario-bullet-list compact-list")}
+    </article>
+  `;
+}
+
+function renderChecklistBlock(items = []) {
+  return `
+    <article class="scenario-section">
+      <h3>交接检查清单</h3>
+      ${renderChecklist(items)}
+    </article>
+  `;
+}
+
+function renderChecklist(items = []) {
+  const list = Array.isArray(items) ? items.filter((item) => item !== null && item !== undefined && String(item).trim()) : [];
+  if (!list.length) {
+    return '<div class="empty-inline">当前文档证据不足，暂未生成检查清单。</div>';
+  }
+  return `
+    <div class="handover-checklist">
+      ${list.map((item) => `
+        <label>
+          <input type="checkbox">
+          <span>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</span>
+        </label>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderEvidenceMapTable(items = []) {
+  if (!items.length) {
+    return '<div class="empty-inline">暂无证据映射。</div>';
+  }
+  return `
+    <div class="table-wrap">
+      <table class="scenario-table">
+        <thead>
+          <tr>
+            <th>结论</th>
+            <th>来源文档</th>
+            <th>证据片段</th>
+            <th>分数</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => `
+            <tr>
+              <td>${renderRichTextBlock(item.conclusion || "待确认结论", "compact-rich-answer inline-rich-answer")}</td>
+              <td>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</td>
+              <td>${renderEvidenceSnippet(item.evidenceSnippet)}</td>
+              <td>${Number(item.score || 0).toFixed(2)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function handleHandoverAction(action) {
+  if (!handoverState.result) {
+    toast("请先生成交接结果。");
+    return;
+  }
+  const markdown = buildHandoverMarkdown(handoverState.result);
+  if (action === "copy") {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(markdown);
+      toast("交接清单已复制为 Markdown。");
+      return;
+    }
+    toast("当前浏览器不支持自动复制，请手动复制页面内容。");
+    return;
+  }
+  if (action === "export") {
+    downloadTextFile(markdown, `SuperRAG-项目交接清单-${Date.now()}.md`, "text/markdown;charset=utf-8");
+    toast("交接清单 Markdown 已导出。");
+  }
+}
+
 async function renderDesignPage() {
   const service = getDesignService();
   if (!service) {
@@ -1255,17 +1405,17 @@ async function renderDesignPage() {
   if (!designState.loaded) {
     const options = await service.getDesignOptions();
     populateScenarioSelect("design-output-type", options.outputTypes, "详细文本用例");
-    populateScenarioSelect("design-project", options.projects, "企业知识助手系统");
+    populateScenarioSelect("design-project", options.projects, "SuperRAG CRM 演示库");
     populateScenarioSelect("design-granularity", options.granularities, "标准");
 
     const input = document.getElementById("design-goal");
     if (input && !input.value.trim()) {
-      input.value = "基于现有需求文档，为设计辅助模块生成详细文本用例。";
+      input.value = "基于当前 CRM 业务文档，生成客户、商机、合同、回款、发票模块的详细文本用例和设计产物。";
     }
 
-    const outputs = await service.getDesignOutputs();
-    designState.result = outputs[0] || null;
     designState.loaded = true;
+    await generateDesignOutput({ silent: true });
+    return;
   }
 
   renderDesignResult(designState.result);
@@ -1342,9 +1492,12 @@ function renderDesignResult(result) {
       <div class="design-summary-meta">
         <span>${escapeHtml(result.project)}</span>
         <span>${escapeHtml(result.granularity || "标准")}</span>
+        ${renderGenerationModeBadge(result.generationMode || result.source)}
         ${renderEvidenceLevelBadge(result.evidenceLevel)}
       </div>
     </section>
+    ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
+    ${result.warning ? `<div class="alert-card warning">${escapeHtml(result.warning)}</div>` : ""}
     ${renderDesignTabContent(result)}
   `;
   scheduleDesignDiagramRender(result);
@@ -1352,9 +1505,12 @@ function renderDesignResult(result) {
 
 function renderDesignTabContent(result) {
   const renderers = {
+    business: renderDesignBusinessAnalysis,
     functions: renderDesignFunctionTable,
     useCases: renderDesignUseCases,
     modules: renderDesignModules,
+    dataPermission: renderDesignDataPermission,
+    traceability: renderDesignTraceability,
     diagram: renderDesignDiagram,
     risks: renderDesignRisks,
     actions: renderDesignNextActions,
@@ -1407,19 +1563,67 @@ function renderDesignUseCases(result) {
         ${(result.useCases || [])
           .map(
             (item) => `
-              <article class="use-case-card">
-                <div class="use-case-head">
-                  <span>${escapeHtml(item.id)}</span>
-                  <strong>${escapeHtml(stripMarkdownDecorators(item.name))}</strong>
+              <article class="use-case-card spec-use-case-card">
+                <div class="use-case-head spec-use-case-head">
+                  <div>
+                    <span>${escapeHtml(item.id)}</span>
+                    <strong>${escapeHtml(stripMarkdownDecorators(item.name))}</strong>
+                  </div>
+                  <div class="use-case-badges">
+                    <em>${escapeHtml(stripMarkdownDecorators(item.actor || "项目成员"))}</em>
+                    ${item.evidenceScore ? `<em>证据 ${Math.round(Math.min(1, Number(item.evidenceScore)) * 100)}%</em>` : ""}
+                  </div>
                 </div>
-                <dl class="design-dl">
-                  <div><dt>参与者</dt><dd>${escapeHtml(stripMarkdownDecorators(item.actor))}</dd></div>
-                  <div><dt>前置条件</dt><dd>${renderTextOrList(item.preconditions)}</dd></div>
-                  <div><dt>主成功场景</dt><dd>${renderTextOrList(item.mainSuccessScenario)}</dd></div>
-                  <div><dt>扩展场景</dt><dd>${renderTextOrList(item.extensionScenarios)}</dd></div>
-                  <div><dt>异常场景</dt><dd>${renderTextOrList(item.exceptionScenarios)}</dd></div>
-                  <div><dt>后置条件</dt><dd>${renderTextOrList(item.postconditions)}</dd></div>
+
+                <dl class="use-case-meta-grid">
+                  <div><dt>用例目标</dt><dd>${renderRichTextBlock(item.goal || item.name, "compact-rich-answer inline-rich-answer")}</dd></div>
+                  <div><dt>触发条件</dt><dd>${renderRichTextBlock(item.trigger || "用户在业务流程中发起该操作。", "compact-rich-answer inline-rich-answer")}</dd></div>
+                  <div><dt>业务范围</dt><dd>${escapeHtml(stripMarkdownDecorators(item.scope || "需求设计辅助"))}</dd></div>
+                  <div><dt>证据来源</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
                 </dl>
+
+                <div class="use-case-spec-body">
+                  <section>
+                    <h4>前置条件</h4>
+                    ${renderTextOrList(item.preconditions)}
+                  </section>
+                  <section class="main-flow-section">
+                    <h4>主成功场景</h4>
+                    ${renderNumberedScenario(item.mainSuccessScenario)}
+                  </section>
+                  <section>
+                    <h4>扩展场景</h4>
+                    ${renderTextOrList(item.extensionScenarios)}
+                  </section>
+                  <section>
+                    <h4>异常场景</h4>
+                    ${renderTextOrList(item.exceptionScenarios)}
+                  </section>
+                  <section>
+                    <h4>验收标准</h4>
+                    ${renderTextOrList(item.acceptanceCriteria)}
+                  </section>
+                  <section>
+                    <h4>后置条件</h4>
+                    ${renderTextOrList(item.postconditions)}
+                  </section>
+                </div>
+
+                <div class="use-case-engineering-row">
+                  <section>
+                    <h4>涉及字段</h4>
+                    ${renderTagList(item.dataFields, "待从接口或字段配置补充")}
+                  </section>
+                  <section>
+                    <h4>绑定业务规则</h4>
+                    ${renderTextOrList(item.businessRules)}
+                  </section>
+                </div>
+
+                <aside class="use-case-evidence">
+                  <strong>引用证据</strong>
+                  <p>${escapeHtml(stripMarkdownDecorators(item.evidenceSnippet || "当前用例缺少明确引用片段，建议补充需求或接口文档。"))}</p>
+                </aside>
               </article>
             `,
           )
@@ -1615,6 +1819,303 @@ function renderTextOrList(value) {
   return renderRichTextBlock(value, "compact-rich-answer inline-rich-answer");
 }
 
+function renderNumberedScenario(value) {
+  const list = Array.isArray(value) ? value.filter((item) => item !== null && item !== undefined && String(item).trim()) : [];
+  if (!list.length) {
+    return '<div class="empty-inline">待补充</div>';
+  }
+
+  return `
+    <ol class="scenario-numbered-list">
+      ${list
+        .map(
+          (item, index) => `
+            <li>
+              <span>${String(index + 1).padStart(2, "0")}</span>
+              <div>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</div>
+            </li>
+          `,
+        )
+        .join("")}
+    </ol>
+  `;
+}
+
+function renderDesignDataPermission(result) {
+  return `
+    <section class="scenario-section">
+      <h3>数据对象建议</h3>
+      <div class="data-object-grid">
+        ${renderCollectionOrEmpty(result.dataObjects, renderDataObjectCard, "当前文档证据不足，暂未生成数据对象建议。")}
+      </div>
+    </section>
+    <section class="scenario-section">
+      <h3>权限与角色分析</h3>
+      <div class="permission-analysis-grid">
+        ${renderCollectionOrEmpty(result.permissionAnalysis, renderPermissionCard, "当前文档证据不足，暂未识别权限边界。")}
+      </div>
+    </section>
+    <section class="scenario-section">
+      <h3>异常场景</h3>
+      <div class="exception-scenario-grid">
+        ${renderCollectionOrEmpty(result.exceptionScenarios, renderExceptionScenarioCard, "当前文档证据不足，暂未生成异常场景。")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDataObjectCard(item) {
+  return `
+    <article class="data-object-card">
+      <strong>${escapeHtml(stripMarkdownDecorators(item.name || "未命名数据对象"))}</strong>
+      <dl class="design-dl compact">
+        <div><dt>建议字段</dt><dd>${renderTagList(item.fields, "待补充字段")}</dd></div>
+        <div><dt>关联模块</dt><dd>${renderTagList(item.relatedModules, "待关联模块")}</dd></div>
+        <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function renderPermissionCard(item) {
+  if (typeof item === "string") {
+    return `<article class="permission-card">${renderRichTextBlock(item, "compact-rich-answer")}</article>`;
+  }
+  return `
+    <article class="permission-card">
+      <strong>${escapeHtml(stripMarkdownDecorators(item.role || item.name || "权限项"))}</strong>
+      ${renderRichTextBlock(item.permission || item.responsibility || item.description || item.boundary || "待补充权限说明。", "compact-rich-answer")}
+      ${item.sourceDocument ? `<small>来源：${escapeHtml(stripMarkdownDecorators(item.sourceDocument))}</small>` : ""}
+    </article>
+  `;
+}
+
+function renderExceptionScenarioCard(item) {
+  if (typeof item === "string") {
+    return `<article class="exception-card">${renderRichTextBlock(item, "compact-rich-answer")}</article>`;
+  }
+  return `
+    <article class="exception-card">
+      <strong>${escapeHtml(stripMarkdownDecorators(item.name || item.scenario || item.description || "异常场景"))}</strong>
+      ${renderRichTextBlock(item.description || item.scenario || "待补充异常说明。", "compact-rich-answer")}
+      <dl>
+        <div><dt>处理建议</dt><dd>${renderRichTextBlock(item.suggestion || item.handling || "需要人工确认处理规则。", "compact-rich-answer inline-rich-answer")}</dd></div>
+        <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || item.source || "待关联文档"))}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function renderDesignTraceability(result) {
+  return `
+    <section class="scenario-section">
+      <h3>需求-功能-用例-模块-证据追踪矩阵</h3>
+      ${renderTraceabilityTable(result.traceabilityMatrix)}
+    </section>
+  `;
+}
+
+function renderTraceabilityTable(items = []) {
+  if (!items.length) {
+    return '<div class="empty-inline">当前文档证据不足，暂未生成追踪矩阵。</div>';
+  }
+  return `
+    <div class="table-wrap">
+      <table class="scenario-table design-table">
+        <thead>
+          <tr>
+            <th>需求/业务规则来源</th>
+            <th>功能点</th>
+            <th>文本用例</th>
+            <th>建议模块</th>
+            <th>证据片段</th>
+            <th>来源文档</th>
+            <th>证据等级</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => `
+            <tr>
+              <td>${escapeHtml(stripMarkdownDecorators(item.requirementSource || "待关联需求"))}</td>
+              <td><strong>${escapeHtml(stripMarkdownDecorators(item.functionName || "待关联功能"))}</strong></td>
+              <td>${escapeHtml(stripMarkdownDecorators(item.useCaseName || "待关联用例"))}</td>
+              <td>${escapeHtml(stripMarkdownDecorators(item.moduleName || "待关联模块"))}</td>
+              <td>${renderEvidenceSnippet(item.evidenceSnippet)}</td>
+              <td>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</td>
+              <td>${escapeHtml(stripMarkdownDecorators(item.evidenceLevel || resultEvidenceLevelLabel(item)))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDesignBusinessAnalysis(result) {
+  return `
+    <section class="scenario-section">
+      <h3>业务对象识别</h3>
+      <div class="business-object-grid">
+        ${renderCollectionOrEmpty(result.businessObjects, renderBusinessObjectCard, "当前文档证据不足，暂未识别明确业务对象。")}
+      </div>
+    </section>
+    <section class="scenario-section">
+      <h3>业务规则抽取</h3>
+      <div class="business-rule-list">
+        ${renderCollectionOrEmpty(result.businessRules, renderBusinessRuleCard, "当前文档证据不足，暂未抽取明确业务规则。")}
+      </div>
+    </section>
+    <section class="scenario-section">
+      <h3>证据覆盖率</h3>
+      ${renderEvidenceCoverage(result.evidenceCoverage)}
+    </section>
+  `;
+}
+
+function renderBusinessObjectCard(item) {
+  return `
+    <article class="business-object-card">
+      <strong>${escapeHtml(stripMarkdownDecorators(item.name || "未命名对象"))}</strong>
+      ${renderRichTextBlock(item.meaning || item.description || "待补充业务含义。", "compact-rich-answer")}
+      <dl>
+        <div><dt>关联模块</dt><dd>${renderTagList(item.relatedModules, "待关联模块")}</dd></div>
+        <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
+      </dl>
+      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(stripMarkdownDecorators(item.evidenceSnippet))}</p>` : ""}
+    </article>
+  `;
+}
+
+function renderBusinessRuleCard(item) {
+  return `
+    <article class="business-rule-card">
+      <div>
+        <strong>${escapeHtml(stripMarkdownDecorators(item.rule || item.description || "未命名规则"))}</strong>
+        <span>${escapeHtml(item.needsReview ? "需人工复核" : "证据较充分")}</span>
+      </div>
+      ${renderRichTextBlock(item.description || item.rule || "待补充规则描述。", "compact-rich-answer")}
+      <dl>
+        <div><dt>影响范围</dt><dd>${renderRichTextBlock(item.impactScope || item.impact || "待确认影响范围", "compact-rich-answer inline-rich-answer")}</dd></div>
+        <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
+      </dl>
+      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(stripMarkdownDecorators(item.evidenceSnippet))}</p>` : ""}
+    </article>
+  `;
+}
+
+function renderTagList(value, emptyText = "待补充") {
+  const list = Array.isArray(value) ? value.filter((item) => item !== null && item !== undefined && String(item).trim()) : [];
+  if (!list.length) {
+    return `<div class="empty-inline">${escapeHtml(emptyText)}</div>`;
+  }
+
+  return `
+    <div class="tag-list">
+      ${list.map((item) => `<span>${escapeHtml(stripMarkdownDecorators(formatDisplayValue(item)))}</span>`).join("")}
+    </div>
+  `;
+}
+
+function formatDisplayValue(value) {
+  if (value && typeof value === "object") {
+    return value.name || value.title || value.role || value.field || value.description || JSON.stringify(value);
+  }
+  return String(value || "");
+}
+
+function renderCollectionOrEmpty(items, renderer, emptyText) {
+  const list = Array.isArray(items)
+    ? items.filter((item) => item !== null && item !== undefined && (typeof item !== "string" || item.trim()))
+    : [];
+  if (!list.length) {
+    return `<div class="empty-inline">${escapeHtml(emptyText)}</div>`;
+  }
+  return list.map(renderer).join("");
+}
+
+function renderEvidenceSnippet(value, limit = 120) {
+  const text = stripMarkdownDecorators(value || "");
+  if (!text) {
+    return '<span class="muted-inline">暂无证据片段</span>';
+  }
+  const clipped = text.length > limit ? `${text.slice(0, limit)}...` : text;
+  return `<span class="evidence-snippet-inline">${escapeHtml(clipped)}</span>`;
+}
+
+function resultEvidenceLevelLabel(item = {}) {
+  if (item.evidenceScore || item.score) {
+    const score = Number(item.evidenceScore || item.score || 0);
+    if (score >= 0.6) {
+      return "充分";
+    }
+    if (score > 0) {
+      return "部分充分";
+    }
+  }
+  return "部分充分";
+}
+
+function renderEvidenceCoverage(coverage = {}) {
+  const covered = Array.isArray(coverage.coveredAspects) ? coverage.coveredAspects : [];
+  const missing = Array.isArray(coverage.missingAspects) ? coverage.missingAspects : [];
+  return `
+    <div class="coverage-card-grid">
+      <article class="coverage-card">
+        <span>已覆盖方面</span>
+        ${renderTagList(covered, "暂无覆盖项")}
+      </article>
+      <article class="coverage-card ${missing.length ? "coverage-warning" : ""}">
+        <span>缺失方面</span>
+        ${renderTagList(missing, "暂无明显缺口")}
+      </article>
+      <article class="coverage-card">
+        <span>覆盖等级</span>
+        <strong>${escapeHtml(getEvidenceLevelLabel(mapCoverageLevel(coverage.coverageLevel)))}</strong>
+        ${renderRichTextBlock(coverage.reviewSuggestion || "请结合引用证据人工复核后再进入评审。", "compact-rich-answer")}
+      </article>
+    </div>
+  `;
+}
+
+function mapCoverageLevel(level) {
+  const value = String(level || "").toLowerCase();
+  if (["high", "sufficient", "strong", "充分"].includes(value)) {
+    return "high";
+  }
+  if (["low", "insufficient", "weak", "不足"].includes(value)) {
+    return "low";
+  }
+  return "medium";
+}
+
+function renderGenerationModeBadge(mode) {
+  const normalized = String(mode || "unknown").toLowerCase();
+  const labels = {
+    model: "真实模型生成",
+    "openai-compatible": "真实模型生成",
+    "retrieval-fallback": "检索兜底生成",
+    "mock-fallback": "Mock 回退",
+    "frontend-mock": "Mock 回退",
+    "json-repaired-model": "JSON 修复生成",
+    unknown: "来源待确认",
+  };
+  const label = labels[normalized] || labels[normalized.replaceAll("_", "-")] || labels.unknown;
+  const tone = normalized.includes("mock") ? "mock" : normalized.includes("retrieval") ? "fallback" : normalized.includes("json") ? "repair" : "model";
+  return `<span class="generation-badge generation-${tone}">${escapeHtml(label)}</span>`;
+}
+
+function downloadTextFile(content, filename, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function handleDesignAction(action) {
   if (action === "regenerate") {
     await generateDesignOutput();
@@ -1653,7 +2154,9 @@ async function handleDesignAction(action) {
   }
 
   if (action === "export") {
-    toast("Markdown 导出占位：后续将接入真实导出能力。");
+    const markdown = buildDesignMarkdown(designState.result);
+    downloadTextFile(markdown, `SuperRAG-需求设计产物-${Date.now()}.md`, "text/markdown;charset=utf-8");
+    toast("设计产物 Markdown 已导出。");
     return;
   }
 
@@ -1669,21 +2172,52 @@ function buildDesignMarkdown(result) {
     `设计目标：${result.inputQuestion}`,
     `关联项目：${result.project}`,
     `证据充分度：${getEvidenceLevelLabel(result.evidenceLevel)}`,
+    `生成来源：${stripHtml(renderGenerationModeBadge(result.generationMode || result.source))}`,
+    `Pipeline：${result.pipelineVersion || "未标注"}`,
+    "",
+    "## 业务对象识别",
+    ...(result.businessObjects || []).map((item) => `- ${item.name}：${item.meaning || item.description || ""}（来源：${item.sourceDocument || "待关联"}）`),
+    "",
+    "## 业务规则",
+    ...(result.businessRules || []).map((item) => `- ${item.rule || item.description}；影响范围：${item.impactScope || item.impact || "待确认"}；来源：${item.sourceDocument || "待关联"}`),
     "",
     "## 功能清单",
-    ...(result.functionList || []).map((item) => `- ${item.id} ${item.name}：${item.description}（${item.priority}，${item.relatedDocument}）`),
+    ...(result.functionList || []).map((item) => `- ${item.id} ${item.name}：${item.description}（${item.priority}，${item.sourceDocument || item.relatedDocument}）`),
     "",
     "## 详细文本用例",
-    ...(result.useCases || []).map((item) => `- ${item.id} ${item.name}：参与者 ${item.actor}；前置条件 ${formatMarkdownValue(item.preconditions)}`),
+    ...(result.useCases || []).flatMap((item) => [
+      `### ${item.id} ${item.name}`,
+      `- 参与者：${item.actor}`,
+      `- 前置条件：${formatMarkdownValue(item.preconditions)}`,
+      `- 主成功场景：${formatMarkdownValue(item.mainSuccessScenario)}`,
+      `- 扩展场景：${formatMarkdownValue(item.extensionScenarios)}`,
+      `- 异常场景：${formatMarkdownValue(item.exceptionScenarios)}`,
+      `- 后置条件：${formatMarkdownValue(item.postconditions)}`,
+      `- 证据来源：${item.sourceDocument || "待关联"}`,
+      "",
+    ]),
     "",
     "## 模块划分建议",
     ...(result.moduleSuggestions || []).map((item) => `- ${item.name}：${item.responsibility}`),
     "",
+    "## 数据对象建议",
+    ...(result.dataObjects || []).map((item) => `- ${item.name}：字段 ${formatMarkdownValue(item.fields)}；关联模块 ${formatMarkdownValue(item.relatedModules)}`),
+    "",
+    "## 权限与角色分析",
+    ...(result.permissionAnalysis || []).map((item) => `- ${formatMarkdownValue(item)}`),
+    "",
     "## 风险与待确认问题",
-    ...(result.risks || []).map((item) => `- ${item.description}；影响：${item.impact}；置信度：${item.confidence}`),
+    ...(result.risks || []).map((item) => `- ${item.description}；影响：${item.impact}；建议：${item.suggestion || item.supplement}`),
+    ...(result.openQuestions || []).map((item) => `- 待确认：${formatMarkdownValue(item)}`),
+    "",
+    "## 需求追踪矩阵",
+    ...(result.traceabilityMatrix || []).map((item) => `- ${item.requirementSource} -> ${item.functionName} -> ${item.useCaseName} -> ${item.moduleName}（${item.sourceDocument}）`),
     "",
     "## 后续动作建议",
     ...(result.nextActions || []).map((item) => `- ${item.action}（${item.priority}，负责人：${item.owner}）`),
+    "",
+    "## 引用证据",
+    ...(result.citations || []).map((item) => `- ${item.documentTitle}：${item.snippet}`),
     "",
     "## Mermaid 图示",
     "```mermaid",
@@ -1693,8 +2227,63 @@ function buildDesignMarkdown(result) {
   return lines.join("\n");
 }
 
+function buildHandoverMarkdown(result) {
+  const lines = [
+    `# ${result.title || "项目交接报告"}`,
+    "",
+    `交接问题：${result.query || ""}`,
+    `所属项目：${result.project || ""}`,
+    `交接范围：${result.scope || ""}`,
+    `生成来源：${stripHtml(renderGenerationModeBadge(result.generationMode || result.source))}`,
+    "",
+    "## 项目背景",
+    result.projectBackground || "暂无数据",
+    "",
+    "## 当前进度",
+    result.currentProgress || "暂无数据",
+    "",
+    "## 已完成事项",
+    ...((result.completedItems?.length ? result.completedItems : result.completedFeatures) || []).map((item) => `- ${formatMarkdownValue(item)}`),
+    "",
+    "## 未完成事项",
+    ...(result.unfinishedItems || []).map((item) => `- ${formatMarkdownValue(item)}`),
+    "",
+    "## 风险登记表",
+    ...((result.riskRegister?.length ? result.riskRegister : result.risks) || []).map((item) => `- ${item.risk || item.description}；影响：${item.impact || "待确认"}；建议：${item.suggestion || "补充文档或人工确认"}；来源：${item.sourceDocument || item.evidenceSource || "待关联"}`),
+    "",
+    "## 接手者待办清单",
+    ...((result.todoList?.length ? result.todoList : result.todos) || []).map((item) => `- [ ] ${item.taskName}（${item.priority}，${item.suggestedOwner || item.owner}，依赖：${item.dependentDocument || item.evidenceSource || "待确认"}）`),
+    "",
+    "## 责任边界",
+    ...((result.responsibilityBoundary?.length ? result.responsibilityBoundary : result.roles) || []).map((item) => `- ${item.role}：${item.responsibility}`),
+    "",
+    "## 依赖文档",
+    ...((result.dependentDocuments?.length ? result.dependentDocuments : result.dependentDocs) || []).map((item) => `- ${formatMarkdownValue(item)}`),
+    "",
+    "## 信息缺口",
+    ...(result.informationGaps || []).map((item) => `- ${formatMarkdownValue(item)}`),
+    "",
+    "## 交接检查清单",
+    ...(result.handoverChecklist || []).map((item) => `- [ ] ${formatMarkdownValue(item)}`),
+    "",
+    "## 证据映射",
+    ...(result.evidenceMap || []).map((item) => `- ${item.conclusion}（${item.sourceDocument}）：${item.evidenceSnippet}`),
+  ];
+  return lines.join("\n");
+}
+
 function formatMarkdownValue(value) {
-  return Array.isArray(value) ? value.join("；") : String(value || "待补充");
+  if (Array.isArray(value)) {
+    return value.map(formatMarkdownValue).join("；");
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).map(([key, item]) => `${key}: ${formatMarkdownValue(item)}`).join("；");
+  }
+  return String(value || "待补充");
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<[^>]+>/g, "");
 }
 
 function scheduleDesignDiagramRender(result) {
@@ -2285,6 +2874,10 @@ function populateScenarioSelect(selectId, values, fallbackLabel) {
   const currentValue = select.value;
   const options = values.length ? values : [fallbackLabel];
   select.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  if (fallbackLabel && options.includes(fallbackLabel)) {
+    select.value = fallbackLabel;
+    return;
+  }
   select.value = options.includes(currentValue) ? currentValue : options[0];
 }
 
