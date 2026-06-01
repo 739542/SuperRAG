@@ -225,8 +225,8 @@
         <section class="page-panel" data-page="/documents">
           <div class="page-header">
             <p class="eyebrow">Documents</p>
-            <h1>文档管理</h1>
-            <p>管理企业私有文档，完成分类、标签、入库状态查看与知识库映射。</p>
+            <h1>文档知识治理中心</h1>
+            <p>管理软件工程文档的入库、切片、检索适配和证据引用状态，让 RAG 过程在页面上可解释。</p>
           </div>
 
           <div class="document-page">
@@ -279,6 +279,25 @@
               </label>
             </section>
 
+            <section class="rag-flow-card dashboard-card" aria-label="RAG 流程可视化">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">RAG Pipeline</p>
+                  <h2>文档如何转化为可引用证据</h2>
+                </div>
+                <span class="table-count">答辩演示链路</span>
+              </div>
+              <div class="rag-flow-steps">
+                <span>文档上传</span>
+                <span>文本清洗</span>
+                <span>文档切块</span>
+                <span>向量索引 / 词法索引</span>
+                <span>场景检索</span>
+                <span>结构化生成</span>
+                <span>引用追踪</span>
+              </div>
+            </section>
+
             <section class="document-table-card dashboard-card">
               <div class="card-title-row">
                 <div>
@@ -293,12 +312,12 @@
                     <tr>
                       <th>文档名称</th>
                       <th>文档类型</th>
+                      <th>适用场景</th>
+                      <th>RAG 入库</th>
+                      <th>质量状态</th>
                       <th>所属项目</th>
-                      <th>标签</th>
-                      <th>上传者</th>
-                      <th>版本</th>
                       <th>入库状态</th>
-                      <th>更新时间</th>
+                      <th>引用记录</th>
                       <th>操作</th>
                     </tr>
                   </thead>

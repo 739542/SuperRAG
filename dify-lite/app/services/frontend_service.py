@@ -549,6 +549,33 @@ class FrontendService:
             "content": self._read_document_content(document, document_chunks),
         }
 
+    def get_document_detail(self, document_id: str) -> dict[str, Any]:
+        document = self._repository.get_document(document_id)
+        if not document:
+            raise ValueError("document not found")
+
+        chunks = self._repository.get_chunks_for_document(document_id)
+        detail = self._normalize_document(document, chunks=chunks)
+        detail["chunksPreview"] = [self._serialize_chunk(chunk) for chunk in chunks[:5]]
+        detail["qualityChecks"] = self._build_document_quality_checks(document, chunks)
+        detail["referenceStats"] = self._build_document_reference_stats(document)
+        detail["ingestionLogs"] = self._build_document_ingestion_logs(detail)
+        detail["knowledgeCategory"] = self._infer_document_category(detail)
+        return detail
+
+    def get_document_chunks(self, document_id: str, limit: int = 20) -> dict[str, Any]:
+        document = self._repository.get_document(document_id)
+        if not document:
+            raise ValueError("document not found")
+
+        chunks = self._repository.get_chunks_for_document(document_id)
+        safe_limit = max(1, min(int(limit or 20), 100))
+        return {
+            "document": self._normalize_document(document, chunks=chunks),
+            "items": [self._serialize_chunk(chunk) for chunk in chunks[:safe_limit]],
+            "total": len(chunks),
+        }
+
     def _resolve_or_create_collection(self, project: str) -> dict[str, Any]:
         project_name = project.strip() or "默认项目"
         existing = self._repository.get_collection_by_name(project_name)
@@ -576,8 +603,8 @@ class FrontendService:
             raise ValueError("no collections available, please import documents first")
         return collections[0]
 
-    def _normalize_document(self, item: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _normalize_document(self, item: dict[str, Any], chunks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        normalized = {
             "id": item["id"],
             "collectionId": item["collection_id"],
             "collectionName": item.get("collection_name") or item.get("project") or "默认项目",
@@ -593,6 +620,17 @@ class FrontendService:
             "charCount": item.get("char_count") or 0,
             "createdAt": item.get("created_at") or "",
         }
+        quality_checks = self._build_document_quality_checks(item, chunks or [])
+        normalized["ragInfo"] = self._build_document_rag_info(item, chunks or [])
+        normalized["qualityChecks"] = quality_checks
+        normalized["qualityStatus"] = self._document_quality_status(quality_checks)
+        normalized["qualityIssues"] = [
+            check["label"]
+            for check in quality_checks
+            if check.get("level") in {"warn", "bad"}
+        ]
+        normalized["referenceStats"] = self._build_document_reference_stats(item)
+        return normalized
 
     def _resolve_source_document(
         self,
@@ -616,13 +654,164 @@ class FrontendService:
     def _serialize_chunk(self, chunk: dict[str, Any] | None) -> dict[str, Any]:
         if not chunk:
             return {}
+        content = chunk.get("content", "") or ""
+        metadata = chunk.get("metadata", {}) or {}
         return {
             "id": chunk.get("id", ""),
             "documentId": chunk.get("document_id", ""),
             "position": chunk.get("position", 0),
-            "content": chunk.get("content", ""),
-            "sourceName": chunk.get("metadata", {}).get("source_name", ""),
+            "content": content,
+            "snippet": re.sub(r"\s+", " ", content).strip()[:320],
+            "tokenCount": chunk.get("token_count", 0),
+            "charCount": len(content),
+            "sourceName": metadata.get("source_name", ""),
+            "sourceDocument": metadata.get("source_name", ""),
+            "searchable": bool(content.strip()),
+            "metadata": metadata,
         }
+
+    def _build_document_rag_info(self, item: dict[str, Any], chunks: list[dict[str, Any]]) -> dict[str, Any]:
+        metadata = chunks[0].get("metadata", {}) if chunks else {}
+        status = str(item.get("status") or "")
+        vector_store = self._settings.vector_store
+        vector_index_enabled = vector_store == "weaviate" and "本地" not in status
+        lexical_fallback = vector_store != "weaviate" or "本地" in status
+        if vector_index_enabled:
+            retrieval_method = "向量索引 + 词法融合检索"
+        elif vector_store == "local":
+            retrieval_method = "本地向量近似 + 词法融合检索"
+        else:
+            retrieval_method = "词法检索回退"
+
+        return {
+            "chunkCount": item.get("chunk_count") or len(chunks),
+            "charCount": item.get("char_count") or sum(len(chunk.get("content", "")) for chunk in chunks),
+            "retrievalMethod": retrieval_method,
+            "vectorStore": vector_store,
+            "vectorIndexEnabled": vector_index_enabled,
+            "lexicalFallback": lexical_fallback,
+            "chunkSize": metadata.get("chunk_size") or self._settings.default_chunk_size,
+            "chunkOverlap": metadata.get("chunk_overlap") or self._settings.default_chunk_overlap,
+        }
+
+    def _build_document_quality_checks(self, item: dict[str, Any], chunks: list[dict[str, Any]]) -> list[dict[str, str]]:
+        summary = str(item.get("summary") or "").strip()
+        doc_type = str(item.get("doc_type") or "").strip()
+        scene = str(item.get("scene") or "").strip()
+        chunk_count = int(item.get("chunk_count") or len(chunks) or 0)
+        char_count = int(item.get("char_count") or sum(len(chunk.get("content", "")) for chunk in chunks) or 0)
+        status = str(item.get("status") or "")
+        joined_preview = "\n".join(chunk.get("content", "") for chunk in chunks[:5])
+        has_rule_context = bool(re.search(r"规则|异常|状态|权限|流程|约束|校验|负责人|审批|删除|金额", joined_preview))
+
+        checks: list[dict[str, str]] = [
+            self._quality_check(
+                label="文档摘要",
+                passed=bool(summary),
+                warn_message="缺少摘要，答辩时难以说明文档用途。",
+                ok_message="已填写摘要，可帮助快速理解文档价值。",
+            ),
+            self._quality_check(
+                label="文档类型",
+                passed=bool(doc_type and doc_type != "未分类"),
+                warn_message="缺少文档类型，后续场景检索不易定向。",
+                ok_message="已标注文档类型。",
+            ),
+            self._quality_check(
+                label="适用场景",
+                passed=bool(scene and scene != "通用"),
+                warn_message="适用场景较泛，建议标注培训、交接、设计或问答。",
+                ok_message="已标注适用场景。",
+            ),
+            self._quality_check(
+                label="内容长度",
+                passed=char_count >= 800,
+                warn_message="内容偏短，可能只能支撑少量检索结论。",
+                ok_message="内容长度适合 RAG 检索。",
+                bad=char_count < 200,
+            ),
+            self._quality_check(
+                label="Chunk 数量",
+                passed=chunk_count >= 2,
+                warn_message="切片数量偏少，建议补充更多业务背景或规则内容。",
+                ok_message="已完成文档切块，可用于检索。",
+                bad=chunk_count == 0,
+            ),
+            self._quality_check(
+                label="入库状态",
+                passed="失败" not in status and "异常" not in status,
+                warn_message="入库状态异常，请重新上传或检查解析日志。",
+                ok_message="文档已进入可检索状态。",
+                bad="失败" in status or "异常" in status,
+            ),
+            self._quality_check(
+                label="业务规则覆盖",
+                passed=has_rule_context or not chunks,
+                warn_message="当前预览片段中业务规则、异常流程或权限约束较少，设计辅助效果可能受限。",
+                ok_message="片段中包含业务规则、流程或约束信息。",
+            ),
+        ]
+        return checks
+
+    def _quality_check(
+        self,
+        *,
+        label: str,
+        passed: bool,
+        warn_message: str,
+        ok_message: str,
+        bad: bool = False,
+    ) -> dict[str, str]:
+        if passed:
+            return {"label": label, "level": "ok", "message": ok_message}
+        return {"label": label, "level": "bad" if bad else "warn", "message": warn_message}
+
+    def _document_quality_status(self, checks: list[dict[str, str]]) -> dict[str, str]:
+        if any(check.get("level") == "bad" for check in checks):
+            return {"label": "需补充后再检索", "level": "bad"}
+        if any(check.get("level") == "warn" for check in checks):
+            return {"label": "可检索但需完善", "level": "warn"}
+        return {"label": "适合检索", "level": "ok"}
+
+    def _build_document_reference_stats(self, item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "total": 0,
+            "general": 0,
+            "training": 0,
+            "handover": 0,
+            "design": 0,
+            "lastReferencedAt": "",
+            "note": "当前版本暂未落库统计引用记录，后续可从历史产物 citations 中增量计算。",
+        }
+
+    def _build_document_ingestion_logs(self, document: dict[str, Any]) -> list[dict[str, str]]:
+        status = document.get("status") or "已入库"
+        rag_info = document.get("ragInfo") or {}
+        return [
+            {
+                "time": document.get("createdAt") or "最近",
+                "status": status,
+                "message": f"文档已解析为 {rag_info.get('chunkCount', 0)} 个知识片段，字符数约 {rag_info.get('charCount', 0)}。",
+            },
+            {
+                "time": "当前",
+                "status": status,
+                "message": f"检索方式：{rag_info.get('retrievalMethod', '本地检索')}；chunk_size={rag_info.get('chunkSize', '-')}, overlap={rag_info.get('chunkOverlap', '-')}。",
+            },
+        ]
+
+    def _infer_document_category(self, document: dict[str, Any]) -> str:
+        scene = str(document.get("scene") or "")
+        doc_type = str(document.get("type") or "")
+        if "交接" in scene or "交接" in doc_type:
+            return "项目交接知识 / 风险待办"
+        if "培训" in scene or "培训" in doc_type:
+            return "新人培训知识 / 学习路径"
+        if "接口" in doc_type:
+            return "接口与依赖知识 / 设计辅助"
+        if "需求" in doc_type or "设计" in scene:
+            return "需求设计知识 / 业务规则"
+        return document.get("collectionName") or "通用项目知识 / 待细分"
 
     def _read_document_content(self, document: dict[str, Any], chunks: list[dict[str, Any]]) -> str:
         filename = document.get("filename") or ""

@@ -110,6 +110,11 @@
       chunkCount: raw.chunkCount ?? raw.chunk_count ?? 0,
       charCount: raw.charCount ?? raw.char_count ?? 0,
       scene: raw.scene || "通用",
+      ragInfo: normalizeRagInfo(raw.ragInfo || raw.rag_info || raw.retrievalInfo || raw.retrieval_info),
+      qualityChecks: normalizeQualityChecks(raw.qualityChecks || raw.quality_checks),
+      qualityStatus: normalizeQualityStatus(raw.qualityStatus || raw.quality_status),
+      qualityIssues: normalizeStringList(raw.qualityIssues || raw.quality_issues),
+      referenceStats: normalizeReferenceStats(raw.referenceStats || raw.reference_stats),
     };
   }
 
@@ -126,12 +131,86 @@
         raw.collection_name ||
         inferKnowledgeCategory(documentItem),
       ingestionLogs: raw.ingestionLogs || raw.ingestion_logs || raw.logs || buildMockIngestionLogs(documentItem),
+      chunksPreview: normalizeChunks(raw.chunksPreview || raw.chunks_preview || raw.chunks || []),
       referencedQuestionCount:
         raw.referencedQuestionCount ??
         raw.referenced_question_count ??
         raw.questionCount ??
+        documentItem.referenceStats.total ??
         getMockCitationCount(documentItem.title),
     };
+  }
+
+  function normalizeRagInfo(value = {}) {
+    const raw = value && typeof value === "object" ? value : {};
+    return {
+      chunkCount: Number(raw.chunkCount ?? raw.chunk_count ?? 0),
+      charCount: Number(raw.charCount ?? raw.char_count ?? 0),
+      retrievalMethod: raw.retrievalMethod || raw.retrieval_method || "本地检索",
+      vectorStore: raw.vectorStore || raw.vector_store || "",
+      vectorIndexEnabled: Boolean(raw.vectorIndexEnabled ?? raw.vector_index_enabled),
+      lexicalFallback: Boolean(raw.lexicalFallback ?? raw.lexical_fallback),
+      chunkSize: raw.chunkSize ?? raw.chunk_size ?? "",
+      chunkOverlap: raw.chunkOverlap ?? raw.chunk_overlap ?? "",
+    };
+  }
+
+  function normalizeQualityChecks(value = []) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .filter(Boolean)
+      .map((item) => ({
+        label: item.label || item.name || "质量检查",
+        level: item.level || item.tone || "warn",
+        message: item.message || item.description || "",
+      }));
+  }
+
+  function normalizeQualityStatus(value = {}) {
+    if (typeof value === "string") {
+      return { label: value, level: value.includes("适合") ? "ok" : "warn" };
+    }
+    if (value && typeof value === "object") {
+      return {
+        label: value.label || value.name || "待检查",
+        level: value.level || value.tone || "warn",
+      };
+    }
+    return { label: "待检查", level: "warn" };
+  }
+
+  function normalizeReferenceStats(value = {}) {
+    const raw = value && typeof value === "object" ? value : {};
+    return {
+      total: Number(raw.total ?? raw.referencedQuestionCount ?? 0),
+      general: Number(raw.general ?? 0),
+      training: Number(raw.training ?? 0),
+      handover: Number(raw.handover ?? 0),
+      design: Number(raw.design ?? 0),
+      lastReferencedAt: raw.lastReferencedAt || raw.last_referenced_at || "",
+      note: raw.note || "",
+    };
+  }
+
+  function normalizeChunks(value = []) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter(Boolean).map((item) => ({
+      id: item.id || item.chunkId || item.chunk_id || "",
+      documentId: item.documentId || item.document_id || "",
+      position: Number(item.position ?? item.index ?? 0),
+      content: item.content || "",
+      snippet: item.snippet || item.content || "",
+      tokenCount: Number(item.tokenCount ?? item.token_count ?? 0),
+      charCount: Number(item.charCount ?? item.char_count ?? String(item.content || "").length),
+      sourceName: item.sourceName || item.source_name || item.sourceDocument || item.source_document || "",
+      sourceDocument: item.sourceDocument || item.source_document || item.sourceName || item.source_name || "",
+      searchable: item.searchable !== false,
+      metadata: item.metadata || {},
+    }));
   }
 
   function normalizeStringList(value) {
@@ -237,8 +316,19 @@
   }
 
   async function getDocumentDetail(id) {
-    // TODO: backend currently has no GET /api/documents/{id}; derive detail
-    // from the list response and keep mock-only fields in the adapter.
+    try {
+      const backendDetail = await fetchBackendDocumentDetail(id);
+      if (backendDetail) {
+        const mappedDetail = mapBackendDocumentDetailToDocumentDetail(backendDetail);
+        if (!mappedDetail.chunksPreview?.length) {
+          mappedDetail.chunksPreview = await fetchBackendDocumentChunks(id, 5);
+        }
+        return clone(applyLocalDocumentState(mappedDetail));
+      }
+    } catch (error) {
+      warnFallback("获取真实文档详情失败，已回退到文档列表推导", error);
+    }
+
     const rawDocuments = await getDocumentsWithFallback();
     const rawDocument = rawDocuments.find((documentItem) => {
       const mapped = mapBackendDocumentToDocument(documentItem);
@@ -250,6 +340,23 @@
     }
 
     return clone(applyLocalDocumentState(mapBackendDocumentDetailToDocumentDetail(rawDocument)));
+  }
+
+  async function fetchBackendDocumentDetail(id) {
+    const config = getConfig();
+    if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL || !id) {
+      return null;
+    }
+    return requestBackendJson(`/documents/${encodeURIComponent(id)}`);
+  }
+
+  async function fetchBackendDocumentChunks(id, limit = 5) {
+    const config = getConfig();
+    if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL || !id) {
+      return [];
+    }
+    const response = await requestBackendJson(`/documents/${encodeURIComponent(id)}/chunks?limit=${encodeURIComponent(limit)}`);
+    return normalizeChunks(response.items || []);
   }
 
   async function uploadDocument(payload) {

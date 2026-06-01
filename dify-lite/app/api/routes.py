@@ -91,10 +91,31 @@ def document_source():
     return jsonify(result)
 
 
-@api_blueprint.route("/api/documents/<document_id>", methods=["DELETE", "OPTIONS"])
-def delete_document(document_id: str):
+@api_blueprint.route("/api/documents/<document_id>/chunks", methods=["GET", "OPTIONS"])
+def document_chunks(document_id: str):
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
     if request.method == "OPTIONS":
         return ("", 204)
+
+    try:
+        limit = int(request.args.get("limit", 20))
+        result = frontend_service.get_document_chunks(document_id=document_id, limit=limit)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@api_blueprint.route("/api/documents/<document_id>", methods=["GET", "DELETE", "OPTIONS"])
+def document_detail(document_id: str):
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    if request.method == "GET":
+        frontend_service = current_app.config["FRONTEND_SERVICE"]
+        try:
+            return jsonify(frontend_service.get_document_detail(document_id))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 404
 
     repository = current_app.config["REPOSITORY"]
     settings = current_app.config["SETTINGS"]

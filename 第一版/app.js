@@ -1148,6 +1148,7 @@ function renderHandoverResult(result) {
       </div>
     </section>
     ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
+    ${renderRetrievalVisibility(result)}
     <section class="handover-summary-grid">
       ${renderInfoBlock("项目背景", result.projectBackground)}
       ${renderInfoBlock("当前进度", result.currentProgress)}
@@ -1180,6 +1181,109 @@ function renderHandoverResult(result) {
       <h3>引用证据</h3>
       <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : '<div class="empty-inline">暂无引用证据。</div>'}</div>
     </section>
+  `;
+}
+
+function renderRetrievalVisibility(result = {}) {
+  const retriever = result.retriever || {};
+  const citations = Array.isArray(result.citations) ? result.citations : [];
+  const groups = Array.isArray(retriever.groups) ? retriever.groups : [];
+  const queries = Array.isArray(retriever.queries) ? retriever.queries : [];
+  const sourceTitles = new Set(
+    citations
+      .map((item) => item.documentTitle || item.title || item.sourceName || item.sourceDocument)
+      .filter(Boolean),
+  );
+  groups.forEach((group) => {
+    (group.hits || []).forEach((hit) => {
+      if (hit.sourceDocument || hit.sourceName) {
+        sourceTitles.add(hit.sourceDocument || hit.sourceName);
+      }
+    });
+  });
+
+  if (!citations.length && !groups.length && !retriever.hit_count) {
+    return "";
+  }
+
+  const warningText = retriever.warning || result.warning || "";
+  const fallbackText =
+    result.source === "retrieval-fallback" || result.generationMode === "retrieval-fallback"
+      ? "检索兜底生成"
+      : warningText
+        ? "检索存在告警"
+        : "检索正常";
+
+  const topHits = citations.length
+    ? citations.slice(0, 4)
+    : groups.flatMap((group) => group.hits || []).slice(0, 4);
+
+  return `
+    <section class="retrieval-visibility-card scenario-section">
+      <div class="card-title-row">
+        <div>
+          <p class="eyebrow">RAG Visibility</p>
+          <h3>检索过程可见性</h3>
+        </div>
+        <span class="retrieval-mode-badge">${escapeHtml(fallbackText)}</span>
+      </div>
+      <div class="retrieval-metrics-grid">
+        ${renderRetrievalMetric("检索子问题", queries.length || groups.length || 1)}
+        ${renderRetrievalMetric("命中片段", retriever.hit_count ?? topHits.length)}
+        ${renderRetrievalMetric("来源文档", sourceTitles.size || "待确认")}
+        ${renderRetrievalMetric("Top-K 展示", topHits.length)}
+      </div>
+      ${
+        groups.length
+          ? `<div class="retrieval-query-list">${groups
+              .slice(0, 5)
+              .map(
+                (group) => `
+                  <span>${escapeHtml(group.query || group.name || "检索子问题")} · ${escapeHtml((group.hits || []).length)} hits</span>
+                `,
+              )
+              .join("")}</div>`
+          : ""
+      }
+      <div class="retrieval-hit-list">
+        ${
+          topHits.length
+            ? topHits.map(renderRetrievalHit).join("")
+            : '<div class="empty-inline">暂无可展示的检索片段。</div>'
+        }
+      </div>
+      ${warningText ? `<div class="alert-card warning">${escapeHtml(warningText)}</div>` : ""}
+    </section>
+  `;
+}
+
+function renderRetrievalMetric(label, value) {
+  return `
+    <div class="retrieval-metric">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderRetrievalHit(item = {}) {
+  const score = Number(item.relevanceScore ?? item.score ?? 0);
+  const vectorScore = Number(item.vectorScore ?? item.vector_score ?? 0);
+  const lexicalScore = Number(item.lexicalScore ?? item.lexical_score ?? 0);
+  const title = item.documentTitle || item.title || item.sourceDocument || item.sourceName || "知识库片段";
+  return `
+    <article class="retrieval-hit-card">
+      <div class="retrieval-hit-head">
+        <strong>${escapeHtml(title)}</strong>
+        <span>score ${escapeHtml(score ? score.toFixed(2) : "0.00")}</span>
+      </div>
+      <p>${escapeHtml(item.snippet || item.content || "暂无片段摘要。")}</p>
+      <div class="retrieval-hit-scores">
+        <span>vector ${escapeHtml(vectorScore ? vectorScore.toFixed(2) : "0.00")}</span>
+        <span>lexical ${escapeHtml(lexicalScore ? lexicalScore.toFixed(2) : "0.00")}</span>
+        <span>chunk ${escapeHtml(item.chunkId || item.segmentId || item.id || "未标注")}</span>
+      </div>
+    </article>
   `;
 }
 
@@ -1498,6 +1602,7 @@ function renderDesignResult(result) {
     </section>
     ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
     ${result.warning ? `<div class="alert-card warning">${escapeHtml(result.warning)}</div>` : ""}
+    ${renderRetrievalVisibility(result)}
     ${renderDesignTabContent(result)}
   `;
   scheduleDesignDiagramRender(result);
@@ -3223,12 +3328,23 @@ async function renderDocumentTable() {
             </div>
           </td>
           <td>${escapeHtml(documentItem.type)}</td>
+          <td>${escapeHtml(documentItem.scene || "通用")}</td>
+          <td>
+            <div class="rag-table-cell">
+              <strong>${escapeHtml(documentItem.chunkCount || documentItem.ragInfo?.chunkCount || 0)} chunks</strong>
+              <small>${escapeHtml(formatNumber(documentItem.charCount || documentItem.ragInfo?.charCount || 0))} 字符</small>
+              <small>${escapeHtml(documentItem.ragInfo?.retrievalMethod || "本地检索")}</small>
+            </div>
+          </td>
+          <td>${renderQualityStatusBadge(documentItem.qualityStatus)}</td>
           <td>${escapeHtml(documentItem.project)}</td>
-          <td>${renderTagList(documentItem.tags)}</td>
-          <td>${escapeHtml(documentItem.uploader)}</td>
-          <td>${escapeHtml(documentItem.version)}</td>
           <td>${renderStatusBadge(documentItem.status)}</td>
-          <td>${escapeHtml(formatShortTime(documentItem.updatedAt))}</td>
+          <td>
+            <div class="rag-table-cell">
+              <strong>${escapeHtml(documentItem.referenceStats?.total ?? documentItem.referencedQuestionCount ?? 0)} 次</strong>
+              <small>${escapeHtml(documentItem.referenceStats?.lastReferencedAt ? formatShortTime(documentItem.referenceStats.lastReferencedAt) : "暂无引用")}</small>
+            </div>
+          </td>
           <td>
             <div class="table-actions">
               <button type="button" data-document-action="view" data-document-id="${documentItem.id}">查看详情</button>
@@ -3263,6 +3379,13 @@ function renderTagList(tags = []) {
     return '<span class="muted-text">未打标</span>';
   }
   return `<div class="tag-list">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>`;
+}
+
+function renderQualityStatusBadge(status = {}) {
+  const normalized = typeof status === "string" ? { label: status, level: "warn" } : status || {};
+  const label = normalized.label || "待检查";
+  const level = normalized.level || "warn";
+  return `<span class="quality-status-badge quality-status-${escapeHtml(level)}">${escapeHtml(label)}</span>`;
 }
 
 function openUploadDialog() {
@@ -3365,28 +3488,43 @@ function renderDocumentDetail(documentItem) {
   return `
     ${accessWarning}
     <section class="detail-section">
+      <h3>文档基本信息</h3>
+      <div class="detail-grid">
+        ${renderDetailItem("标题", documentItem.title)}
+        ${renderDetailItem("文档类型", documentItem.type)}
+        ${renderDetailItem("所属项目", documentItem.project)}
+        ${renderDetailItem("版本", documentItem.version)}
+        ${renderDetailItem("适用场景", documentItem.scene || "通用")}
+        ${renderDetailItem("上传者", documentItem.uploader || "后端导入")}
+        ${renderDetailItem("可见范围", documentItem.visibilityScope || "项目成员")}
+        ${renderDetailItem("上传时间", formatShortTime(documentItem.createdAt || documentItem.updatedAt) || "未记录")}
+        ${renderDetailItem("入库状态", renderStatusBadge(documentItem.status), true)}
+        ${renderDetailItem("质量状态", renderQualityStatusBadge(documentItem.qualityStatus), true)}
+      </div>
+    </section>
+    <section class="detail-section">
       <h3>文档摘要</h3>
-      <p>${escapeHtml(documentItem.summary)}</p>
-    </section>
-    <section class="detail-grid">
-      ${renderDetailItem("文档类型", documentItem.type)}
-      ${renderDetailItem("所属项目", documentItem.project)}
-      ${renderDetailItem("可见范围", documentItem.visibilityScope)}
-      ${renderDetailItem("上传者", documentItem.uploader)}
-      ${renderDetailItem("版本", documentItem.version)}
-      ${renderDetailItem("入库状态", renderStatusBadge(documentItem.status), true)}
+      <p>${escapeHtml(documentItem.summary || "暂无摘要。建议补充文档用途、覆盖范围和关键业务规则，便于检索和答辩说明。")}</p>
     </section>
     <section class="detail-section">
-      <h3>标签</h3>
-      ${renderTagList(documentItem.tags)}
+      <h3>RAG 入库信息</h3>
+      ${renderDocumentRagInfo(documentItem)}
     </section>
     <section class="detail-section">
-      <h3>自动关键词</h3>
-      ${renderTagList(documentItem.keywords)}
+      <h3>Chunk 预览</h3>
+      ${renderChunkPreview(documentItem.chunksPreview)}
+    </section>
+    <section class="detail-section">
+      <h3>文档质量检查</h3>
+      ${renderDocumentQualityChecks(documentItem.qualityChecks)}
     </section>
     <section class="detail-section">
       <h3>关联知识分类</h3>
       <p>${escapeHtml(category)}</p>
+    </section>
+    <section class="detail-section">
+      <h3>标签与关键词</h3>
+      ${renderTagList([...(documentItem.tags || []), ...(documentItem.keywords || [])])}
     </section>
     <section class="detail-section">
       <h3>Dify Dataset 映射状态</h3>
@@ -3408,9 +3546,103 @@ function renderDocumentDetail(documentItem) {
       </ol>
     </section>
     <section class="detail-section">
-      <h3>引用该文档的问答次数</h3>
-      <p class="detail-metric">${linkedQuestionCount}</p>
+      <h3>引用记录 / 使用记录</h3>
+      ${renderReferenceStats(documentItem.referenceStats, linkedQuestionCount)}
     </section>
+  `;
+}
+
+function renderDocumentRagInfo(documentItem) {
+  const ragInfo = documentItem.ragInfo || {};
+  const vectorEnabled = ragInfo.vectorIndexEnabled ? "已启用" : "未启用";
+  const lexicalFallback = ragInfo.lexicalFallback ? "已触发 / 可用" : "未触发";
+  return `
+    <div class="detail-grid">
+      ${renderDetailItem("Chunk 数量", `${ragInfo.chunkCount ?? documentItem.chunkCount ?? 0}`)}
+      ${renderDetailItem("字符数", `${formatNumber(ragInfo.charCount ?? documentItem.charCount ?? 0)}`)}
+      ${renderDetailItem("检索方式", ragInfo.retrievalMethod || "本地检索")}
+      ${renderDetailItem("向量索引", vectorEnabled)}
+      ${renderDetailItem("词法回退", lexicalFallback)}
+      ${renderDetailItem("chunk_size", ragInfo.chunkSize || "默认")}
+      ${renderDetailItem("chunk_overlap", ragInfo.chunkOverlap || "默认")}
+      ${renderDetailItem("vector_store", ragInfo.vectorStore || "local")}
+    </div>
+  `;
+}
+
+function renderChunkPreview(chunks = []) {
+  if (!chunks.length) {
+    return '<div class="empty-inline">暂无 chunk 预览。请确认文档已上传并完成入库。</div>';
+  }
+  return `
+    <div class="chunk-preview-list">
+      ${chunks
+        .slice(0, 5)
+        .map((chunk) => {
+          const position = Number(chunk.position ?? 0) + 1;
+          return `
+            <article class="chunk-preview-card">
+              <div class="chunk-preview-head">
+                <strong>Chunk ${position}</strong>
+                <span>${escapeHtml(chunk.searchable === false ? "不可检索" : "可检索")}</span>
+              </div>
+              <p>${escapeHtml(chunk.snippet || chunk.content || "暂无片段内容。")}</p>
+              <div class="chunk-preview-meta">
+                <span>${escapeHtml(chunk.charCount || String(chunk.content || "").length)} 字符</span>
+                <span>${escapeHtml(chunk.tokenCount || 0)} tokens</span>
+                <span>${escapeHtml(chunk.sourceDocument || chunk.sourceName || "当前文档")}</span>
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderDocumentQualityChecks(checks = []) {
+  if (!checks.length) {
+    return '<div class="empty-inline">暂无质量检查结果。</div>';
+  }
+  return `
+    <div class="quality-check-list">
+      ${checks
+        .map((check) => {
+          const level = check.level || "warn";
+          const className = level === "ok" ? "quality-ok" : level === "bad" ? "quality-bad" : "quality-warn";
+          return `
+            <div class="quality-check-item ${className}">
+              <span>${escapeHtml(check.label || "质量检查")}</span>
+              <strong>${escapeHtml(check.message || "待补充检查说明")}</strong>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderReferenceStats(referenceStats = {}, fallbackTotal = 0) {
+  const stats = referenceStats || {};
+  const total = stats.total ?? fallbackTotal ?? 0;
+  return `
+    <div class="reference-stats-grid">
+      ${renderReferenceStat("总引用", total)}
+      ${renderReferenceStat("通用问答", stats.general || 0)}
+      ${renderReferenceStat("新人培训", stats.training || 0)}
+      ${renderReferenceStat("项目交接", stats.handover || 0)}
+      ${renderReferenceStat("设计辅助", stats.design || 0)}
+    </div>
+    <p>${escapeHtml(stats.note || (total ? "已记录引用统计。" : "暂无引用记录，后续可从历史产物 citations 中扩展统计。"))}</p>
+  `;
+}
+
+function renderReferenceStat(label, value) {
+  return `
+    <div class="reference-stat-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
   `;
 }
 
@@ -3608,6 +3840,14 @@ function formatShortTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatNumber(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) {
+    return "0";
+  }
+  return new Intl.NumberFormat("zh-CN").format(number);
 }
 
 function getTimeValue(value) {
