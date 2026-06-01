@@ -6,6 +6,7 @@ const routes = {
   "/training": "培训模式",
   "/handover": "交接模式",
   "/design-assistant": "设计辅助",
+  "/knowledge-gaps": "知识缺口与证据",
   "/history": "历史记录",
   "/settings": "后台配置",
 };
@@ -50,6 +51,10 @@ const historyState = {
   loaded: false,
   records: [],
   options: null,
+};
+const knowledgeGapState = {
+  loaded: false,
+  data: null,
 };
 const settingsState = {
   loaded: false,
@@ -145,6 +150,10 @@ function renderCurrentRoute() {
 
   if (normalizedRoute === "/design-assistant") {
     renderDesignPage();
+  }
+
+  if (normalizedRoute === "/knowledge-gaps") {
+    renderKnowledgeGapsPage();
   }
 
   if (normalizedRoute === "/history") {
@@ -1149,6 +1158,7 @@ function renderHandoverResult(result) {
     </section>
     ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
     ${renderRetrievalVisibility(result)}
+    ${renderScenarioQualityAssessment(result.qualityAssessment, "handover")}
     <section class="handover-summary-grid">
       ${renderInfoBlock("项目背景", result.projectBackground)}
       ${renderInfoBlock("当前进度", result.currentProgress)}
@@ -1283,6 +1293,49 @@ function renderRetrievalHit(item = {}) {
         <span>lexical ${escapeHtml(lexicalScore ? lexicalScore.toFixed(2) : "0.00")}</span>
         <span>chunk ${escapeHtml(item.chunkId || item.segmentId || item.id || "未标注")}</span>
       </div>
+    </article>
+  `;
+}
+
+function renderScenarioQualityAssessment(quality = {}, scene = "design") {
+  const categories = Array.isArray(quality?.categoryScores) ? quality.categoryScores : [];
+  if (!quality || (!categories.length && !quality.openIssueCount && !quality.uncitedItems)) {
+    return "";
+  }
+  const title = scene === "handover" ? "交接质量评估" : "设计质量评估";
+  const ready = quality.canEnterReview ? "建议进入人工评审" : "建议补充证据后再评审";
+  return `
+    <section class="scenario-quality-card scenario-section">
+      <div class="card-title-row">
+        <div>
+          <p class="eyebrow">Quality Assessment</p>
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+        <span class="quality-score-badge quality-score-${escapeHtml(quality.level || "partial")}">${escapeHtml(Math.round(Number(quality.score || 0) * 100))}%</span>
+      </div>
+      <div class="retrieval-metrics-grid">
+        ${renderRetrievalMetric("检查项", quality.totalCheckedItems || 0)}
+        ${renderRetrievalMetric("已绑定证据", quality.evidenceBoundItems || 0)}
+        ${renderRetrievalMetric("低证据项", quality.lowEvidenceItems || 0)}
+        ${renderRetrievalMetric("未引用项", quality.uncitedItems || 0)}
+      </div>
+      <div class="quality-category-grid">
+        ${categories.map(renderQualityCategoryCard).join("")}
+      </div>
+      <div class="alert-card ${quality.canEnterReview ? "" : "warning"}">${escapeHtml(quality.reviewSuggestion || ready)}</div>
+    </section>
+  `;
+}
+
+function renderQualityCategoryCard(item = {}) {
+  const score = Number(item.score || 0);
+  return `
+    <article class="quality-category-card">
+      <div>
+        <strong>${escapeHtml(item.label || "质量项")}</strong>
+        <span>${escapeHtml(item.evidenceBound || 0)} / ${escapeHtml(item.total || 0)} 已绑定证据</span>
+      </div>
+      <em>${escapeHtml(Math.round(score * 100))}%</em>
     </article>
   `;
 }
@@ -1603,6 +1656,7 @@ function renderDesignResult(result) {
     ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
     ${result.warning ? `<div class="alert-card warning">${escapeHtml(result.warning)}</div>` : ""}
     ${renderRetrievalVisibility(result)}
+    ${renderScenarioQualityAssessment(result.qualityAssessment, "design")}
     ${renderDesignTabContent(result)}
   `;
   scheduleDesignDiagramRender(result);
@@ -2525,6 +2579,114 @@ async function renderHistoryPage() {
   }
 
   await renderHistoryList();
+}
+
+async function renderKnowledgeGapsPage() {
+  const summaryNode = document.getElementById("knowledge-gap-summary");
+  const countNode = document.getElementById("knowledge-gap-count");
+  const tableBody = document.getElementById("knowledge-gap-table-body");
+  const exampleNode = document.getElementById("knowledge-gap-examples");
+  if (!summaryNode || !tableBody || !exampleNode) {
+    return;
+  }
+
+  summaryNode.innerHTML = '<div class="empty-inline">正在聚合历史产物中的知识缺口...</div>';
+  tableBody.innerHTML = '<tr><td colspan="7">正在加载知识缺口...</td></tr>';
+
+  try {
+    const data = await window.SuperRagBackend.requestJson("/knowledge-gaps", {
+      timeoutMs: window.SuperRagConfig?.DOCUMENT_API_TIMEOUT_MS || 60000,
+    });
+    knowledgeGapState.data = data;
+    knowledgeGapState.loaded = true;
+    const items = Array.isArray(data.items) ? data.items : [];
+    const summary = data.summary || {};
+    if (countNode) {
+      countNode.textContent = `${items.length} 类缺口`;
+    }
+    summaryNode.innerHTML = renderKnowledgeGapSummary(summary);
+    tableBody.innerHTML = items.length
+      ? items.map(renderKnowledgeGapRow).join("")
+      : '<tr><td colspan="7">暂无知识缺口。生成并保存历史产物后，系统会自动聚合待确认问题和低证据项。</td></tr>';
+    exampleNode.innerHTML = renderKnowledgeGapExamples(items);
+  } catch (error) {
+    summaryNode.innerHTML = `<div class="empty-inline">知识缺口加载失败：${escapeHtml(error.message || error)}</div>`;
+    tableBody.innerHTML = '<tr><td colspan="7">知识缺口接口不可用。</td></tr>';
+    exampleNode.innerHTML = '<div class="empty-inline">暂无缺口示例。</div>';
+  }
+}
+
+function renderKnowledgeGapSummary(summary = {}) {
+  const sceneCounts = summary.sceneCounts || {};
+  return `
+    ${renderGapSummaryCard("历史产物", summary.artifactCount || 0, "已纳入聚合分析的问答、培训、交接和设计产物")}
+    ${renderGapSummaryCard("缺口类型", summary.gapTypeCount || 0, "按缺口描述合并后的问题类别")}
+    ${renderGapSummaryCard("缺口出现", summary.totalGapOccurrences || 0, "历史产物中累计出现的缺口次数")}
+    ${renderGapSummaryCard("高风险缺口", summary.highSeverityCount || 0, "建议优先补充文档或人工复核")}
+    ${renderGapSummaryCard("设计缺口", sceneCounts.design || 0, "来自设计辅助产物")}
+    ${renderGapSummaryCard("交接缺口", sceneCounts.handover || 0, "来自项目交接产物")}
+  `;
+}
+
+function renderGapSummaryCard(label, value, description) {
+  return `
+    <article class="gap-summary-card dashboard-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <p>${escapeHtml(description)}</p>
+    </article>
+  `;
+}
+
+function renderKnowledgeGapRow(item = {}) {
+  const scenes = (item.sourceScenes || []).map((scene) => formatSceneMode(scene === "general" ? "chat" : scene)).join(" / ");
+  const docs = (item.relatedDocuments || []).slice(0, 3).join("、") || "暂无明确关联文档";
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.gapType || "知识缺口")}</strong></td>
+      <td>${escapeHtml(scenes || "待确认")}</td>
+      <td>${escapeHtml(item.impactScope || "待确认影响范围")}</td>
+      <td>${escapeHtml(docs)}</td>
+      <td>${escapeHtml(item.count || 0)}</td>
+      <td>${renderGapSeverityBadge(item.severity)}</td>
+      <td>${escapeHtml(item.suggestion || "补充相关文档")}</td>
+    </tr>
+  `;
+}
+
+function renderGapSeverityBadge(severity) {
+  const value = String(severity || "low").toLowerCase();
+  const labelMap = { high: "高", medium: "中", low: "低" };
+  return `<span class="gap-severity severity-${escapeHtml(value)}">${escapeHtml(labelMap[value] || "低")}</span>`;
+}
+
+function renderKnowledgeGapExamples(items = []) {
+  const examples = items.flatMap((item) =>
+    (item.examples || []).map((example) => ({
+      ...example,
+      gapType: item.gapType,
+      severity: item.severity,
+      suggestion: item.suggestion,
+    })),
+  );
+  if (!examples.length) {
+    return '<div class="empty-inline">暂无缺口示例。</div>';
+  }
+  return examples
+    .slice(0, 8)
+    .map(
+      (example) => `
+        <article class="gap-example-card">
+          <div>
+            <span>${escapeHtml(example.gapType || "知识缺口")} · ${escapeHtml(formatSceneMode(example.scene === "general" ? "chat" : example.scene || "chat"))}</span>
+            <strong>${escapeHtml(example.description || "待补充缺口描述")}</strong>
+            <p>${escapeHtml(example.artifactTitle || "历史产物")} · ${escapeHtml(formatShortTime(example.createdAt) || "未记录时间")}</p>
+          </div>
+          ${renderGapSeverityBadge(example.severity)}
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function populateHistoryFilters(options) {

@@ -328,7 +328,11 @@ class FrontendService:
         evidence_lines = self._build_evidence(evidence_context["raw_hits"])
         source = "retrieval-fallback" if fallback_used else generation.get("provider", "openai-compatible")
         structured_source = structured.get("source", "")
-        quality_assessment = structured.get("qualityAssessment") or {}
+        quality_assessment = structured.get("qualityAssessment") or self._build_scene_quality_assessment(
+            scene,
+            structured,
+            citations,
+        )
         missing_information = structured.get("openQuestions") or structured.get("informationGaps") or []
         warnings = self._public_scene_warnings(
             [
@@ -438,6 +442,7 @@ class FrontendService:
         result["source"] = source
         result["structuredSource"] = structured_source
         result["generationMode"] = self._generation_mode(source, fallback_used=fallback_used, json_repaired=json_repaired)
+        result["qualityAssessment"] = quality_assessment
         return result
 
     def _public_scene_warnings(self, warnings: list[Any]) -> list[str]:
@@ -596,6 +601,12 @@ class FrontendService:
             "creator": payload.get("creator") or "course-demo-user",
             "created_at": created_at,
         }
+        if not record["quality_assessment"]:
+            record["quality_assessment"] = self._build_scene_quality_assessment(
+                scene,
+                record["structured_output"],
+                self._as_list(payload.get("citations")),
+            )
         saved = self._repository.save_artifact(record)
         artifact_id = saved["id"]
         created_at = saved.get("created_at") or created_at
@@ -711,6 +722,79 @@ class FrontendService:
             "referencesByScene": scene_counts,
             "referencedArtifacts": references,
             "topReferencedChunks": top_chunks,
+        }
+
+    def get_knowledge_gaps(self) -> dict[str, Any]:
+        artifacts = self._repository.list_artifacts()
+        gap_map: dict[str, dict[str, Any]] = {}
+        scene_counts: dict[str, int] = {"general": 0, "training": 0, "handover": 0, "design": 0}
+
+        for artifact in artifacts:
+            scene = self._normalize_scene(artifact.get("scene") or "general")
+            structured = artifact.get("structured_output") or {}
+            quality = artifact.get("quality_assessment") or {}
+            citations = artifact.get("citations") or []
+            gaps = self._extract_artifact_gap_items(artifact=artifact, structured=structured, quality=quality)
+            scene_counts[scene] = scene_counts.get(scene, 0) + len(gaps)
+            for gap in gaps:
+                key = self._gap_key(gap)
+                entry = gap_map.setdefault(
+                    key,
+                    {
+                        "id": key,
+                        "gapType": gap["gapType"],
+                        "sourceScenes": set(),
+                        "impactScope": gap["impactScope"],
+                        "relatedDocuments": set(),
+                        "count": 0,
+                        "suggestion": gap["suggestion"],
+                        "severity": gap["severity"],
+                        "artifactIds": set(),
+                        "examples": [],
+                    },
+                )
+                entry["sourceScenes"].add(scene)
+                entry["count"] += 1
+                entry["artifactIds"].add(artifact.get("id") or "")
+                for citation in citations[:3]:
+                    document_title = citation.get("documentTitle") or citation.get("title") or ""
+                    if document_title:
+                        entry["relatedDocuments"].add(document_title)
+                if gap.get("relatedDocument"):
+                    entry["relatedDocuments"].add(gap["relatedDocument"])
+                if len(entry["examples"]) < 3:
+                    entry["examples"].append(
+                        {
+                            "artifactId": artifact.get("id") or "",
+                            "artifactTitle": artifact.get("title") or "历史产物",
+                            "scene": scene,
+                            "description": gap["description"],
+                            "createdAt": artifact.get("created_at") or "",
+                        }
+                    )
+                entry["severity"] = self._higher_severity(entry["severity"], gap["severity"])
+
+        items = []
+        for entry in gap_map.values():
+            items.append(
+                {
+                    **entry,
+                    "sourceScenes": sorted(entry["sourceScenes"]),
+                    "relatedDocuments": sorted(entry["relatedDocuments"])[:8],
+                    "artifactIds": sorted(item for item in entry["artifactIds"] if item),
+                }
+            )
+        items.sort(key=lambda item: (self._severity_rank(item["severity"]), item["count"]), reverse=True)
+        total_gaps = sum(item["count"] for item in items)
+        return {
+            "summary": {
+                "artifactCount": len(artifacts),
+                "gapTypeCount": len(items),
+                "totalGapOccurrences": total_gaps,
+                "highSeverityCount": sum(1 for item in items if item["severity"] == "high"),
+                "sceneCounts": scene_counts,
+            },
+            "items": items,
         }
 
     def _resolve_or_create_collection(self, project: str) -> dict[str, Any]:
@@ -1038,6 +1122,195 @@ class FrontendService:
             "design-assistant": "design",
         }
         return mapping.get(value, value or "general")
+
+    def _build_scene_quality_assessment(
+        self,
+        scene: str,
+        structured: dict[str, Any],
+        citations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        scene = self._normalize_scene(scene)
+        citation_count = len(citations or [])
+        if scene == "design":
+            categories = [
+                self._quality_category("功能清单证据覆盖率", structured.get("functionList"), "sourceDocument"),
+                self._quality_category("文本用例证据覆盖率", structured.get("useCases"), "sourceDocument"),
+                self._quality_category("模块建议证据覆盖率", structured.get("moduleSuggestions"), "sourceDocument"),
+                self._quality_category("风险分析证据覆盖率", structured.get("risks"), "sourceDocument"),
+                self._quality_category("追踪矩阵完整度", structured.get("traceabilityMatrix"), "sourceDocument"),
+            ]
+            gaps = self._as_list(structured.get("openQuestions"))
+            coverage = structured.get("evidenceCoverage") if isinstance(structured.get("evidenceCoverage"), dict) else {}
+            missing_aspects = self._as_list(coverage.get("missingAspects"))
+        elif scene == "handover":
+            categories = [
+                self._quality_text_category("进度结论证据充分度", structured.get("currentProgress"), citation_count),
+                self._quality_category("待办事项证据充分度", structured.get("todoList"), "evidenceSource"),
+                self._quality_category("风险登记证据充分度", structured.get("riskRegister"), "sourceDocument"),
+                self._quality_category("责任边界证据充分度", structured.get("responsibilityBoundary"), "sourceDocument"),
+                self._quality_list_category("依赖文档完整度", structured.get("dependentDocuments")),
+            ]
+            gaps = self._as_list(structured.get("informationGaps"))
+            missing_aspects = []
+        else:
+            categories = [self._quality_text_category("回答证据充分度", structured.get("summary") or structured.get("answer"), citation_count)]
+            gaps = self._as_list(structured.get("openQuestions") or structured.get("informationGaps"))
+            missing_aspects = []
+
+        total_checked = sum(item["total"] for item in categories)
+        evidence_bound = sum(item["evidenceBound"] for item in categories)
+        avg_score = round(sum(item["score"] for item in categories) / len(categories), 2) if categories else 0
+        low_evidence_items = sum(item["lowEvidenceItems"] for item in categories)
+        uncited_items = max(0, total_checked - evidence_bound)
+        can_enter_review = avg_score >= 0.7 and not gaps and uncited_items == 0
+        return {
+            "scene": scene,
+            "score": avg_score,
+            "level": self._quality_level(avg_score, gaps, uncited_items),
+            "categoryScores": categories,
+            "totalCheckedItems": total_checked,
+            "evidenceBoundItems": evidence_bound,
+            "lowEvidenceItems": low_evidence_items,
+            "uncitedItems": uncited_items,
+            "openIssueCount": len(gaps) + len(missing_aspects),
+            "missingAspects": missing_aspects,
+            "gaps": gaps,
+            "canEnterReview": can_enter_review,
+            "reviewSuggestion": "可进入人工评审。" if can_enter_review else "仍存在低证据项或知识缺口，建议补充文档后再评审。",
+        }
+
+    def _quality_category(self, label: str, items: Any, source_key: str) -> dict[str, Any]:
+        normalized_items = [item for item in self._as_list(items) if isinstance(item, dict)]
+        total = len(normalized_items)
+        if not total:
+            return {"label": label, "score": 0, "total": 0, "evidenceBound": 0, "lowEvidenceItems": 0, "status": "missing"}
+        evidence_bound = sum(1 for item in normalized_items if self._item_has_evidence(item, source_key))
+        low_evidence = sum(1 for item in normalized_items if float(item.get("evidenceScore") or item.get("score") or 0) < 0.2 and not item.get("evidenceSnippet"))
+        score = round(evidence_bound / total, 2)
+        return {
+            "label": label,
+            "score": score,
+            "total": total,
+            "evidenceBound": evidence_bound,
+            "lowEvidenceItems": low_evidence,
+            "status": self._quality_level(score, [], total - evidence_bound),
+        }
+
+    def _quality_text_category(self, label: str, text: Any, citation_count: int) -> dict[str, Any]:
+        exists = bool(str(text or "").strip())
+        score = 1 if exists and citation_count else (0.5 if exists else 0)
+        return {
+            "label": label,
+            "score": score,
+            "total": 1 if exists else 0,
+            "evidenceBound": 1 if exists and citation_count else 0,
+            "lowEvidenceItems": 0 if citation_count else 1,
+            "status": self._quality_level(score, [], 0 if citation_count else 1),
+        }
+
+    def _quality_list_category(self, label: str, items: Any) -> dict[str, Any]:
+        count = len(self._as_list(items))
+        score = 1 if count >= 2 else (0.5 if count else 0)
+        return {
+            "label": label,
+            "score": score,
+            "total": count,
+            "evidenceBound": count,
+            "lowEvidenceItems": 0 if count else 1,
+            "status": self._quality_level(score, [], 0 if count else 1),
+        }
+
+    def _item_has_evidence(self, item: dict[str, Any], source_key: str) -> bool:
+        source = str(item.get(source_key) or item.get("sourceDocument") or item.get("evidenceSource") or "").strip()
+        snippet = str(item.get("evidenceSnippet") or item.get("snippet") or "").strip()
+        return bool(snippet or (source and source not in {"待关联文档", "待确认文档", "待关联"}))
+
+    def _quality_level(self, score: float, gaps: list[Any], uncited_items: int) -> str:
+        if gaps or uncited_items > 2 or score < 0.4:
+            return "low"
+        if uncited_items or score < 0.75:
+            return "partial"
+        return "high"
+
+    def _extract_artifact_gap_items(
+        self,
+        *,
+        artifact: dict[str, Any],
+        structured: dict[str, Any],
+        quality: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        scene = self._normalize_scene(artifact.get("scene") or "general")
+        gaps: list[dict[str, Any]] = []
+
+        for item in self._as_list(structured.get("openQuestions")):
+            gaps.append(self._gap_item("待确认问题", item, scene, "设计结论或用例评审", "补充需求说明、业务规则或接口文档", "high"))
+        for item in self._as_list(structured.get("informationGaps")):
+            gaps.append(self._gap_item("信息缺口", item, scene, "项目交接完整性", "补充交接记录、负责人、测试或部署说明", "high"))
+        coverage = structured.get("evidenceCoverage") if isinstance(structured.get("evidenceCoverage"), dict) else {}
+        for item in self._as_list(coverage.get("missingAspects")):
+            gaps.append(self._gap_item("证据覆盖缺失", item, scene, "需求设计评审", "补充可引用的需求、接口或异常流程材料", "medium"))
+        for item in self._as_list(quality.get("missingAspects")):
+            gaps.append(self._gap_item("质量评估缺失", item, scene, "产物质量评估", "补充对应证据文档并重新生成", "medium"))
+        for risk in self._as_list(structured.get("risks") or structured.get("riskRegister")):
+            if isinstance(risk, dict) and bool(risk.get("needsReview") or risk.get("needs_review")):
+                description = risk.get("description") or risk.get("risk") or "风险项需要人工复核"
+                gaps.append(
+                    self._gap_item(
+                        "需人工复核风险",
+                        description,
+                        scene,
+                        risk.get("impact") or "风险评估和交付决策",
+                        risk.get("suggestion") or "补充证据并由负责人复核",
+                        "medium",
+                        related_document=risk.get("sourceDocument") or risk.get("evidenceSource") or "",
+                    )
+                )
+        uncited_count = int(quality.get("uncitedItems") or 0)
+        if uncited_count:
+            gaps.append(
+                self._gap_item(
+                    "未绑定证据项",
+                    f"存在 {uncited_count} 个结构化条目缺少明确证据绑定",
+                    scene,
+                    "产物可信度和答辩说服力",
+                    "补充引用文档或降低该产物的评审状态",
+                    "high" if uncited_count >= 3 else "medium",
+                )
+            )
+        return gaps
+
+    def _gap_item(
+        self,
+        gap_type: str,
+        description: Any,
+        scene: str,
+        impact_scope: Any,
+        suggestion: Any,
+        severity: str,
+        *,
+        related_document: str = "",
+    ) -> dict[str, Any]:
+        text = str(description or "").strip()
+        return {
+            "gapType": gap_type,
+            "description": text,
+            "sourceScene": scene,
+            "impactScope": str(impact_scope or "待确认影响范围"),
+            "suggestion": str(suggestion or "补充相关文档"),
+            "severity": severity,
+            "relatedDocument": related_document,
+        }
+
+    def _gap_key(self, gap: dict[str, Any]) -> str:
+        text = re.sub(r"\s+", " ", str(gap.get("description") or "")).strip().lower()
+        text = re.sub(r"[，。；、,.!?！？:：]+", " ", text)
+        return f"{gap.get('gapType', 'gap')}:{text[:48] or 'unknown'}"
+
+    def _higher_severity(self, left: str, right: str) -> str:
+        return left if self._severity_rank(left) >= self._severity_rank(right) else right
+
+    def _severity_rank(self, severity: str) -> int:
+        return {"low": 1, "medium": 2, "high": 3}.get(str(severity or "").lower(), 1)
 
     def _build_document_ingestion_logs(self, document: dict[str, Any]) -> list[dict[str, str]]:
         status = document.get("status") or "已入库"

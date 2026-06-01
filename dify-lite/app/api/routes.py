@@ -201,6 +201,14 @@ def artifact_review(artifact_id: str):
         return jsonify({"error": str(exc)}), 404
 
 
+@api_blueprint.route("/api/knowledge-gaps", methods=["GET", "OPTIONS"])
+def knowledge_gaps():
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+    return jsonify(frontend_service.get_knowledge_gaps())
+
+
 @api_blueprint.route("/api/documents/import", methods=["POST", "OPTIONS"])
 def import_document():
     frontend_service = current_app.config["FRONTEND_SERVICE"]

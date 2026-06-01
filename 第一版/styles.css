@@ -2348,6 +2348,80 @@ select {
   -webkit-box-orient: vertical;
 }
 
+.scenario-quality-card {
+  border-color: #bbf7d0;
+  background:
+    linear-gradient(135deg, rgba(240, 253, 244, 0.92), #ffffff 64%),
+    radial-gradient(circle at 100% 0%, rgba(34, 197, 94, 0.12), transparent 34%);
+}
+
+.quality-score-badge,
+.gap-severity {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.quality-score-high,
+.severity-low {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.quality-score-partial,
+.severity-medium {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.quality-score-low,
+.severity-high {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.quality-category-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quality-category-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.quality-category-card div {
+  display: grid;
+  gap: 4px;
+}
+
+.quality-category-card strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.quality-category-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quality-category-card em {
+  color: #15803d;
+  font-style: normal;
+  font-weight: 900;
+}
+
 .term-grid,
 .recommended-doc-grid,
 .risk-card-grid {
@@ -3567,6 +3641,82 @@ select {
   min-width: 0;
 }
 
+.knowledge-gap-page {
+  display: grid;
+  gap: 16px;
+}
+
+.gap-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gap-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+}
+
+.gap-summary-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.gap-summary-card strong {
+  color: var(--text);
+  font-size: 26px;
+}
+
+.gap-summary-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.gap-table {
+  min-width: 1100px;
+}
+
+.gap-example-list {
+  display: grid;
+  gap: 10px;
+}
+
+.gap-example-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.gap-example-card div {
+  display: grid;
+  gap: 6px;
+}
+
+.gap-example-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.gap-example-card strong {
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.gap-example-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3727,6 +3877,8 @@ select {
   .exception-scenario-grid,
   .coverage-card-grid,
   .retrieval-hit-list,
+  .gap-summary-grid,
+  .quality-category-grid,
   .design-dl.compact,
   .settings-grid,
   .handover-summary-grid,
@@ -3762,6 +3914,8 @@ select {
   .history-filters,
   .chat-config-bar,
   .retrieval-metrics-grid,
+  .gap-summary-grid,
+  .quality-category-grid,
   .term-grid,
   .recommended-doc-grid,
   .risk-card-grid,
@@ -3833,6 +3987,8 @@ select {
   .risk-card-grid,
   .retrieval-metrics-grid,
   .retrieval-hit-list,
+  .gap-summary-grid,
+  .quality-category-grid,
   .scenario-evidence-list {
     grid-template-columns: 1fr;
   }

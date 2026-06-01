@@ -93,6 +93,10 @@
           <span class="nav-icon" aria-hidden="true">A</span>
           <span>设计辅助</span>
         </a>
+        <a class="nav-link" href="#/knowledge-gaps" data-route="/knowledge-gaps">
+          <span class="nav-icon" aria-hidden="true">G</span>
+          <span>知识缺口</span>
+        </a>
         <a class="nav-link" href="#/history" data-route="/history">
           <span class="nav-icon" aria-hidden="true">R</span>
           <span>历史记录</span>
@@ -696,6 +700,62 @@
                   <div class="citation-list-panel" id="design-citation-list"></div>
                 </section>
               </aside>
+            </section>
+          </div>
+        </section>
+
+        <section class="page-panel" data-page="/knowledge-gaps">
+          <div class="page-header">
+            <p class="eyebrow">Knowledge Gaps</p>
+            <h1>知识缺口与证据</h1>
+            <p>从历史产物中的待确认问题、信息缺口、低证据项和需复核风险中聚合知识库缺口。</p>
+          </div>
+
+          <div class="knowledge-gap-page">
+            <section class="gap-summary-grid" id="knowledge-gap-summary">
+              <div class="empty-inline">正在加载知识缺口统计...</div>
+            </section>
+
+            <section class="dashboard-card gap-table-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Gap Registry</p>
+                  <h2>缺口登记表</h2>
+                </div>
+                <span class="table-count" id="knowledge-gap-count">0 类缺口</span>
+              </div>
+              <div class="table-wrap">
+                <table class="scenario-table gap-table">
+                  <thead>
+                    <tr>
+                      <th>缺口类型</th>
+                      <th>来源场景</th>
+                      <th>影响范围</th>
+                      <th>关联文档</th>
+                      <th>出现次数</th>
+                      <th>严重程度</th>
+                      <th>建议补充</th>
+                    </tr>
+                  </thead>
+                  <tbody id="knowledge-gap-table-body">
+                    <tr>
+                      <td colspan="7">正在加载知识缺口...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="dashboard-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Gap Examples</p>
+                  <h2>缺口来源示例</h2>
+                </div>
+              </div>
+              <div class="gap-example-list" id="knowledge-gap-examples">
+                <div class="empty-inline">暂无缺口示例。</div>
+              </div>
             </section>
           </div>
         </section>
