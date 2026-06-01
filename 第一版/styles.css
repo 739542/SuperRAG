@@ -1556,6 +1556,38 @@ select {
   font-size: 18px;
 }
 
+.referenced-artifact-list {
+  display: grid;
+  gap: 8px;
+}
+
+.referenced-artifact-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.referenced-artifact-card div {
+  display: grid;
+  gap: 4px;
+}
+
+.referenced-artifact-card strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.referenced-artifact-card span,
+.referenced-artifact-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .chat-workbench {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 340px;

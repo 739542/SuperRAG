@@ -43,10 +43,14 @@
         id: result.id,
         title: result.title,
         sceneMode: "handover",
+        artifactType: "handover_report",
         project: result.project,
         summary: result.currentProgress || result.projectBackground,
+        query: result.query,
         originalQuestion: result.query,
         outputSummary: result.currentProgress || result.projectBackground,
+        structuredOutput: result,
+        qualityAssessment: result.qualityAssessment || {},
         citations: result.citations,
       });
       return clone(result);

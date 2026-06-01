@@ -66,10 +66,14 @@
         id: result.id,
         title: result.title,
         sceneMode: "design",
+        artifactType: "design_output",
         project: result.project,
         summary: result.inputQuestion,
+        query: result.inputQuestion,
         originalQuestion: result.inputQuestion,
         outputSummary: result.functionList.map((item) => item.description).join("\n"),
+        structuredOutput: result,
+        qualityAssessment: result.qualityAssessment || {},
         citations: result.citations,
       });
       return clone(result);

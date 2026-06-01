@@ -105,6 +105,18 @@ def document_chunks(document_id: str):
     return jsonify(result)
 
 
+@api_blueprint.route("/api/documents/<document_id>/references", methods=["GET", "OPTIONS"])
+def document_references(document_id: str):
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    try:
+        return jsonify(frontend_service.get_document_references(document_id))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
 @api_blueprint.route("/api/documents/<document_id>", methods=["GET", "DELETE", "OPTIONS"])
 def document_detail(document_id: str):
     if request.method == "OPTIONS":
@@ -133,6 +145,60 @@ def document_detail(document_id: str):
             pass
 
     return jsonify({"success": True, "id": document_id})
+
+
+@api_blueprint.route("/api/artifacts", methods=["GET", "POST", "OPTIONS"])
+def artifacts():
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    if request.method == "GET":
+        return jsonify(
+            {
+                "items": frontend_service.list_artifacts(
+                    {
+                        "scene": request.args.get("scene", ""),
+                        "sceneMode": request.args.get("sceneMode", ""),
+                        "project": request.args.get("project", ""),
+                        "keyword": request.args.get("keyword", ""),
+                    }
+                )
+            }
+        )
+
+    try:
+        result = frontend_service.create_artifact(_json())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result), 201
+
+
+@api_blueprint.route("/api/artifacts/<artifact_id>", methods=["GET", "DELETE", "OPTIONS"])
+def artifact_detail(artifact_id: str):
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    if request.method == "GET":
+        try:
+            return jsonify(frontend_service.get_artifact(artifact_id))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 404
+
+    return jsonify(frontend_service.delete_artifact(artifact_id))
+
+
+@api_blueprint.route("/api/artifacts/<artifact_id>/review", methods=["PATCH", "POST", "OPTIONS"])
+def artifact_review(artifact_id: str):
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    try:
+        return jsonify(frontend_service.update_artifact_review(artifact_id, _json()))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 404
 
 
 @api_blueprint.route("/api/documents/import", methods=["POST", "OPTIONS"])

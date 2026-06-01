@@ -52,6 +52,27 @@ def bootstrap_database(settings: Settings) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id TEXT PRIMARY KEY,
+                scene TEXT NOT NULL,
+                artifact_type TEXT,
+                title TEXT NOT NULL,
+                query TEXT,
+                project TEXT,
+                output_summary TEXT,
+                structured_output_json TEXT NOT NULL,
+                citations_json TEXT NOT NULL,
+                quality_assessment_json TEXT NOT NULL,
+                review_status TEXT NOT NULL,
+                human_notes TEXT,
+                creator TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         _ensure_column(connection, "documents", "title", "TEXT")
         _ensure_column(connection, "documents", "doc_type", "TEXT")
         _ensure_column(connection, "documents", "project", "TEXT")
@@ -59,6 +80,11 @@ def bootstrap_database(settings: Settings) -> None:
         _ensure_column(connection, "documents", "scene", "TEXT")
         _ensure_column(connection, "documents", "summary", "TEXT")
         _ensure_column(connection, "documents", "status", "TEXT")
+        _ensure_column(connection, "artifacts", "artifact_type", "TEXT")
+        _ensure_column(connection, "artifacts", "review_status", "TEXT")
+        _ensure_column(connection, "artifacts", "human_notes", "TEXT")
+        _ensure_column(connection, "artifacts", "creator", "TEXT")
+        _ensure_column(connection, "artifacts", "updated_at", "TEXT")
         connection.commit()
 
 

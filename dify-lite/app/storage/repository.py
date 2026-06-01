@@ -267,3 +267,127 @@ class Repository:
         record = dict(row)
         record["metadata"] = json.loads(record.pop("metadata_json"))
         return record
+
+    def save_artifact(self, record: dict) -> dict:
+        now = utc_now()
+        artifact = {
+            "id": record.get("id") or str(uuid4()),
+            "scene": record.get("scene") or "general",
+            "artifact_type": record.get("artifact_type") or record.get("artifactType") or record.get("scene") or "general",
+            "title": record.get("title") or "未命名历史产物",
+            "query": record.get("query") or "",
+            "project": record.get("project") or "",
+            "output_summary": record.get("output_summary") or record.get("outputSummary") or record.get("summary") or "",
+            "structured_output_json": json.dumps(record.get("structured_output") or record.get("structuredOutput") or {}, ensure_ascii=True),
+            "citations_json": json.dumps(record.get("citations") or [], ensure_ascii=True),
+            "quality_assessment_json": json.dumps(
+                record.get("quality_assessment") or record.get("qualityAssessment") or {},
+                ensure_ascii=True,
+            ),
+            "review_status": record.get("review_status") or record.get("reviewStatus") or "草稿",
+            "human_notes": record.get("human_notes") or record.get("humanNotes") or "",
+            "creator": record.get("creator") or "course-demo-user",
+            "created_at": record.get("created_at") or record.get("createdAt") or now,
+            "updated_at": now,
+        }
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO artifacts (
+                    id, scene, artifact_type, title, query, project, output_summary,
+                    structured_output_json, citations_json, quality_assessment_json,
+                    review_status, human_notes, creator, created_at, updated_at
+                ) VALUES (
+                    :id, :scene, :artifact_type, :title, :query, :project, :output_summary,
+                    :structured_output_json, :citations_json, :quality_assessment_json,
+                    :review_status, :human_notes, :creator, :created_at, :updated_at
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    scene = excluded.scene,
+                    artifact_type = excluded.artifact_type,
+                    title = excluded.title,
+                    query = excluded.query,
+                    project = excluded.project,
+                    output_summary = excluded.output_summary,
+                    structured_output_json = excluded.structured_output_json,
+                    citations_json = excluded.citations_json,
+                    quality_assessment_json = excluded.quality_assessment_json,
+                    review_status = excluded.review_status,
+                    human_notes = excluded.human_notes,
+                    creator = excluded.creator,
+                    updated_at = excluded.updated_at
+                """,
+                artifact,
+            )
+            connection.commit()
+        return self.get_artifact(artifact["id"]) or artifact
+
+    def list_artifacts(self, *, scene: str = "", project: str = "", keyword: str = "") -> list[dict]:
+        query = """
+            SELECT id, scene, artifact_type, title, query, project, output_summary,
+                   structured_output_json, citations_json, quality_assessment_json,
+                   review_status, human_notes, creator, created_at, updated_at
+            FROM artifacts
+            WHERE 1 = 1
+        """
+        params: list[str] = []
+        if scene:
+            query += " AND scene = ?"
+            params.append(scene)
+        if project:
+            query += " AND project = ?"
+            params.append(project)
+        if keyword:
+            query += " AND (title LIKE ? OR query LIKE ? OR output_summary LIKE ?)"
+            like_value = f"%{keyword}%"
+            params.extend([like_value, like_value, like_value])
+        query += " ORDER BY created_at DESC"
+        with self._connect() as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+        return [self._decode_artifact(dict(row)) for row in rows]
+
+    def get_artifact(self, artifact_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, scene, artifact_type, title, query, project, output_summary,
+                       structured_output_json, citations_json, quality_assessment_json,
+                       review_status, human_notes, creator, created_at, updated_at
+                FROM artifacts
+                WHERE id = ?
+                """,
+                (artifact_id,),
+            ).fetchone()
+        return self._decode_artifact(dict(row)) if row else None
+
+    def update_artifact_review(self, artifact_id: str, *, review_status: str, human_notes: str) -> dict | None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE artifacts
+                SET review_status = ?, human_notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (review_status.strip() or "待复核", human_notes.strip(), utc_now(), artifact_id),
+            )
+            connection.commit()
+        return self.get_artifact(artifact_id)
+
+    def delete_artifact(self, artifact_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
+            connection.commit()
+        return cursor.rowcount > 0
+
+    def _decode_artifact(self, record: dict) -> dict:
+        record["structured_output"] = _loads_json(record.pop("structured_output_json", "{}"), {})
+        record["citations"] = _loads_json(record.pop("citations_json", "[]"), [])
+        record["quality_assessment"] = _loads_json(record.pop("quality_assessment_json", "{}"), {})
+        return record
+
+
+def _loads_json(value: str, fallback):
+    try:
+        return json.loads(value or "")
+    except (TypeError, json.JSONDecodeError):
+        return fallback

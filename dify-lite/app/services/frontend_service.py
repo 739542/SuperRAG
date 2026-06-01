@@ -576,6 +576,143 @@ class FrontendService:
             "total": len(chunks),
         }
 
+    def create_artifact(self, payload: dict[str, Any]) -> dict[str, Any]:
+        scene = self._normalize_scene(payload.get("scene") or payload.get("sceneMode") or "general")
+        created_at = str(payload.get("createdAt") or payload.get("created_at") or "")
+        artifact_id = str(payload.get("id") or payload.get("artifactId") or "").strip()
+        artifact_type = str(payload.get("artifactType") or payload.get("artifact_type") or scene).strip() or scene
+        record = {
+            "id": artifact_id,
+            "scene": scene,
+            "artifact_type": artifact_type,
+            "title": payload.get("title") or "未命名历史产物",
+            "query": payload.get("query") or payload.get("originalQuestion") or payload.get("original_question") or "",
+            "project": payload.get("project") or "",
+            "output_summary": payload.get("outputSummary") or payload.get("output_summary") or payload.get("summary") or "",
+            "structured_output": payload.get("structuredOutput") or payload.get("structured_output") or payload.get("structuredAnswer") or {},
+            "quality_assessment": payload.get("qualityAssessment") or payload.get("quality_assessment") or {},
+            "review_status": payload.get("reviewStatus") or payload.get("review_status") or "草稿",
+            "human_notes": payload.get("humanNotes") or payload.get("human_notes") or "",
+            "creator": payload.get("creator") or "course-demo-user",
+            "created_at": created_at,
+        }
+        saved = self._repository.save_artifact(record)
+        artifact_id = saved["id"]
+        created_at = saved.get("created_at") or created_at
+        citations = [
+            self._normalize_citation(
+                item,
+                scene=scene,
+                artifact_id=artifact_id,
+                artifact_type=artifact_type,
+                created_at=created_at,
+            )
+            for item in self._as_list(payload.get("citations"))
+            if item
+        ]
+        record["id"] = artifact_id
+        record["created_at"] = created_at
+        record["citations"] = citations
+        saved = self._repository.save_artifact(record)
+        return self._serialize_artifact(saved)
+
+    def list_artifacts(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        scene = self._normalize_scene(params.get("scene") or params.get("sceneMode") or "")
+        project = str(params.get("project") or "").strip()
+        keyword = str(params.get("keyword") or "").strip()
+        return [
+            self._serialize_artifact(item)
+            for item in self._repository.list_artifacts(scene=scene, project=project, keyword=keyword)
+        ]
+
+    def get_artifact(self, artifact_id: str) -> dict[str, Any]:
+        artifact = self._repository.get_artifact(artifact_id)
+        if not artifact:
+            raise ValueError("artifact not found")
+        return self._serialize_artifact(artifact)
+
+    def update_artifact_review(self, artifact_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        artifact = self._repository.update_artifact_review(
+            artifact_id,
+            review_status=str(payload.get("reviewStatus") or payload.get("review_status") or "待复核"),
+            human_notes=str(payload.get("humanNotes") or payload.get("human_notes") or ""),
+        )
+        if not artifact:
+            raise ValueError("artifact not found")
+        return self._serialize_artifact(artifact)
+
+    def delete_artifact(self, artifact_id: str) -> dict[str, Any]:
+        return {"success": self._repository.delete_artifact(artifact_id), "id": artifact_id}
+
+    def get_document_references(self, document_id: str) -> dict[str, Any]:
+        document = self._repository.get_document(document_id)
+        if not document:
+            raise ValueError("document not found")
+
+        title_candidates = {
+            str(document.get("title") or "").strip(),
+            str(document.get("original_name") or "").strip(),
+            str(document.get("filename") or "").strip(),
+        }
+        title_candidates.discard("")
+        references: list[dict[str, Any]] = []
+        chunk_counter: dict[str, dict[str, Any]] = {}
+        scene_counts = {"general": 0, "training": 0, "handover": 0, "design": 0}
+
+        for artifact in self._repository.list_artifacts():
+            matched_citations = []
+            for citation in artifact.get("citations", []):
+                citation_document_id = str(citation.get("documentId") or citation.get("document_id") or "")
+                citation_title = str(citation.get("documentTitle") or citation.get("title") or "").strip()
+                if citation_document_id == document_id or citation_title in title_candidates:
+                    matched_citations.append(citation)
+
+            if not matched_citations:
+                continue
+
+            scene = self._normalize_scene(artifact.get("scene") or "general")
+            scene_counts[scene] = scene_counts.get(scene, 0) + len(matched_citations)
+            for citation in matched_citations:
+                chunk_id = citation.get("chunkId") or citation.get("chunk_id") or citation.get("id") or ""
+                if chunk_id:
+                    chunk_record = chunk_counter.setdefault(
+                        chunk_id,
+                        {
+                            "chunkId": chunk_id,
+                            "chunkIndex": citation.get("chunkIndex") or citation.get("chunk_index") or "",
+                            "snippet": citation.get("snippet") or "",
+                            "count": 0,
+                            "documentTitle": citation.get("documentTitle") or document.get("title") or "",
+                        },
+                    )
+                    chunk_record["count"] += 1
+
+            references.append(
+                {
+                    "artifactId": artifact["id"],
+                    "artifactType": artifact.get("artifact_type") or scene,
+                    "scene": scene,
+                    "title": artifact.get("title") or "历史产物",
+                    "query": artifact.get("query") or "",
+                    "project": artifact.get("project") or "",
+                    "createdAt": artifact.get("created_at") or "",
+                    "reviewStatus": artifact.get("review_status") or "草稿",
+                    "citationCount": len(matched_citations),
+                    "citations": matched_citations,
+                }
+            )
+
+        references.sort(key=lambda item: item.get("createdAt") or "", reverse=True)
+        top_chunks = sorted(chunk_counter.values(), key=lambda item: item["count"], reverse=True)[:8]
+        return {
+            "document": self._normalize_document(document),
+            "totalReferences": sum(item["citationCount"] for item in references),
+            "lastReferencedAt": references[0]["createdAt"] if references else "",
+            "referencesByScene": scene_counts,
+            "referencedArtifacts": references,
+            "topReferencedChunks": top_chunks,
+        }
+
     def _resolve_or_create_collection(self, project: str) -> dict[str, Any]:
         project_name = project.strip() or "默认项目"
         existing = self._repository.get_collection_by_name(project_name)
@@ -774,15 +911,133 @@ class FrontendService:
         return {"label": "适合检索", "level": "ok"}
 
     def _build_document_reference_stats(self, item: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "total": 0,
-            "general": 0,
-            "training": 0,
-            "handover": 0,
-            "design": 0,
-            "lastReferencedAt": "",
-            "note": "当前版本暂未落库统计引用记录，后续可从历史产物 citations 中增量计算。",
+        document_id = str(item.get("id") or "")
+        title_candidates = {
+            str(item.get("title") or "").strip(),
+            str(item.get("original_name") or "").strip(),
+            str(item.get("filename") or "").strip(),
         }
+        title_candidates.discard("")
+        total = 0
+        scene_counts = {"general": 0, "training": 0, "handover": 0, "design": 0}
+        last_referenced_at = ""
+
+        for artifact in self._repository.list_artifacts():
+            scene = self._normalize_scene(artifact.get("scene") or "general")
+            matched_count = 0
+            for citation in artifact.get("citations", []):
+                citation_document_id = str(citation.get("documentId") or citation.get("document_id") or "")
+                citation_title = str(citation.get("documentTitle") or citation.get("title") or "").strip()
+                if citation_document_id == document_id or citation_title in title_candidates:
+                    matched_count += 1
+            if not matched_count:
+                continue
+            total += matched_count
+            scene_counts[scene] = scene_counts.get(scene, 0) + matched_count
+            created_at = str(artifact.get("created_at") or "")
+            if created_at > last_referenced_at:
+                last_referenced_at = created_at
+
+        return {
+            "total": total,
+            "general": scene_counts.get("general", 0),
+            "training": scene_counts.get("training", 0),
+            "handover": scene_counts.get("handover", 0),
+            "design": scene_counts.get("design", 0),
+            "lastReferencedAt": last_referenced_at,
+            "note": "引用统计来自后端历史产物 ArtifactRecord。",
+        }
+
+    def _serialize_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        scene = self._normalize_scene(artifact.get("scene") or "general")
+        return {
+            "id": artifact.get("id") or "",
+            "artifactId": artifact.get("id") or "",
+            "scene": scene,
+            "sceneMode": scene if scene != "general" else "chat",
+            "artifactType": artifact.get("artifact_type") or scene,
+            "title": artifact.get("title") or "未命名历史产物",
+            "query": artifact.get("query") or "",
+            "originalQuestion": artifact.get("query") or "",
+            "project": artifact.get("project") or "",
+            "summary": artifact.get("output_summary") or "",
+            "outputSummary": artifact.get("output_summary") or "",
+            "structuredOutput": artifact.get("structured_output") or {},
+            "citations": artifact.get("citations") or [],
+            "citationCount": len(artifact.get("citations") or []),
+            "qualityAssessment": artifact.get("quality_assessment") or {},
+            "reviewStatus": artifact.get("review_status") or "草稿",
+            "humanNotes": artifact.get("human_notes") or "",
+            "creator": artifact.get("creator") or "course-demo-user",
+            "createdAt": artifact.get("created_at") or "",
+            "updatedAt": artifact.get("updated_at") or "",
+        }
+
+    def _normalize_citation(
+        self,
+        raw: Any,
+        *,
+        scene: str,
+        artifact_id: str,
+        artifact_type: str,
+        created_at: str,
+    ) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            raw = {"id": str(raw), "chunkId": str(raw)}
+        chunk_id = str(raw.get("chunkId") or raw.get("chunk_id") or raw.get("segmentId") or raw.get("segment_id") or raw.get("id") or "")
+        chunk = self._repository.get_chunk(chunk_id) if chunk_id else None
+        document_id = str(raw.get("documentId") or raw.get("document_id") or (chunk or {}).get("document_id") or "")
+        document = self._repository.get_document(document_id) if document_id else None
+        document_title = (
+            raw.get("documentTitle")
+            or raw.get("document_title")
+            or raw.get("title")
+            or raw.get("sourceName")
+            or raw.get("source_name")
+            or (document or {}).get("title")
+            or (document or {}).get("original_name")
+            or "知识库片段"
+        )
+        if not document and document_title:
+            document = self._repository.find_document_by_source_name(str(document_title))
+            if document:
+                document_id = document["id"]
+                document_title = document.get("title") or document.get("original_name") or document_title
+        chunk_index = raw.get("chunkIndex") or raw.get("chunk_index")
+        if chunk_index is None:
+            chunk_index = int((chunk or {}).get("position", raw.get("position", 0)) or 0) + 1
+        score = float(raw.get("score") or raw.get("relevanceScore") or raw.get("relevance_score") or 0)
+        return {
+            "id": raw.get("id") or chunk_id,
+            "documentId": document_id,
+            "documentTitle": str(document_title),
+            "chunkId": chunk_id,
+            "chunkIndex": chunk_index,
+            "snippet": str(raw.get("snippet") or raw.get("content") or (chunk or {}).get("content") or "")[:500],
+            "score": score,
+            "relevanceScore": score,
+            "vectorScore": float(raw.get("vectorScore") or raw.get("vector_score") or 0),
+            "lexicalScore": float(raw.get("lexicalScore") or raw.get("lexical_score") or 0),
+            "scene": scene,
+            "artifactId": artifact_id,
+            "artifactType": artifact_type,
+            "createdAt": created_at,
+            "sourceName": raw.get("sourceName") or raw.get("source_name") or str(document_title),
+            "segmentId": raw.get("segmentId") or raw.get("segment_id") or chunk_id,
+        }
+
+    def _normalize_scene(self, scene: Any) -> str:
+        value = str(scene or "").strip()
+        mapping = {
+            "chat": "general",
+            "qa": "general",
+            "general": "general",
+            "training": "training",
+            "handover": "handover",
+            "design": "design",
+            "design-assistant": "design",
+        }
+        return mapping.get(value, value or "general")
 
     def _build_document_ingestion_logs(self, document: dict[str, Any]) -> list[dict[str, str]]:
         status = document.get("status") or "已入库"
@@ -2664,12 +2919,14 @@ class FrontendService:
             source = metadata.get("source_name") or "知识库片段"
             snippet = item.get("content", "").strip().replace("\n", " ")
             score = float(item.get("score") or 0)
+            position = int(item.get("position", 0) or 0)
             citations.append(
                 {
                     "id": item.get("id", ""),
                     "title": source,
                     "documentTitle": source,
                     "documentId": item.get("document_id", ""),
+                    "chunkIndex": position + 1,
                     "snippet": snippet[:220],
                     "score": score,
                     "relevanceScore": score,

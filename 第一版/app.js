@@ -3548,6 +3548,7 @@ function renderDocumentDetail(documentItem) {
     <section class="detail-section">
       <h3>引用记录 / 使用记录</h3>
       ${renderReferenceStats(documentItem.referenceStats, linkedQuestionCount)}
+      ${renderReferencedArtifacts(documentItem.referencedArtifacts)}
     </section>
   `;
 }
@@ -3642,6 +3643,30 @@ function renderReferenceStat(label, value) {
     <div class="reference-stat-card">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+function renderReferencedArtifacts(artifacts = []) {
+  if (!artifacts?.length) {
+    return '<div class="empty-inline">暂无历史产物引用该文档。生成问答、设计或交接结果后会自动沉淀引用记录。</div>';
+  }
+  return `
+    <div class="referenced-artifact-list">
+      ${artifacts
+        .slice(0, 6)
+        .map(
+          (item) => `
+            <article class="referenced-artifact-card">
+              <div>
+                <strong>${escapeHtml(item.title || "历史产物")}</strong>
+                <span>${escapeHtml(formatSceneMode(item.scene === "general" ? "chat" : item.scene || "chat"))} · ${escapeHtml(item.citationCount || 0)} 条引用</span>
+              </div>
+              <small>${escapeHtml(formatShortTime(item.createdAt) || "未记录时间")}</small>
+            </article>
+          `,
+        )
+        .join("")}
     </div>
   `;
 }

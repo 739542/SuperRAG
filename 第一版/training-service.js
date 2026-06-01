@@ -43,10 +43,14 @@
         id: result.id,
         title: result.title,
         sceneMode: "training",
+        artifactType: "training_plan",
         project: result.project,
         summary: result.summary,
+        query: result.query,
         originalQuestion: result.query,
         outputSummary: result.summary,
+        structuredOutput: result,
+        qualityAssessment: raw.qualityAssessment || raw.quality_assessment || {},
         citations: result.citations,
       });
       return clone(result);

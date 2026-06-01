@@ -323,6 +323,17 @@
         if (!mappedDetail.chunksPreview?.length) {
           mappedDetail.chunksPreview = await fetchBackendDocumentChunks(id, 5);
         }
+        const references = await fetchBackendDocumentReferences(id);
+        if (references) {
+          mappedDetail.referenceStats = normalizeReferenceStats({
+            total: references.totalReferences,
+            lastReferencedAt: references.lastReferencedAt,
+            ...(references.referencesByScene || {}),
+          });
+          mappedDetail.referencedArtifacts = references.referencedArtifacts || [];
+          mappedDetail.topReferencedChunks = references.topReferencedChunks || [];
+          mappedDetail.referencedQuestionCount = references.totalReferences || 0;
+        }
         return clone(applyLocalDocumentState(mappedDetail));
       }
     } catch (error) {
@@ -357,6 +368,19 @@
     }
     const response = await requestBackendJson(`/documents/${encodeURIComponent(id)}/chunks?limit=${encodeURIComponent(limit)}`);
     return normalizeChunks(response.items || []);
+  }
+
+  async function fetchBackendDocumentReferences(id) {
+    const config = getConfig();
+    if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL || !id) {
+      return null;
+    }
+    try {
+      return await requestBackendJson(`/documents/${encodeURIComponent(id)}/references`);
+    } catch (error) {
+      warnFallback("获取文档引用统计失败，继续展示基础详情", error);
+      return null;
+    }
   }
 
   async function uploadDocument(payload) {

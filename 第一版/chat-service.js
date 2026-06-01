@@ -99,10 +99,14 @@
         sessionId: payload.sessionId,
         title: String(payload.question || "").slice(0, 40) || "Knowledge QA",
         sceneMode: "chat",
+        artifactType: "general_answer",
         project: rawAnswer.collection?.name || payload.project || payload.knowledgeBaseId || "",
         summary: message.content,
+        query: payload.question,
         originalQuestion: payload.question,
         outputSummary: message.content,
+        structuredOutput: message.structuredAnswer,
+        qualityAssessment: rawAnswer.qualityAssessment || rawAnswer.quality_assessment || {},
         citations: message.citationItems,
       });
       return clone(message);

@@ -673,12 +673,14 @@ class ChatService:
             source = metadata.get("source_name") or "Knowledge Base Segment"
             snippet = item.get("content", "").strip().replace("\n", " ")
             score = float(item.get("score") or 0)
+            position = int(item.get("position", 0) or 0)
             citations.append(
                 {
                     "id": item.get("id", ""),
                     "title": source,
                     "documentTitle": source,
                     "documentId": item.get("document_id", ""),
+                    "chunkIndex": position + 1,
                     "snippet": snippet[:220],
                     "score": score,
                     "relevanceScore": score,
