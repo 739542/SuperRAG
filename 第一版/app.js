@@ -9,7 +9,7 @@ const routes = {
   "/design-assistant": "需求设计辅助",
   "/knowledge-gaps": "知识缺口与证据",
   "/history": "历史产物",
-  "/settings": "系统状态",
+  "/settings": "管理员诊断",
 };
 
 const legacyRouteMap = {
@@ -67,6 +67,8 @@ const settingsState = {
   settings: null,
 };
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "superrag.sidebar.collapsed";
+
 document.addEventListener("DOMContentLoaded", () => {
   bindLoginActions();
   bindTopbarActions();
@@ -86,6 +88,9 @@ document.addEventListener("DOMContentLoaded", () => {
 function bindTopbarActions() {
   const searchInput = document.querySelector(".global-search input");
   const noticeButton = document.querySelector(".icon-button");
+  const sidebarToggle = document.getElementById("sidebar-toggle");
+
+  initializeSidebarToggle(sidebarToggle);
 
   if (searchInput) {
     searchInput.addEventListener("keydown", (event) => {
@@ -102,6 +107,37 @@ function bindTopbarActions() {
     noticeButton.addEventListener("click", () => {
       toast("通知中心建设中。");
     });
+  }
+}
+
+function initializeSidebarToggle(toggleButton) {
+  const isCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
+  setSidebarCollapsed(isCollapsed, toggleButton);
+
+  if (!toggleButton) {
+    return;
+  }
+
+  toggleButton.addEventListener("click", () => {
+    const nextCollapsed = !document.body.classList.contains("sidebar-collapsed");
+    setSidebarCollapsed(nextCollapsed, toggleButton);
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, nextCollapsed ? "1" : "0");
+  });
+}
+
+function setSidebarCollapsed(isCollapsed, toggleButton = document.getElementById("sidebar-toggle")) {
+  document.body.classList.toggle("sidebar-collapsed", isCollapsed);
+
+  if (!toggleButton) {
+    return;
+  }
+
+  toggleButton.setAttribute("aria-pressed", String(isCollapsed));
+  toggleButton.setAttribute("aria-label", isCollapsed ? "展开侧边栏" : "收起侧边栏");
+
+  const toggleText = toggleButton.querySelector(".sidebar-toggle-text");
+  if (toggleText) {
+    toggleText.textContent = isCollapsed ? "展开菜单" : "收起菜单";
   }
 }
 
@@ -513,7 +549,7 @@ function renderAnswerCard(message) {
     <article class="answer-card chat-message">
       <div class="answer-card-head">
         <div>
-          <p class="eyebrow">RAG Answer</p>
+          <p class="eyebrow">证据问答</p>
           <h2>企业知识检索回答</h2>
         </div>
         <div class="answer-card-tags">
@@ -1750,6 +1786,8 @@ function renderDesignResult(result) {
     return;
   }
 
+  const intermediateDocumentBlock = renderDesignIntermediateDocument(result);
+
   container.innerHTML = `
     <section class="design-summary-card">
       <div>
@@ -1766,6 +1804,7 @@ function renderDesignResult(result) {
     </section>
     ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
     ${result.warning ? `<div class="alert-card warning">${escapeHtml(result.warning)}</div>` : ""}
+    ${intermediateDocumentBlock}
     ${renderRetrievalVisibility(result)}
     ${renderScenarioQualityAssessment(result.qualityAssessment, "design")}
     ${renderDesignTabContent(result)}
@@ -2364,8 +2403,8 @@ function renderGenerationModeBadge(mode) {
     model: "真实模型生成",
     "openai-compatible": "真实模型生成",
     "retrieval-fallback": "检索兜底生成",
-    "mock-fallback": "Mock 回退",
-    "frontend-mock": "Mock 回退",
+    "mock-fallback": "演示数据回退",
+    "frontend-mock": "演示数据回退",
     "json-repaired-model": "JSON 修复生成",
     unknown: "来源待确认",
   };
@@ -2458,7 +2497,7 @@ function buildDesignMarkdown(result) {
     `关联项目：${result.project}`,
     `证据充分度：${getEvidenceLevelLabel(result.evidenceLevel)}`,
     `生成来源：${stripHtml(renderGenerationModeBadge(result.generationMode || result.source))}`,
-    `Pipeline：${result.pipelineVersion || "未标注"}`,
+    `生成链路：${result.pipelineVersion || "未标注"}`,
     "",
     "## 业务对象识别",
     ...(result.businessObjects || []).map((item) => `- ${item.name}：${item.meaning || item.description || ""}（来源：${item.sourceDocument || "待关联"}）`),
@@ -3148,7 +3187,7 @@ function normalizeReviewStatus(status) {
 function renderHistoryStructuredOutput(detail) {
   const output = detail.structuredOutput || {};
   if (!output || !Object.keys(output).length) {
-    return renderEmptyState("暂无结构化产物。", "该记录可能来自旧版本地 mock，或生成时没有返回 structuredOutput。");
+    return renderEmptyState("暂无结构化产物。", "该记录可能来自旧版演示数据，或生成时没有返回结构化产物。");
   }
   if (detail.sceneMode === "design") {
     return renderHistoryDesignOutput(output);
@@ -3469,7 +3508,7 @@ async function handleWorkflowAction(action, sceneCode) {
     await service.updateWorkflow(sceneCode, { difyWorkflowId: nextWorkflowId.trim() || workflow.difyWorkflowId });
     settingsState.settings = await service.getSettings();
     renderSettingsContent(settingsState.settings);
-    toast("Workflow 映射已更新，本地 mock 生效。");
+    toast("Workflow 映射已更新，仅本地演示态生效。");
   }
 }
 
@@ -3495,7 +3534,7 @@ async function saveSettingsFromForm() {
   });
   settingsState.settings = await service.getSettings();
   renderSettingsContent(settingsState.settings);
-  toast("配置已保存，本地 mock 生效。");
+  toast("配置已保存，仅本地演示态生效。");
 }
 
 function setFieldValue(id, value) {
@@ -4456,15 +4495,15 @@ function renderDocumentDetail(documentItem) {
 
 function renderDocumentRagInfo(documentItem) {
   const ragInfo = documentItem.ragInfo || {};
-  const vectorEnabled = ragInfo.vectorIndexEnabled ? "已启用" : "未启用";
-  const lexicalFallback = ragInfo.lexicalFallback ? "已触发 / 可用" : "未触发";
+  const vectorEnabled = ragInfo.vectorIndexEnabled ? "已启用外部向量索引" : "使用本地向量近似";
+  const lexicalFallback = ragInfo.lexicalFallback ? "已参与融合排序" : "未参与";
   return `
     <div class="detail-grid">
       ${renderDetailItem("Chunk 数量", `${ragInfo.chunkCount ?? documentItem.chunkCount ?? 0}`)}
       ${renderDetailItem("字符数", `${formatNumber(ragInfo.charCount ?? documentItem.charCount ?? 0)}`)}
       ${renderDetailItem("检索方式", ragInfo.retrievalMethod || "本地检索")}
       ${renderDetailItem("向量索引", vectorEnabled)}
-      ${renderDetailItem("词法回退", lexicalFallback)}
+      ${renderDetailItem("词法融合", lexicalFallback)}
       ${renderDetailItem("chunk_size", ragInfo.chunkSize || "默认")}
       ${renderDetailItem("chunk_overlap", ragInfo.chunkOverlap || "默认")}
       ${renderDetailItem("vector_store", ragInfo.vectorStore || "local")}
@@ -4863,45 +4902,6 @@ function formatErrorMessage(error) {
   return fallback || "Unknown error";
 }
 
-function renderDesignResult(result) {
-  const container = document.getElementById("design-result");
-  const tabs = document.querySelectorAll("[data-design-tab]");
-  if (!container) {
-    return;
-  }
-
-  tabs.forEach((tab) => {
-    const isActive = tab.dataset.designTab === designState.activeTab;
-    tab.classList.toggle("active", isActive);
-    tab.setAttribute("aria-selected", String(isActive));
-  });
-
-  if (!result) {
-    container.innerHTML = '<div class="empty-inline">请输入设计目标后生成结构化设计产物。</div>';
-    return;
-  }
-
-  const intermediateDocumentBlock = renderDesignIntermediateDocument(result);
-
-  container.innerHTML = `
-    <section class="design-summary-card">
-      <div>
-        <p class="eyebrow">${escapeHtml(result.outputTypeLabel || result.outputType)}</p>
-        <h3>${escapeHtml(stripMarkdownDecorators(result.title))}</h3>
-        ${renderRichTextBlock(result.inputQuestion, "compact-rich-answer")}
-      </div>
-      <div class="design-summary-meta">
-        <span>${escapeHtml(result.project)}</span>
-        <span>${escapeHtml(result.granularity || "标准")}</span>
-        ${renderEvidenceLevelBadge(result.evidenceLevel)}
-      </div>
-    </section>
-    ${intermediateDocumentBlock}
-    ${renderDesignTabContent(result)}
-  `;
-  scheduleDesignDiagramRender(result);
-}
-
 function renderDesignIntermediateDocument(result) {
   const doc = result?.intermediateDocument;
   if (!doc || !doc.content) {
@@ -4918,137 +4918,6 @@ function renderDesignIntermediateDocument(result) {
         </div>
         <pre class="diagram-source-code">${escapeHtml(doc.content)}</pre>
       </details>
-    </section>
-  `;
-}
-
-function renderAnswerCard(message) {
-  const sections = getAnswerSections(message);
-  const evidenceLevel = message.evidenceLevel || inferEvidenceLevel(message.citationItems || []);
-  const answerMode = getAnswerModeLabel(message.answerMode || document.getElementById("chat-answer-mode")?.value || "evidence");
-  const validatorBlock = renderValidatorSummary(message.validator);
-  const pipelineBlock = renderPipelineSummary(message);
-
-  return `
-    <article class="answer-card chat-message">
-      <div class="answer-card-head">
-        <div>
-          <p class="eyebrow">RAG Answer</p>
-          <h2>Knowledge-grounded answer</h2>
-        </div>
-        <div class="answer-card-tags">
-          <span>${escapeHtml(answerMode)}</span>
-          ${renderEvidenceLevelBadge(evidenceLevel)}
-        </div>
-      </div>
-      <div class="answer-section conclusion">
-        <h3>Conclusion</h3>
-        <div class="rich-answer">${renderRichText(sections.conclusion)}</div>
-      </div>
-      <div class="answer-grid">
-        <section class="answer-section">
-          <h3>Evidence</h3>
-          <div class="rich-answer">${renderRichText(sections.evidence)}</div>
-        </section>
-        <section class="answer-section">
-          <h3>Suggestions</h3>
-          <div class="rich-answer">${renderRichText(sections.suggestion)}</div>
-        </section>
-      </div>
-      <section class="answer-section uncertainty">
-        <h3>Uncertainty</h3>
-        <div class="rich-answer">${renderRichText(sections.uncertainty)}</div>
-      </section>
-      ${validatorBlock}
-      ${pipelineBlock}
-    </article>
-  `;
-}
-
-function getAnswerSections(message) {
-  if (message.structuredAnswer) {
-    return message.structuredAnswer;
-  }
-
-  const citationSummary = (message.citationItems || [])
-    .slice(0, 2)
-    .map((citation) => citation.snippet)
-    .join("\n");
-
-  return {
-    conclusion: message.content || "当前回答为空。",
-    evidence: citationSummary || "当前回答没有足够的引用证据。",
-    suggestion: message.nextActions?.[0] || "建议继续补充相关文档后再确认结论。",
-    uncertainty: message.risks?.[0] || "当前回答基于已有知识库片段生成，未入库资料不会被覆盖。",
-  };
-}
-
-function renderValidatorSummary(validator = {}) {
-  const validClaims = Array.isArray(validator.valid_claims) ? validator.valid_claims.filter(Boolean) : [];
-  const unsupportedClaims = Array.isArray(validator.unsupported_claims) ? validator.unsupported_claims.filter(Boolean) : [];
-  const uncertainClaims = Array.isArray(validator.uncertain_claims) ? validator.uncertain_claims.filter(Boolean) : [];
-  const advice = String(validator.final_revision_advice || "").trim();
-
-  if (!validClaims.length && !unsupportedClaims.length && !uncertainClaims.length && !advice) {
-    return "";
-  }
-
-  const lines = [];
-  if (validClaims.length) {
-    lines.push(`Supported claims:\n${validClaims.map((item) => `- ${item}`).join("\n")}`);
-  }
-  if (unsupportedClaims.length) {
-    lines.push(`Unsupported claims:\n${unsupportedClaims.map((item) => `- ${item}`).join("\n")}`);
-  }
-  if (uncertainClaims.length) {
-    lines.push(`Uncertain claims:\n${uncertainClaims.map((item) => `- ${item}`).join("\n")}`);
-  }
-  if (advice) {
-    lines.push(`Revision advice:\n- ${advice}`);
-  }
-
-  return `
-    <section class="answer-section">
-      <h3>Validation</h3>
-      <div class="rich-answer">${renderRichText(lines.join("\n\n"))}</div>
-    </section>
-  `;
-}
-
-function renderPipelineSummary(message = {}) {
-  const queryDesigner = message.queryDesigner || {};
-  const evidenceCollector = message.evidenceCollector || {};
-  const answerGenerator = message.answerGenerator || {};
-  const pipelineVersion = message.pipelineVersion || "";
-  const pipelineSteps = Array.isArray(message.pipelineSteps) ? message.pipelineSteps.filter(Boolean) : [];
-  const designedQueries = Array.isArray(queryDesigner.queries) ? queryDesigner.queries.filter(Boolean) : [];
-  const evidenceCount = Array.isArray(evidenceCollector.evidence) ? evidenceCollector.evidence.length : 0;
-  const mappingCount = Array.isArray(answerGenerator.evidence_mapping) ? answerGenerator.evidence_mapping.length : 0;
-
-  if (!pipelineVersion && !pipelineSteps.length && !designedQueries.length && !evidenceCount && !mappingCount) {
-    return "";
-  }
-
-  const lines = [];
-  if (pipelineVersion) {
-    lines.push(`Pipeline version: ${pipelineVersion}`);
-  }
-  if (pipelineSteps.length) {
-    lines.push(`Pipeline steps: ${pipelineSteps.join(" -> ")}`);
-  }
-  if (designedQueries.length) {
-    lines.push(`Designed queries:\n${designedQueries.map((item) => `- ${item}`).join("\n")}`);
-  }
-  if (typeof queryDesigner.reason === "string" && queryDesigner.reason.trim()) {
-    lines.push(`Query rationale:\n- ${queryDesigner.reason.trim()}`);
-  }
-  lines.push(`Evidence items: ${evidenceCount}`);
-  lines.push(`Claim-evidence mappings: ${mappingCount}`);
-
-  return `
-    <section class="answer-section">
-      <h3>Pipeline</h3>
-      <div class="rich-answer">${renderRichText(lines.join("\n\n"))}</div>
     </section>
   `;
 }

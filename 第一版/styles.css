@@ -272,6 +272,8 @@ button {
   color: #dbeafe;
   background: linear-gradient(180deg, var(--sidebar) 0%, var(--sidebar-2) 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: width 180ms ease, padding 180ms ease;
 }
 
 .brand {
@@ -385,6 +387,34 @@ button {
 .workspace {
   min-height: 100vh;
   margin-left: 236px;
+  transition: margin-left 180ms ease;
+}
+
+.sidebar-collapsed .sidebar {
+  width: 76px;
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
+.sidebar-collapsed .workspace {
+  margin-left: 76px;
+}
+
+.sidebar-collapsed .brand {
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.sidebar-collapsed .brand-text,
+.sidebar-collapsed .nav-link span:not(.nav-icon),
+.sidebar-collapsed .sidebar-footer {
+  display: none;
+}
+
+.sidebar-collapsed .nav-link {
+  justify-content: center;
+  padding: 0;
 }
 
 .topbar {
@@ -392,7 +422,7 @@ button {
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: 180px minmax(260px, 560px) 1fr;
+  grid-template-columns: auto 180px minmax(260px, 560px) 1fr;
   align-items: center;
   gap: 20px;
   min-height: 64px;
@@ -400,6 +430,46 @@ button {
   background: rgba(255, 255, 255, 0.94);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(12px);
+}
+
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  min-width: 112px;
+  height: 38px;
+  padding: 0 12px;
+  color: var(--primary-dark);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 700;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.sidebar-toggle:hover {
+  color: #ffffff;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.sidebar-toggle-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--primary-soft);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.sidebar-toggle:hover .sidebar-toggle-icon {
+  color: var(--primary-dark);
+  background: #ffffff;
 }
 
 .topbar-title {
@@ -4487,10 +4557,37 @@ select {
     position: static;
     width: 100%;
     height: auto;
+    padding: 18px 14px;
   }
 
   .workspace {
     margin-left: 0;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .sidebar-collapsed .sidebar {
+    width: 100%;
+    padding: 18px 14px;
+  }
+
+  .sidebar-collapsed .workspace {
+    margin-left: 0;
+  }
+
+  .sidebar-collapsed .brand {
+    justify-content: flex-start;
+    padding: 0 8px 18px;
+  }
+
+  .sidebar-collapsed .brand-text {
+    display: grid;
+  }
+
+  .sidebar-collapsed .nav-link span:not(.nav-icon) {
+    display: inline;
   }
 
   .nav {

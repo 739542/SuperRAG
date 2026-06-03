@@ -79,7 +79,7 @@ class FrontendService:
             raise ValueError("query is required")
 
         collection = self._resolve_collection(
-            project=(payload.get("project") or "").strip(),
+            project=self._payload_text(payload, "project"),
             collection_id=(
                 payload.get("collection_id")
                 or payload.get("collectionId")
@@ -592,7 +592,7 @@ class FrontendService:
             "artifact_type": artifact_type,
             "title": payload.get("title") or "未命名历史产物",
             "query": payload.get("query") or payload.get("originalQuestion") or payload.get("original_question") or "",
-            "project": payload.get("project") or "",
+            "project": self._payload_text(payload, "project"),
             "output_summary": payload.get("outputSummary") or payload.get("output_summary") or payload.get("summary") or "",
             "structured_output": payload.get("structuredOutput") or payload.get("structured_output") or payload.get("structuredAnswer") or {},
             "quality_assessment": payload.get("qualityAssessment") or payload.get("quality_assessment") or {},
@@ -1121,6 +1121,9 @@ class FrontendService:
         return collections[0]
 
     def _normalize_document(self, item: dict[str, Any], chunks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        status = str(item.get("status") or "已入库")
+        if "仅词法检索" in status:
+            status = "已入库（本地混合检索）"
         normalized = {
             "id": item["id"],
             "collectionId": item["collection_id"],
@@ -1131,7 +1134,7 @@ class FrontendService:
             "version": item.get("version") or "v1.0",
             "scene": item.get("scene") or "通用",
             "summary": item.get("summary") or "",
-            "status": item.get("status") or "已入库",
+            "status": status,
             "originalName": item.get("original_name") or item.get("filename") or "",
             "chunkCount": item.get("chunk_count") or 0,
             "charCount": item.get("char_count") or 0,
@@ -1691,13 +1694,25 @@ class FrontendService:
             "design": "设计辅助",
         }.get(scene, scene)
 
+    def _payload_text(self, payload: dict[str, Any], key: str, default: str = "") -> str:
+        value = payload.get(key)
+        if value is None:
+            return default
+        if isinstance(value, (list, tuple, set)):
+            text = "、".join(str(item).strip() for item in value if str(item).strip())
+            return text or default
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False)
+        text = str(value).strip()
+        return text or default
+
     def _build_system_prompt(self, scene: str, payload: dict[str, Any]) -> str:
         if scene == "design":
             return self._build_design_prompt(payload)
 
-        focus = (payload.get("focus") or "").strip()
-        role = (payload.get("role") or "").strip()
-        module = (payload.get("module") or "").strip()
+        focus = self._payload_text(payload, "focus")
+        role = self._payload_text(payload, "role")
+        module = self._payload_text(payload, "module")
         instructions = {
             "general": "请用中文给出简洁结论，并明确引用到的关键信息。",
             "training": "请用中文回答，适合培训新人，先讲背景，再讲关键概念，最后给出学习建议。",
@@ -1713,8 +1728,8 @@ class FrontendService:
         )
 
     def _build_design_prompt(self, payload: dict[str, Any], evidence_context: dict[str, Any] | None = None) -> str:
-        output_type = (payload.get("module") or "").strip()
-        focus = (payload.get("focus") or "").strip()
+        output_type = self._payload_text(payload, "module")
+        focus = self._payload_text(payload, "focus")
         scope = self._estimate_design_scope(payload=payload, evidence_context=evidence_context or {})
         return (
             "你是面向软件研发团队的需求设计分析师。请基于 retrievalContext.groups 中的检索证据，按软件工程分析流程生成结构化设计产物。"
@@ -1746,8 +1761,8 @@ class FrontendService:
         )
 
     def _build_handover_prompt(self, payload: dict[str, Any]) -> str:
-        focus = (payload.get("focus") or "").strip()
-        role = (payload.get("role") or "").strip()
+        focus = self._payload_text(payload, "focus")
+        role = self._payload_text(payload, "role")
         return (
             "你是软件项目交接分析师。请基于 retrievalContext.groups 中的检索证据生成可执行交接清单，而不是普通摘要。"
             "必须遵守："
@@ -1823,9 +1838,9 @@ class FrontendService:
         }
 
     def _build_scene_queries(self, *, scene: str, query: str, payload: dict[str, Any]) -> list[dict[str, str]]:
-        project = (payload.get("project") or "").strip()
-        focus = (payload.get("focus") or "").strip()
-        module = (payload.get("module") or "").strip()
+        project = self._payload_text(payload, "project")
+        focus = self._payload_text(payload, "focus")
+        module = self._payload_text(payload, "module")
         prefix = " ".join(part for part in [project, module, focus] if part)
         if scene == "design":
             topics = [
@@ -1925,7 +1940,7 @@ class FrontendService:
         else:
             level = "证据不足"
 
-        focus = str(payload.get("focus") or "").strip()
+        focus = self._payload_text(payload, "focus")
         use_case_count = feature_count
         if "简要" in focus:
             use_case_count = min(feature_count, max(1, round(feature_count * 0.6))) if feature_count else 0
@@ -1992,7 +2007,7 @@ class FrontendService:
         risks = []
         traceability = []
         next_actions = []
-        module_name = (payload.get("module") or "需求设计").strip() or "需求设计"
+        module_name = self._payload_text(payload, "module", "需求设计")
 
         for index, candidate in enumerate(feature_candidates, start=1):
             hit = candidate.get("hit") or (hits[(index - 1) % len(hits)] if hits else {})
@@ -3510,10 +3525,10 @@ class FrontendService:
     def _build_scene_context(self, scene: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "scene": scene,
-            "project": (payload.get("project") or "").strip(),
-            "role": (payload.get("role") or "").strip(),
-            "module": (payload.get("module") or "").strip(),
-            "focus": (payload.get("focus") or "").strip(),
+            "project": self._payload_text(payload, "project"),
+            "role": self._payload_text(payload, "role"),
+            "module": self._payload_text(payload, "module"),
+            "focus": self._payload_text(payload, "focus"),
         }
 
     def _build_citations(self, hits: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -3556,7 +3571,7 @@ class FrontendService:
         return common + extras.get(scene, [])
 
     def _build_next_actions(self, scene: str, payload: dict[str, Any]) -> list[str]:
-        project = (payload.get("project") or "").strip() or "当前项目"
+        project = self._payload_text(payload, "project", "当前项目")
         common = [
             f"继续补充 {project} 的核心设计、交接和培训文档，提高检索覆盖率。",
             "将高频问题整理成固定模板，方便后续稳定复用。",
@@ -3577,7 +3592,7 @@ class FrontendService:
                 }
             ]
 
-        module_name = (payload.get("module") or "").strip() or "目标模块"
+        module_name = self._payload_text(payload, "module", "目标模块")
         feature_items = []
         for item in hits[:3]:
             excerpt = item.get("content", "").strip().replace("\n", " ")

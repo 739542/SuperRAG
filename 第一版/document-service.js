@@ -146,7 +146,7 @@
     return {
       chunkCount: Number(raw.chunkCount ?? raw.chunk_count ?? 0),
       charCount: Number(raw.charCount ?? raw.char_count ?? 0),
-      retrievalMethod: raw.retrievalMethod || raw.retrieval_method || "本地检索",
+      retrievalMethod: raw.retrievalMethod || raw.retrieval_method || "本地混合检索",
       vectorStore: raw.vectorStore || raw.vector_store || "",
       vectorIndexEnabled: Boolean(raw.vectorIndexEnabled ?? raw.vector_index_enabled),
       lexicalFallback: Boolean(raw.lexicalFallback ?? raw.lexical_fallback),

@@ -115,6 +115,11 @@
 
     <div class="workspace">
       <header class="topbar">
+        <button class="sidebar-toggle" type="button" id="sidebar-toggle" aria-label="收起侧边栏" aria-pressed="false">
+          <span class="sidebar-toggle-icon" aria-hidden="true">M</span>
+          <span class="sidebar-toggle-text">收起菜单</span>
+        </button>
+
         <div class="topbar-title">
           <span>当前系统</span>
           <strong>SuperRAG</strong>
@@ -395,7 +400,7 @@
             <section class="rag-flow-card dashboard-card" aria-label="RAG 流程可视化">
               <div class="card-title-row">
                 <div>
-                  <p class="eyebrow">RAG Pipeline</p>
+                  <p class="eyebrow">RAG 处理流程</p>
                   <h2>文档如何转化为可引用证据</h2>
                 </div>
                 <span class="table-count">答辩演示链路</span>
@@ -936,9 +941,9 @@
 
         <section class="page-panel" data-page="/settings">
           <div class="page-header">
-            <p class="eyebrow">System Status</p>
-            <h1>系统状态</h1>
-            <p>面向管理员查看 Workflow 映射、检索参数、模型参数和运行日志；普通用户无需配置。</p>
+            <p class="eyebrow">Admin Diagnostics</p>
+            <h1>管理员诊断面板</h1>
+            <p>该页面用于课程演示和部署排查，普通业务用户无需进入；核心业务仍在知识库、项目交接、需求设计和新人培训页面完成。</p>
           </div>
 
           <div class="settings-page">
@@ -946,7 +951,7 @@
               <div class="security-icon" aria-hidden="true">!</div>
               <div>
                 <h2>安全提示</h2>
-                <p>API Key 和 Dify 密钥必须由后端保存，前端不得暴露敏感密钥。本页面仅展示配置映射和运行状态。</p>
+                <p>API Key、模型密钥和 Workflow Key 必须由后端保存，前端不得暴露敏感密钥。本页面仅展示只读诊断快照和演示态映射。</p>
               </div>
             </section>
 
