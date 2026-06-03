@@ -5,6 +5,8 @@
  * without touching page code. Do not put API keys in frontend files.
  */
 (function () {
+  const HISTORY_STORAGE_KEY = "superrag_real_history";
+  const HISTORY_STORAGE_LIMITS = [40, 25, 12, 5, 1];
   const existing = window.SuperRagConfig || {};
   const sameOriginApi =
     window.location.protocol === "file:" ? "http://127.0.0.1:8088/api" : `${window.location.origin}/api`;
@@ -67,7 +69,7 @@
 
   function getHistoryRecords() {
     try {
-      return JSON.parse(localStorage.getItem("superrag_real_history") || "[]");
+      return JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || "[]");
     } catch (error) {
       return [];
     }
@@ -106,14 +108,14 @@
     });
     const normalized = mapArtifactToLocalHistory(saved);
     const records = [normalized, ...getHistoryRecords().filter((item) => item.id !== normalized.id)].slice(0, 80);
-    localStorage.setItem("superrag_real_history", JSON.stringify(records));
+    setHistoryRecords(records);
     return saved;
   }
 
   function appendHistoryRecord(record) {
     const normalized = normalizeArtifactRecord(record);
     const records = [normalized, ...getHistoryRecords().filter((item) => item.id !== normalized.id)].slice(0, 80);
-    localStorage.setItem("superrag_real_history", JSON.stringify(records));
+    setHistoryRecords(records);
     requestJson("/artifacts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -122,7 +124,7 @@
     })
       .then((saved) => {
         const next = [mapArtifactToLocalHistory(saved), ...getHistoryRecords().filter((item) => item.id !== saved.id)].slice(0, 80);
-        localStorage.setItem("superrag_real_history", JSON.stringify(next));
+        setHistoryRecords(next);
       })
       .catch((error) => {
         console.warn(`[SuperRAG Backend] artifact persistence fallback to localStorage: ${error.message || error}`);
@@ -132,13 +134,123 @@
 
   function deleteHistoryRecord(id) {
     const records = getHistoryRecords().filter((record) => record.id !== id);
-    localStorage.setItem("superrag_real_history", JSON.stringify(records));
+    setHistoryRecords(records);
     requestJson(`/artifacts/${encodeURIComponent(id)}`, {
       method: "DELETE",
       timeoutMs: window.SuperRagConfig?.DOCUMENT_API_TIMEOUT_MS || 60000,
     }).catch((error) => {
       console.warn(`[SuperRAG Backend] artifact delete fallback to localStorage only: ${error.message || error}`);
     });
+  }
+
+  function setHistoryRecords(records = []) {
+    const safeRecords = compactHistoryRecords(records);
+    for (const limit of HISTORY_STORAGE_LIMITS) {
+      try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(safeRecords.slice(0, limit)));
+        return true;
+      } catch (error) {
+        if (!isStorageQuotaError(error)) {
+          console.warn(`[SuperRAG Backend] local history cache skipped: ${error.message || error}`);
+          return false;
+        }
+      }
+    }
+
+    try {
+      localStorage.removeItem(HISTORY_STORAGE_KEY);
+    } catch (error) {
+      console.warn(`[SuperRAG Backend] local history cache cleanup failed: ${error.message || error}`);
+    }
+    console.warn("[SuperRAG Backend] local history cache exceeded browser quota and was cleared. Backend artifact storage is unaffected.");
+    return false;
+  }
+
+  function isStorageQuotaError(error) {
+    const name = String(error?.name || "").toLowerCase();
+    const message = String(error?.message || "").toLowerCase();
+    return name.includes("quota") || message.includes("quota") || message.includes("exceeded");
+  }
+
+  function compactHistoryRecords(records = []) {
+    return (Array.isArray(records) ? records : []).filter(Boolean).map(compactArtifactRecord);
+  }
+
+  function compactArtifactRecord(record = {}) {
+    return {
+      ...record,
+      query: truncateText(record.query, 260),
+      originalQuestion: truncateText(record.originalQuestion, 260),
+      summary: truncateText(record.summary, 800),
+      outputSummary: truncateText(record.outputSummary, 1000),
+      structuredOutput: compactStructuredOutput(record.structuredOutput || {}),
+      citations: compactCitations(record.citations || []),
+      versionRecords: compactVersionRecords(record.versionRecords || []),
+    };
+  }
+
+  function compactStructuredOutput(value, key = "", depth = 0) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const limit = /snippet|content|summary|description|answer|background/i.test(key) ? 420 : 260;
+      return truncateText(value, limit);
+    }
+    if (typeof value !== "object") {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      const limit = getStructuredArrayLimit(key);
+      return value.slice(0, limit).map((item) => compactStructuredOutput(item, key, depth + 1));
+    }
+    if (depth > 5) {
+      return "[已压缩]";
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([entryKey, entryValue]) => [entryKey, compactStructuredOutput(entryValue, entryKey, depth + 1)]),
+    );
+  }
+
+  function getStructuredArrayLimit(key = "") {
+    const limits = {
+      businessObjects: 10,
+      businessRules: 16,
+      functionList: 24,
+      useCases: 18,
+      moduleSuggestions: 12,
+      dataObjects: 10,
+      permissionAnalysis: 10,
+      exceptionScenarios: 16,
+      risks: 16,
+      openQuestions: 16,
+      traceabilityMatrix: 24,
+      nextActions: 16,
+      citations: 8,
+      versionRecords: 3,
+    };
+    return limits[key] || 12;
+  }
+
+  function compactCitations(citations = []) {
+    return (Array.isArray(citations) ? citations : []).slice(0, 8).map((citation) => ({
+      ...citation,
+      snippet: truncateText(citation.snippet || citation.content || "", 260),
+      content: undefined,
+    }));
+  }
+
+  function compactVersionRecords(items = []) {
+    return (Array.isArray(items) ? items : []).slice(0, 3).map((item) => ({
+      ...item,
+      change: truncateText(item.change || item.changeSummary || "", 180),
+      snapshot: undefined,
+    }));
+  }
+
+  function truncateText(value, limit = 300) {
+    const text = String(value || "");
+    return text.length > limit ? `${text.slice(0, limit)}...` : text;
   }
 
   function normalizeArtifactRecord(record = {}) {
@@ -259,6 +371,7 @@
     updateHistoryReview,
     appendHistoryRecord,
     deleteHistoryRecord,
+    setHistoryRecords,
     normalizeCitations,
     normalizeVersionRecords,
     normalizeArtifactRecord,

@@ -500,15 +500,15 @@ class ChatService:
             evidence_lines.append(f"{item['source']}#{item['section']}: {item['content']}")
         uncertainty = list(answer_bundle.get("uncertain_points", []))
         if validation.get("unsupported_claims"):
-            uncertainty.append("Unsupported claims: " + "; ".join(validation["unsupported_claims"][:3]))
+            uncertainty.append("缺少证据支撑的结论：" + "；".join(validation["unsupported_claims"][:3]))
         if evidence_bundle.get("missing_information"):
             uncertainty.extend(evidence_bundle["missing_information"][:2])
         return {
             "conclusion": answer_bundle.get("answer", ""),
-            "evidence": "\n".join(evidence_lines) if evidence_lines else "No grounded evidence was extracted.",
+            "evidence": "\n".join(evidence_lines) if evidence_lines else "当前没有抽取到可引用证据。",
             "suggestion": "\n".join(answer_bundle.get("implementation_suggestions", []))
-            or "Review the cited documents before treating this as a final conclusion.",
-            "uncertainty": "\n".join(uncertainty) if uncertainty else "No major uncertainty was detected in the retrieved evidence.",
+            or "请先核对引用文档，再将回答作为正式结论。",
+            "uncertainty": "\n".join(uncertainty) if uncertainty else "当前没有识别到明显的不确定项。",
         }
 
     def _build_pipeline_trace(
@@ -559,7 +559,7 @@ class ChatService:
         if not hits:
             return {
                 "evidence": [],
-                "missing_information": [f"No evidence was found in the current knowledge base for: {query}"],
+                "missing_information": [f"当前知识库没有检索到可支撑该问题的证据：{query}"],
             }
 
         evidence = []
@@ -581,9 +581,9 @@ class ChatService:
         missing_information: list[str] = []
         top_score = float(hits[0].get("score") or 0)
         if top_score < 0.2:
-            missing_information.append("Retrieved chunks have low relevance scores; key details may still be missing.")
+            missing_information.append("检索片段相关度较低，关键细节可能仍然缺失。")
         if len(hits) < 2:
-            missing_information.append("Only a small amount of supporting evidence was found.")
+            missing_information.append("当前只找到少量支撑证据，建议补充更多项目文档。")
         return {
             "evidence": evidence,
             "missing_information": missing_information,
@@ -593,31 +593,31 @@ class ChatService:
         evidence = evidence_bundle.get("evidence", [])
         if not evidence:
             return {
-                "answer": "I could not find grounded project evidence for this question in the current knowledge base.",
+                "answer": "当前知识库没有检索到足够证据，无法形成正式结论。",
                 "implementation_suggestions": [
-                    "Import the relevant requirement, design, code, or interface document before answering again."
+                    "请先补充相关需求、设计、接口、交接或培训文档后再重新提问。"
                 ],
                 "evidence_mapping": [],
-                "uncertain_points": evidence_bundle.get("missing_information", []) or ["Evidence is missing."],
-                "key_claims": ["Grounded evidence is currently missing for this question."],
+                "uncertain_points": evidence_bundle.get("missing_information", []) or ["当前问题缺少可用证据。"],
+                "key_claims": ["当前问题缺少知识库证据，不能作为正式结论。"],
             }
 
         summary_lines = [
-            f"{item['source']} mentions {item['content'][:100]}{'...' if len(item['content']) > 100 else ''}"
+            f"{item['source']}：{item['content'][:100]}{'...' if len(item['content']) > 100 else ''}"
             for item in evidence[:3]
         ]
         evidence_mapping = [
             {
-                "claim": f"Evidence item {index + 1} is relevant to the user's question.",
+                "claim": f"证据 {index + 1} 与用户问题相关。",
                 "evidence": [f"{item['source']}#{item['section']}"],
             }
             for index, item in enumerate(evidence[:3])
         ]
         return {
-            "answer": "Based on the retrieved project evidence, the most relevant findings are:\n- " + "\n- ".join(summary_lines),
+            "answer": "根据当前知识库检索结果，相关证据主要包括：\n- " + "\n- ".join(summary_lines),
             "implementation_suggestions": [
-                "Treat the cited document content as confirmed facts.",
-                "Treat any uncited implementation idea as an optional suggestion that still needs review.",
+                "优先核对引用文档原文，再将回答作为正式结论。",
+                "未绑定证据的实现想法只能作为待复核建议。",
             ],
             "evidence_mapping": evidence_mapping,
             "uncertain_points": evidence_bundle.get("missing_information", []),
@@ -628,11 +628,11 @@ class ChatService:
         evidence = evidence_bundle.get("evidence", [])
         if not evidence:
             return (
-                "No grounded project evidence was found, so a task-specific answer cannot be generated reliably.\n\n"
-                f"Question: {query}"
+                "当前知识库没有检索到足够项目证据，因此不能可靠生成场景化回答。\n\n"
+                f"用户问题：{query}"
             )
         lines = [f"- {item['source']}#{item['section']}: {item['content']}" for item in evidence[:4]]
-        return "The following evidence was retrieved for the task:\n" + "\n".join(lines)
+        return "当前任务检索到以下证据，请结合原文复核：\n" + "\n".join(lines)
 
     def _fallback_validation(self, *, answer_bundle: dict[str, Any], evidence_bundle: dict[str, Any]) -> dict[str, Any]:
         valid_claims = []
@@ -646,12 +646,12 @@ class ChatService:
                 unsupported_claims.append(claim)
         uncertain_claims = list(answer_bundle.get("uncertain_points", []))
         if not evidence_bundle.get("evidence"):
-            unsupported_claims.append("The question could not be answered from grounded evidence.")
+            unsupported_claims.append("当前问题无法从已有知识库证据中得到可靠回答。")
         return {
             "valid_claims": valid_claims,
             "unsupported_claims": unsupported_claims,
             "uncertain_claims": uncertain_claims,
-            "final_revision_advice": "Keep only evidence-backed conclusions as facts and move the rest into uncertainty notes.",
+            "final_revision_advice": "只保留有证据支撑的结论作为事实，其余内容应进入不确定性说明。",
         }
 
     def _serialize_hit_for_prompt(self, hit: dict[str, Any]) -> dict[str, Any]:

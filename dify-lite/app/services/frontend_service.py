@@ -126,7 +126,7 @@ class FrontendService:
         risks = self._build_risks(scene) + answer.get("missing_information", [])
         unsupported_claims = answer.get("validator", {}).get("unsupported_claims", [])
         if unsupported_claims:
-            risks.append("Unsupported claims detected: " + "; ".join(unsupported_claims[:3]))
+            risks.append("存在缺少证据支撑的结论：" + "；".join(unsupported_claims[:3]))
         result = {
             "scene": scene,
             "source": "Dify Lite + DCRRM",
@@ -3520,7 +3520,7 @@ class FrontendService:
         ]
         if missing_information:
             return missing_information
-        return ["No grounded evidence was found in the current knowledge base. Please import more project documents or refine the question."]
+        return ["当前知识库没有检索到足够证据，请补充项目文档或缩小问题范围后再试。"]
 
     def _build_scene_context(self, scene: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {

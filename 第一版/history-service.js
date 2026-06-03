@@ -88,7 +88,7 @@
         },
         ...(target.versionRecords || []),
       ];
-      localStorage.setItem("superrag_real_history", JSON.stringify(localRecords));
+      window.SuperRagBackend?.setHistoryRecords?.(localRecords);
       return clone(mapBackendHistoryToHistoryDetail(target));
     }
 

@@ -207,12 +207,16 @@
   function mapBackendAnswerToMessage(raw = {}) {
     const citationItems = (raw.citationItems || raw.citationsDetail || raw.citation_items || []).map(mapBackendCitationToCitation);
     const evidenceLevel = mapEvidenceLevel(raw.evidenceLevel || raw.evidence_level || inferEvidenceLevel(citationItems));
-    const structuredAnswer =
+    const rawStructuredAnswer =
       raw.structuredAnswer ||
       raw.structured_answer ||
       raw.structuredOutput ||
       raw.structured_output ||
       buildStructuredAnswer(raw, citationItems);
+    const structuredAnswer = normalizeStructuredAnswer(rawStructuredAnswer, {
+      raw,
+      citationItems,
+    });
 
     return {
       id: raw.id || raw.messageId || raw.message_id || `answer-${Date.now()}`,
@@ -246,7 +250,7 @@
     const citations = (raw.citations || []).map(mapBackendCitationToCitation);
     const evidenceLevel = mapEvidenceLevel(raw.evidenceLevel || raw.evidence_level || inferEvidenceLevel(citations));
     const content = raw.summary || raw.answer || "";
-    const structuredAnswer =
+    const rawStructuredAnswer =
       raw.structuredAnswer ||
       raw.structured_answer ||
       buildStructuredAnswer(
@@ -258,6 +262,10 @@
         },
         citations,
       );
+    const structuredAnswer = normalizeStructuredAnswer(rawStructuredAnswer, {
+      raw: { ...raw, answer: content },
+      citationItems: citations,
+    });
 
     return {
       id: raw.id || `answer-${Date.now()}`,
@@ -305,21 +313,217 @@
     const validator = raw.validator || {};
 
     if (Array.isArray(validator.unsupported_claims) && validator.unsupported_claims.length) {
-      uncertaintyLines.push(`Unsupported claims: ${validator.unsupported_claims.join("; ")}`);
+      uncertaintyLines.push(`缺少证据支撑的结论：${validator.unsupported_claims.join("；")}`);
     }
     if (Array.isArray(validator.uncertain_claims) && validator.uncertain_claims.length) {
-      uncertaintyLines.push(`Uncertain claims: ${validator.uncertain_claims.join("; ")}`);
-    }
-    if (raw.pipelineVersion || raw.pipeline_version) {
-      suggestionLines.push(`Pipeline version: ${raw.pipelineVersion || raw.pipeline_version}`);
+      uncertaintyLines.push(`需要人工确认的结论：${validator.uncertain_claims.join("；")}`);
     }
 
     return {
       conclusion: content,
       evidence: evidenceLines.join("\n") || "当前回答没有足够的可引用证据。",
+      evidenceItems: buildEvidenceItemsFromCitations(citationItems, evidenceLines),
       suggestion: suggestionLines.join("\n") || "建议继续补充相关项目文档后再确认结论。",
+      suggestionItems: normalizeDisplayList(suggestionLines, ["核对下方引用证据后，再将回答作为正式结论使用。"]),
       uncertainty: uncertaintyLines.join("\n") || "当前没有识别到明显的不确定项。",
+      uncertaintyItems: normalizeDisplayList(uncertaintyLines, []),
     };
+  }
+
+  function normalizeStructuredAnswer(answer = {}, { raw = {}, citationItems = [] } = {}) {
+    const source = answer && typeof answer === "object" ? answer : {};
+    const rawConclusion = source.conclusion || raw.answer || raw.summary || raw.content || "";
+    const evidenceLines = normalizeDisplayList(source.evidence || raw.evidence || [], []);
+    const suggestionLines = normalizeDisplayList(
+      source.suggestionItems || source.suggestion || raw.implementationSuggestions || raw.implementation_suggestions || raw.nextActions || [],
+      ["核对引用证据后，再把回答作为正式交接或设计结论使用。"],
+    );
+    const uncertaintyLines = normalizeDisplayList(
+      source.uncertaintyItems || source.uncertainty || raw.uncertainPoints || raw.uncertain_points || raw.missingInformation || raw.missing_information || raw.risks || [],
+      [],
+    );
+    const evidenceItems = normalizeEvidenceItems(source.evidenceItems || source.evidence_items, citationItems, evidenceLines);
+    const conclusion = buildReadableConclusion(rawConclusion, citationItems, raw);
+
+    return {
+      conclusion,
+      evidence: evidenceItems.length
+        ? evidenceItems.map((item, index) => `${index + 1}. ${item.title}：${item.summary}`).join("\n")
+        : evidenceLines.join("\n") || "当前回答没有足够的可引用证据。",
+      evidenceItems,
+      suggestion: suggestionLines.join("\n"),
+      suggestionItems: suggestionLines,
+      uncertainty: uncertaintyLines.join("\n") || "当前没有识别到明显的不确定项。",
+      uncertaintyItems: uncertaintyLines,
+      rawConclusion,
+    };
+  }
+
+  function buildReadableConclusion(text, citationItems = [], raw = {}) {
+    const cleaned = cleanAnswerText(text);
+    const insufficient = isEvidenceInsufficientText(cleaned);
+    if (insufficient) {
+      return "当前知识库没有检索到足够证据，系统不会把无依据内容包装成正式结论。建议先补充相关需求、接口、交接或培训文档。";
+    }
+
+    if (isGenericEvidenceAnswer(cleaned)) {
+      const topics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
+      const topicText = topics.length ? topics.join("、") : "当前命中的知识库文档";
+      return `系统已检索到 ${citationItems.length || "若干"} 条相关证据，主要涉及 ${topicText}。请优先查看下方证据摘要，再结合原文形成正式结论。`;
+    }
+
+    if (cleaned) {
+      return truncateText(cleaned, 420);
+    }
+
+    const fallbackTopics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
+    if (fallbackTopics.length) {
+      return `当前问题命中了 ${fallbackTopics.join("、")} 等文档，建议结合下方证据摘要确认结论。`;
+    }
+    return raw.query ? `当前问题“${truncateText(raw.query, 80)}”暂未形成明确结论。` : "当前暂无明确结论。";
+  }
+
+  function normalizeEvidenceItems(items, citationItems = [], evidenceLines = []) {
+    const explicitItems = Array.isArray(items)
+      ? items
+          .filter(Boolean)
+          .map((item, index) => {
+            if (typeof item === "string") {
+              return {
+                title: `证据 ${index + 1}`,
+                summary: cleanEvidenceSnippet(item),
+                score: "",
+              };
+            }
+            return {
+              title: item.title || item.documentTitle || item.sourceDocument || `证据 ${index + 1}`,
+              summary: cleanEvidenceSnippet(item.summary || item.snippet || item.evidenceSnippet || item.content || item.description || ""),
+              score: item.score || item.relevanceScore || item.evidenceScore || "",
+              documentId: item.documentId || "",
+              chunkId: item.chunkId || item.segmentId || "",
+            };
+          })
+      : [];
+
+    if (explicitItems.length) {
+      return explicitItems.filter((item) => item.summary);
+    }
+
+    const fromCitations = citationItems.slice(0, 5).map((citation, index) => ({
+      title: citation.documentTitle || citation.title || citation.sourceName || `证据 ${index + 1}`,
+      summary: cleanEvidenceSnippet(citation.snippet || citation.content || "", citation.documentTitle || citation.title || ""),
+      score: Number(citation.relevanceScore ?? citation.score ?? 0),
+      documentId: citation.documentId || "",
+      chunkId: citation.chunkId || citation.segmentId || citation.id || "",
+    }));
+
+    if (fromCitations.length) {
+      return fromCitations;
+    }
+
+    return evidenceLines.slice(0, 5).map((line, index) => ({
+      title: `证据 ${index + 1}`,
+      summary: cleanEvidenceSnippet(line),
+      score: "",
+    }));
+  }
+
+  function buildEvidenceItemsFromCitations(citationItems = [], evidenceLines = []) {
+    return normalizeEvidenceItems([], citationItems, evidenceLines);
+  }
+
+  function normalizeDisplayList(value, fallback = []) {
+    const rawItems = Array.isArray(value) ? value : String(value || "").split(/\n+/);
+    const items = rawItems
+      .flatMap((item) => String(item || "").split(/\n+/))
+      .map(cleanAnswerText)
+      .map(translateTechnicalLine)
+      .filter(Boolean);
+    return items.length ? items : fallback;
+  }
+
+  function cleanAnswerText(value) {
+    return String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/Based on the retrieved project evidence, the most relevant findings are:?/gi, "根据当前知识库检索结果：")
+      .replace(/\bUnsupported claims?:/gi, "缺少证据支撑的结论：")
+      .replace(/\bUncertain claims?:/gi, "需要人工确认的结论：")
+      .replace(/\bPipeline version:/gi, "生成链路版本：")
+      .replace(/\bNo major uncertainty was detected in the retrieved evidence\.?/gi, "当前没有识别到明显的不确定项。")
+      .replace(/\bReview the cited documents before treating this as a final conclusion\.?/gi, "请先核对引用文档，再将回答作为正式结论。")
+      .replace(/\bI could not find grounded project evidence for this question in the current knowledge base\.?/gi, "当前知识库没有检索到足够证据。")
+      .replace(/\bRetrieved chunks have low relevance scores; key details may still be missing\.?/gi, "检索片段相关度偏低，关键细节可能仍然缺失。")
+      .replace(/\bOnly a small amount of supporting evidence was found\.?/gi, "当前只找到少量支撑证据，建议补充更多项目文档。")
+      .replace(/\bvector search unavailable:/gi, "向量检索暂不可用：")
+      .replace(/\s+mentions\s+/gi, "：")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function cleanEvidenceSnippet(value, title = "") {
+    let text = String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/原始链接[:：][^\n>]*/g, "")
+      .replace(/来源[:：][^\n>]*/g, "")
+      .replace(/^\s*\d+[_-][^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
+      .replace(/^\s*[^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
+      .replace(/\bmentions\b/gi, "：")
+      .replace(/SuperRAG演示整理版/g, "")
+      .replace(/CRM[^，。；:：\s]{0,12}模块说明/g, "")
+      .replace(/[>#*_`]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const topic = documentTopic(title);
+    if (topic) {
+      text = text.replace(new RegExp(topic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "").trim();
+    }
+    text = text.replace(/^CRM\s*/i, "").replace(/^模块说明[（(].*?[）)]/, "").trim();
+    return truncateText(text || "该文档命中用户问题相关片段，请点击“查看原文”核对完整上下文。", 180);
+  }
+
+  function translateTechnicalLine(value) {
+    return String(value || "")
+      .replace(/^Treat the cited document content as confirmed facts\.?$/i, "可把已引用的文档内容作为当前回答的依据。")
+      .replace(/^Treat any uncited implementation idea as an optional suggestion that still needs review\.?$/i, "未绑定证据的实现想法只能作为待复核建议。")
+      .replace(/^Import the relevant requirement, design, code, or interface document before answering again\.?$/i, "请先补充相关需求、设计、接口或交接文档后再重新提问。")
+      .replace(/^Evidence is missing\.?$/i, "当前问题缺少可用证据。")
+      .replace(/^No grounded evidence was found.*$/i, "当前知识库没有检索到足够证据。")
+      .trim();
+  }
+
+  function isGenericEvidenceAnswer(text) {
+    const normalized = String(text || "").toLowerCase();
+    return (
+      normalized.includes("based on the retrieved project evidence") ||
+      normalized.includes("the most relevant findings") ||
+      normalized.includes(" mentions ") ||
+      normalized.startsWith("根据当前知识库检索结果：")
+    );
+  }
+
+  function isEvidenceInsufficientText(text) {
+    const normalized = String(text || "").toLowerCase();
+    return normalized.includes("could not find grounded") || normalized.includes("no evidence was found") || normalized.includes("没有检索到足够证据");
+  }
+
+  function documentTopic(title) {
+    return String(title || "知识库片段")
+      .replace(/\.[a-z0-9]+$/i, "")
+      .replace(/^\d+[_-]*/, "")
+      .replace(/SuperRAG演示整理版/g, "")
+      .replace(/CRM/g, "")
+      .replace(/模块说明/g, "")
+      .replace(/[（）()《》]/g, "")
+      .replace(/\s+/g, "")
+      .trim() || "知识库片段";
+  }
+
+  function truncateText(value, limit = 180) {
+    const text = String(value || "").trim();
+    return text.length > limit ? `${text.slice(0, limit)}...` : text;
   }
 
   function mapBackendCitationToCitation(raw = {}) {

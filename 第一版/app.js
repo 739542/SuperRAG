@@ -559,23 +559,86 @@ function renderAnswerCard(message) {
       </div>
       <div class="answer-section conclusion">
         <h3>结论</h3>
-        <div class="rich-answer">${renderRichText(sections.conclusion)}</div>
+        ${renderAnswerConclusion(sections)}
       </div>
       <div class="answer-grid">
         <section class="answer-section">
           <h3>依据</h3>
-          <div class="rich-answer">${renderRichText(sections.evidence)}</div>
+          ${renderAnswerEvidence(sections, message)}
         </section>
         <section class="answer-section">
           <h3>建议</h3>
-          <div class="rich-answer">${renderRichText(sections.suggestion)}</div>
+          ${renderAnswerList(sections.suggestionItems, sections.suggestion, "answer-action-list")}
         </section>
       </div>
       <section class="answer-section uncertainty">
         <h3>不确定性</h3>
-        <div class="rich-answer">${renderRichText(sections.uncertainty)}</div>
+        ${renderAnswerList(sections.uncertaintyItems, sections.uncertainty, "answer-warning-list")}
       </section>
     </article>
+  `;
+}
+
+function renderAnswerConclusion(sections = {}) {
+  return `
+    <div class="answer-conclusion-card">
+      <span aria-hidden="true">结</span>
+      <div>${renderRichText(sections.conclusion)}</div>
+    </div>
+  `;
+}
+
+function renderAnswerEvidence(sections = {}, message = {}) {
+  const items = Array.isArray(sections.evidenceItems) ? sections.evidenceItems.filter(Boolean) : [];
+  const fallbackItems = !items.length
+    ? (message.citationItems || []).slice(0, 5).map((citation) => ({
+        title: citation.documentTitle || citation.title || "知识库片段",
+        summary: formatEvidenceDisplayText(citation.snippet || citation.content || "命中用户问题相关片段。"),
+        score: citation.relevanceScore ?? citation.score ?? "",
+      }))
+    : items;
+
+  if (!fallbackItems.length) {
+    return `<div class="answer-evidence-empty">${renderRichText(sections.evidence || "当前回答没有足够的可引用证据。")}</div>`;
+  }
+
+  return `
+    <div class="answer-evidence-list">
+      ${fallbackItems
+        .map((item, index) => {
+          const score = Number(item.score ?? item.relevanceScore ?? item.evidenceScore ?? 0);
+          const scoreText = Number.isFinite(score) && score > 0 ? score.toFixed(2) : "待评估";
+          return `
+            <article class="answer-evidence-card">
+              <div class="answer-evidence-head">
+                <span>证据 ${index + 1}</span>
+                <strong>${escapeHtml(item.title || item.documentTitle || "知识库片段")}</strong>
+              </div>
+              <p>${escapeHtml(formatEvidenceDisplayText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。"))}</p>
+              <small>相关度：${escapeHtml(scoreText)}</small>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function renderAnswerList(items, fallbackText, className) {
+  const list = Array.isArray(items)
+    ? items.filter((item) => String(item || "").trim())
+    : String(fallbackText || "")
+        .split(/\n+/)
+        .filter((item) => item.trim());
+
+  if (!list.length) {
+    return '<div class="empty-inline">当前没有需要特别提示的内容。</div>';
+  }
+
+  return `
+    <ul class="${className}">
+      ${list.map((item) => `<li>${renderRichTextBlock(formatDisplayValue(item), "compact-rich-answer inline-rich-answer")}</li>`).join("")}
+    </ul>
   `;
 }
 
@@ -640,7 +703,7 @@ function renderInlineMarkdown(value) {
 }
 
 function normalizeRichTextSource(value) {
-  return String(value || "")
+  return cleanPresentationText(value)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/```(?:[a-zA-Z0-9_-]+)?/g, "")
@@ -690,7 +753,7 @@ function getAnswerSections(message) {
 
   return {
     conclusion: message.content || "当前回答为空。",
-    evidence: citationSummary || "当前 mock 消息没有绑定足够引用片段。",
+    evidence: citationSummary || "当前回答未绑定足够引用证据。",
     suggestion: message.nextActions?.[0] || "建议继续补充相关文档，并在正式结论前核对引用证据。",
     uncertainty: message.risks?.[0] || "该回答基于当前知识库片段生成，未入库资料不会被覆盖。",
   };
@@ -701,7 +764,7 @@ function renderChatLoading() {
     <article class="answer-card chat-message loading-answer">
       <div class="answer-card-head">
         <div>
-          <p class="eyebrow">Retrieving</p>
+          <p class="eyebrow">检索中</p>
           <h2>正在检索知识库并生成结构化回答</h2>
         </div>
       </div>
@@ -753,7 +816,7 @@ function renderCitationCard(citation) {
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(displayScore)}</span>
       </div>
-      <p>${escapeHtml(citation.snippet || citation.content || "暂无片段摘要。")}</p>
+      <p>${escapeHtml(formatEvidenceDisplayText(citation.snippet || citation.content || "暂无片段摘要。"))}</p>
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
         <button
@@ -1363,7 +1426,7 @@ function renderRetrievalVisibility(result = {}) {
     return "";
   }
 
-  const warningText = retriever.warning || result.warning || "";
+  const warningText = cleanPresentationText(retriever.warning || result.warning || "");
   const fallbackText =
     result.source === "retrieval-fallback" || result.generationMode === "retrieval-fallback"
       ? "检索兜底生成"
@@ -1434,7 +1497,7 @@ function renderRetrievalHit(item = {}) {
         <strong>${escapeHtml(title)}</strong>
         <span>score ${escapeHtml(score ? score.toFixed(2) : "0.00")}</span>
       </div>
-      <p>${escapeHtml(item.snippet || item.content || "暂无片段摘要。")}</p>
+      <p>${escapeHtml(formatEvidenceDisplayText(item.snippet || item.content || "暂无片段摘要。"))}</p>
       <div class="retrieval-hit-scores">
         <span>vector ${escapeHtml(vectorScore ? vectorScore.toFixed(2) : "0.00")}</span>
         <span>lexical ${escapeHtml(lexicalScore ? lexicalScore.toFixed(2) : "0.00")}</span>
@@ -1931,7 +1994,7 @@ function renderDesignUseCases(result) {
 
                 <aside class="use-case-evidence">
                   <strong>引用证据</strong>
-                  <p>${escapeHtml(stripMarkdownDecorators(item.evidenceSnippet || "当前用例缺少明确引用片段，建议补充需求或接口文档。"))}</p>
+                  <p>${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet || "当前用例缺少明确引用片段，建议补充需求或接口文档。", 220))}</p>
                 </aside>
               </article>
             `,
@@ -2290,7 +2353,7 @@ function renderBusinessObjectCard(item) {
         <div><dt>关联模块</dt><dd>${renderTagList(item.relatedModules, "待关联模块")}</dd></div>
         <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
       </dl>
-      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(stripMarkdownDecorators(item.evidenceSnippet))}</p>` : ""}
+      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet, 180))}</p>` : ""}
     </article>
   `;
 }
@@ -2307,7 +2370,7 @@ function renderBusinessRuleCard(item) {
         <div><dt>影响范围</dt><dd>${renderRichTextBlock(item.impactScope || item.impact || "待确认影响范围", "compact-rich-answer inline-rich-answer")}</dd></div>
         <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
       </dl>
-      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(stripMarkdownDecorators(item.evidenceSnippet))}</p>` : ""}
+      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet, 180))}</p>` : ""}
     </article>
   `;
 }
@@ -2327,9 +2390,9 @@ function renderTagList(value, emptyText = "待补充") {
 
 function formatDisplayValue(value) {
   if (value && typeof value === "object") {
-    return value.name || value.title || value.role || value.field || value.description || JSON.stringify(value);
+    return cleanPresentationText(value.name || value.title || value.role || value.field || value.description || JSON.stringify(value));
   }
-  return String(value || "");
+  return cleanPresentationText(value);
 }
 
 function renderCollectionOrEmpty(items, renderer, emptyText) {
@@ -2343,12 +2406,31 @@ function renderCollectionOrEmpty(items, renderer, emptyText) {
 }
 
 function renderEvidenceSnippet(value, limit = 120) {
-  const text = stripMarkdownDecorators(value || "");
+  const text = formatEvidenceDisplayText(value || "", limit);
   if (!text) {
     return '<span class="muted-inline">暂无证据片段</span>';
   }
-  const clipped = text.length > limit ? `${text.slice(0, limit)}...` : text;
-  return `<span class="evidence-snippet-inline">${escapeHtml(clipped)}</span>`;
+  return `<span class="evidence-snippet-inline">${escapeHtml(text)}</span>`;
+}
+
+function formatEvidenceDisplayText(value, limit = 180) {
+  const text = cleanPresentationText(value || "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/原始链接[:：][^\n>]*/g, "")
+    .replace(/来源[:：][^\n>]*/g, "")
+    .replace(/^\s*\d+[_-][^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
+    .replace(/^\s*[^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
+    .replace(/\bmentions\b/gi, "：")
+    .replace(/SuperRAG演示整理版/g, "")
+    .replace(/CRM[^，。；:：\s]{0,12}模块说明/g, "")
+    .replace(/#+\s*/g, "")
+    .replace(/[>`*_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) {
+    return "";
+  }
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
 function resultEvidenceLevelLabel(item = {}) {
@@ -2603,7 +2685,30 @@ function formatMarkdownValue(value) {
   if (value && typeof value === "object") {
     return Object.entries(value).map(([key, item]) => `${key}: ${formatMarkdownValue(item)}`).join("；");
   }
-  return String(value || "待补充");
+  return cleanPresentationText(value || "待补充");
+}
+
+function cleanPresentationText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/Based on the retrieved project evidence, the most relevant findings are:?/gi, "根据当前知识库检索结果：")
+    .replace(/\bI could not find grounded project evidence for this question in the current knowledge base\.?/gi, "当前知识库没有检索到足够证据。")
+    .replace(/\bNo grounded evidence was found.*$/gim, "当前知识库没有检索到足够证据。")
+    .replace(/\bNo evidence was found.*$/gim, "当前知识库没有检索到足够证据。")
+    .replace(/\bUnsupported claims?:/gi, "缺少证据支撑的结论：")
+    .replace(/\bUncertain claims?:/gi, "需要人工确认的结论：")
+    .replace(/\bPipeline version:/gi, "生成链路版本：")
+    .replace(/\bReview the cited documents before treating this as a final conclusion\.?/gi, "请先核对引用文档，再将回答作为正式结论。")
+    .replace(/\bTreat the cited document content as confirmed facts\.?/gi, "可把已引用的文档内容作为当前回答依据。")
+    .replace(/\bTreat any uncited implementation idea as an optional suggestion that still needs review\.?/gi, "未绑定证据的实现想法只能作为待复核建议。")
+    .replace(/\bImport the relevant requirement, design, code, or interface document before answering again\.?/gi, "请先补充相关需求、设计、接口或交接文档后再重新提问。")
+    .replace(/\bNo major uncertainty was detected in the retrieved evidence\.?/gi, "当前没有识别到明显的不确定项。")
+    .replace(/\bRetrieved chunks have low relevance scores; key details may still be missing\.?/gi, "检索片段相关度偏低，关键细节可能仍然缺失。")
+    .replace(/\bOnly a small amount of supporting evidence was found\.?/gi, "当前只找到少量支撑证据，建议补充更多项目文档。")
+    .replace(/\bvector search unavailable:/gi, "向量检索暂不可用：")
+    .replace(/\s+mentions\s+/gi, "：")
+    .trim();
 }
 
 function stripHtml(value) {
@@ -3605,7 +3710,7 @@ function renderScenarioCitation(citation) {
         <strong>${escapeHtml(title)}</strong>
         <span>${score ? score.toFixed(2) : "0.00"}</span>
       </div>
-      <p>${escapeHtml(citation.snippet)}</p>
+      <p>${escapeHtml(formatEvidenceDisplayText(citation.snippet || citation.content || "暂无片段摘要。"))}</p>
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
         <button
@@ -4899,7 +5004,7 @@ function formatErrorMessage(error) {
   }
 
   const fallback = String(error || "").trim();
-  return fallback || "Unknown error";
+  return fallback || "未知错误，请检查后端服务或浏览器控制台。";
 }
 
 function renderDesignIntermediateDocument(result) {
