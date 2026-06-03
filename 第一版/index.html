@@ -552,10 +552,12 @@
 
               <form class="chat-input-area" id="chat-form">
                 <div class="quick-question-row" aria-label="常用问题">
-                  <button type="button" data-chat-question="这个项目主要解决什么问题？">这个项目主要解决什么问题？</button>
-                  <button type="button" data-chat-question="新人应该先看哪些文档？">新人应该先看哪些文档？</button>
-                  <button type="button" data-chat-question="当前系统有哪些核心模块？">当前系统有哪些核心模块？</button>
-                  <button type="button" data-chat-question="请总结文档入库流程">请总结文档入库流程</button>
+                  <button type="button" data-chat-question="CRM 客户管理模块主要支持哪些业务？">CRM 客户管理模块主要支持哪些业务？</button>
+                  <button type="button" data-chat-question="客户、商机、合同、回款、发票之间是什么关系？">客户、商机、合同、回款、发票之间是什么关系？</button>
+                  <button type="button" data-chat-question="如果设计 CRM 合同管理模块，需要注意哪些业务规则？">合同管理有哪些业务规则？</button>
+                  <button type="button" data-chat-question="客户转移、公海、团队成员权限有哪些风险？">客户权限有哪些风险？</button>
+                  <button type="button" data-chat-question="商机推进到合同和回款需要经历哪些关键流程？">商机到回款的关键流程</button>
+                  <button type="button" data-chat-question="发票申请和合同、回款之间有什么关联？">发票与合同回款的关联</button>
                 </div>
                 <div class="chat-input-row">
                   <textarea id="chat-input" rows="2" placeholder="请输入你想查询的企业知识或项目问题"></textarea>
@@ -606,7 +608,7 @@
               <aside class="scenario-input-card dashboard-card">
                 <label>
                   我想了解的内容
-                  <textarea id="training-query" rows="5" placeholder="例如：请给我一周学习路径，帮助新人快速理解 SuperRAG 项目"></textarea>
+                  <textarea id="training-query" rows="5" placeholder="例如：请基于 CRM 客户、商机、合同、回款、发票文档，为新人生成 7 天业务上手路径"></textarea>
                 </label>
                 <label>
                   培训主题
@@ -638,11 +640,11 @@
                 </div>
               </div>
               <div class="quick-question-row">
-                <button type="button" data-training-question="这个项目主要解决什么问题？">这个项目主要解决什么问题？</button>
-                <button type="button" data-training-question="新人应该先看哪些文档？">新人应该先看哪些文档？</button>
-                <button type="button" data-training-question="请解释系统中的核心模块">请解释系统中的核心模块</button>
-                <button type="button" data-training-question="请给我一周学习路径">请给我一周学习路径</button>
-                <button type="button" data-training-question="请总结开发流程和注意事项">请总结开发流程和注意事项</button>
+                <button type="button" data-training-question="请为 CRM 新人生成 7 天上手学习路径">CRM 新人 7 天路径</button>
+                <button type="button" data-training-question="新人应该优先理解客户、商机、合同、回款、发票中的哪些概念？">核心概念学习</button>
+                <button type="button" data-training-question="请按客户到回款的业务链路安排学习任务">客户到回款学习链路</button>
+                <button type="button" data-training-question="请生成 CRM 业务自测问题">生成 CRM 自测问题</button>
+                <button type="button" data-training-question="哪些 CRM 文档适合作为新人必读资料？">新人必读资料</button>
               </div>
             </section>
           </div>
@@ -674,7 +676,7 @@
               <aside class="scenario-input-card dashboard-card">
                 <label>
                   交接问题
-                  <textarea id="handover-query" rows="5" placeholder="例如：请生成接手者待办清单，并指出当前最大风险"></textarea>
+                  <textarea id="handover-query" rows="5" placeholder="例如：请基于 CRM 客户、商机、合同、回款、发票文档，生成模块接手清单并指出交接风险"></textarea>
                 </label>
                 <label>
                   所属项目
@@ -710,11 +712,11 @@
                 </div>
               </div>
               <div class="quick-question-row">
-                <button type="button" data-handover-question="请总结当前项目进度">请总结当前项目进度</button>
-                <button type="button" data-handover-question="这个模块还有哪些未完成事项？">这个模块还有哪些未完成事项？</button>
-                <button type="button" data-handover-question="当前交接中最大的风险是什么？">当前交接中最大的风险是什么？</button>
-                <button type="button" data-handover-question="请生成接手者待办清单">请生成接手者待办清单</button>
-                <button type="button" data-handover-question="哪些文档需要优先阅读？">哪些文档需要优先阅读？</button>
+                <button type="button" data-handover-question="请生成 CRM 客户到回款链路的接手者待办清单">CRM 接手待办清单</button>
+                <button type="button" data-handover-question="CRM 客户、商机、合同、回款、发票交接中有哪些高风险点？">CRM 高风险交接点</button>
+                <button type="button" data-handover-question="接手 CRM 合同和回款模块需要优先阅读哪些文档？">优先阅读文档</button>
+                <button type="button" data-handover-question="请整理 CRM 模块交接的信息缺口和待确认问题">信息缺口与待确认</button>
+                <button type="button" data-handover-question="请按前端、后端、测试角色拆分 CRM 交接责任边界">责任边界拆分</button>
               </div>
             </section>
           </div>
@@ -746,7 +748,7 @@
               <aside class="design-input-card dashboard-card">
                 <label>
                   设计目标
-                  <textarea id="design-goal" rows="6" placeholder="例如：基于现有需求文档，为新人培训模块生成详细文本用例"></textarea>
+                  <textarea id="design-goal" rows="6" placeholder="例如：基于 CRM 客户、商机、合同、回款、发票文档，生成合同管理模块的功能清单、详细文本用例、模块划分和风险清单"></textarea>
                 </label>
                 <label>
                   产物类型
@@ -778,8 +780,9 @@
                 </div>
 
                 <div class="design-tabs" role="tablist" aria-label="设计产物类型">
+                  <button class="active" type="button" role="tab" data-design-tab="overview" aria-selected="true">总览</button>
                   <button type="button" role="tab" data-design-tab="business" aria-selected="false">业务分析</button>
-                  <button class="active" type="button" role="tab" data-design-tab="functions" aria-selected="true">功能清单</button>
+                  <button type="button" role="tab" data-design-tab="functions" aria-selected="false">功能清单</button>
                   <button type="button" role="tab" data-design-tab="useCases" aria-selected="false">详细文本用例</button>
                   <button type="button" role="tab" data-design-tab="modules" aria-selected="false">模块划分建议</button>
                   <button type="button" role="tab" data-design-tab="dataPermission" aria-selected="false">数据与权限</button>

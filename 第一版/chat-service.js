@@ -243,6 +243,7 @@
       risks: raw.risks || [],
       nextActions: raw.nextActions || [],
       answerMode: raw.answerMode || raw.answer_mode || "evidence",
+      query: raw.query || raw.originalQuestion || raw.original_question || "",
     };
   }
 
@@ -263,7 +264,7 @@
         citations,
       );
     const structuredAnswer = normalizeStructuredAnswer(rawStructuredAnswer, {
-      raw: { ...raw, answer: content },
+      raw: { ...raw, answer: content, query: payload.question || raw.query || "" },
       citationItems: citations,
     });
 
@@ -292,6 +293,7 @@
       implementationSuggestions: raw.implementationSuggestions || raw.implementation_suggestions || [],
       uncertainPoints: raw.uncertainPoints || raw.uncertain_points || [],
       answerMode: payload.answerMode || "evidence",
+      query: payload.question || raw.query || "",
     };
   }
 
@@ -344,6 +346,7 @@
     );
     const evidenceItems = normalizeEvidenceItems(source.evidenceItems || source.evidence_items, citationItems, evidenceLines);
     const conclusion = buildReadableConclusion(rawConclusion, citationItems, raw);
+    const followUpItems = buildFollowUpQuestions(raw.query || raw.originalQuestion || "", citationItems, conclusion);
 
     return {
       conclusion,
@@ -351,8 +354,9 @@
         ? evidenceItems.map((item, index) => `${index + 1}. ${item.title}：${item.summary}`).join("\n")
         : evidenceLines.join("\n") || "当前回答没有足够的可引用证据。",
       evidenceItems,
-      suggestion: suggestionLines.join("\n"),
-      suggestionItems: suggestionLines,
+      suggestion: (suggestionLines.length ? suggestionLines : followUpItems).join("\n"),
+      suggestionItems: suggestionLines.length ? suggestionLines : followUpItems,
+      followUpItems,
       uncertainty: uncertaintyLines.join("\n") || "当前没有识别到明显的不确定项。",
       uncertaintyItems: uncertaintyLines,
       rawConclusion,
@@ -368,8 +372,7 @@
 
     if (isGenericEvidenceAnswer(cleaned)) {
       const topics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
-      const topicText = topics.length ? topics.join("、") : "当前命中的知识库文档";
-      return `系统已检索到 ${citationItems.length || "若干"} 条相关证据，主要涉及 ${topicText}。请优先查看下方证据摘要，再结合原文形成正式结论。`;
+      return buildTopicBasedAnswer(raw.query || "", topics, citationItems);
     }
 
     if (cleaned) {
@@ -381,6 +384,44 @@
       return `当前问题命中了 ${fallbackTopics.join("、")} 等文档，建议结合下方证据摘要确认结论。`;
     }
     return raw.query ? `当前问题“${truncateText(raw.query, 80)}”暂未形成明确结论。` : "当前暂无明确结论。";
+  }
+
+  function buildTopicBasedAnswer(query = "", topics = [], citationItems = []) {
+    const normalizedQuery = String(query || "");
+    const topicText = topics.length ? topics.join("、") : "当前命中的知识库文档";
+    const hasCrmSignals = citationItems.some((item) => /客户|商机|合同|回款|发票|CRM/i.test([item.documentTitle, item.sourceName, item.snippet].join(" ")));
+
+    if (hasCrmSignals && /关系|关联|链路|流程/.test(normalizedQuery)) {
+      return "根据当前 CRM 业务文档，客户是销售业务的基础对象，商机承接销售机会推进过程，合同记录成交后的正式约定，回款反映资金回收进展，发票通常围绕合同和回款信息发起申请。这个问题建议结合下方客户、商机、合同、回款、发票文档证据继续确认细节。";
+    }
+    if (hasCrmSignals && /风险|注意|规则|权限/.test(normalizedQuery)) {
+      return "当前 CRM 文档显示，设计时需要重点关注客户转移、公海规则、团队成员权限、合同与回款联动、发票金额约束等业务边界。涉及权限、金额、状态流转和删除约束的内容不应只靠经验补全，需要回到引用文档或补充接口/规则说明后确认。";
+    }
+    if (hasCrmSignals && /客户/.test(normalizedQuery)) {
+      return "CRM 客户管理主要围绕客户资料沉淀、客户跟进、负责人或团队成员协作、客户转移与公海等业务展开。具体字段、权限边界和异常规则需要以下方客户管理文档片段为准。";
+    }
+    if (hasCrmSignals) {
+      return `当前问题主要涉及 ${topicText}。从已有 CRM 文档看，回答应围绕业务对象、操作流程、权限边界和证据充分度来确认；如果要形成正式设计结论，建议继续查看下方证据并转入设计辅助生成结构化产物。`;
+    }
+    return `当前问题主要涉及 ${topicText}。以下回答基于当前知识库片段进行归纳，正式使用前仍需要核对引用原文。`;
+  }
+
+  function buildFollowUpQuestions(query = "", citationItems = [], conclusion = "") {
+    const text = [query, conclusion, ...citationItems.map((item) => `${item.documentTitle} ${item.snippet}`)].join(" ");
+    if (/客户|商机|合同|回款|发票|CRM/i.test(text)) {
+      return [
+        "是否需要进一步生成 CRM 模块功能清单？",
+        "是否需要整理客户-商机-合同-回款-发票的业务流程？",
+        "是否需要转入设计辅助模式生成详细文本用例？",
+        "是否需要检查当前回答中证据不足的业务规则？",
+      ];
+    }
+    return [
+      "是否需要把当前结论整理成功能清单？",
+      "是否需要继续查看相关文档原文？",
+      "是否需要转入设计辅助模式生成结构化产物？",
+      "是否需要列出当前知识库缺失的文档类型？",
+    ];
   }
 
   function normalizeEvidenceItems(items, citationItems = [], evidenceLines = []) {

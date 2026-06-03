@@ -44,7 +44,7 @@ const handoverState = {
 const designState = {
   loaded: false,
   result: null,
-  activeTab: "functions",
+  activeTab: "overview",
   loading: false,
 };
 let mermaidLoaderPromise = null;
@@ -544,6 +544,8 @@ function renderAnswerCard(message) {
   const sections = getAnswerSections(message);
   const evidenceLevel = message.evidenceLevel || inferEvidenceLevel(message.citationItems || []);
   const answerMode = getAnswerModeLabel(message.answerMode || document.getElementById("chat-answer-mode")?.value || "evidence");
+  const status = getAnswerStatus(message, sections, evidenceLevel);
+  const intent = inferQuestionIntent(message.query || message.originalQuestion || message.content || "");
 
   return `
     <article class="answer-card chat-message">
@@ -553,30 +555,145 @@ function renderAnswerCard(message) {
           <h2>企业知识检索回答</h2>
         </div>
         <div class="answer-card-tags">
+          ${renderAnswerStatusBadge(status)}
           <span>${escapeHtml(answerMode)}</span>
           ${renderEvidenceLevelBadge(evidenceLevel)}
         </div>
       </div>
-      <div class="answer-section conclusion">
-        <h3>结论</h3>
+      ${renderQuestionUnderstanding(message, intent, evidenceLevel, status)}
+      <div class="answer-section conclusion answer-direct-section">
+        <h3>直接回答</h3>
         ${renderAnswerConclusion(sections)}
       </div>
+      <section class="answer-section answer-basis-section">
+        <h3>依据摘要</h3>
+        ${renderBasisSummary(message, sections)}
+      </section>
       <div class="answer-grid">
         <section class="answer-section">
-          <h3>依据</h3>
+          <h3>关键证据</h3>
           ${renderAnswerEvidence(sections, message)}
         </section>
         <section class="answer-section">
-          <h3>建议</h3>
-          ${renderAnswerList(sections.suggestionItems, sections.suggestion, "answer-action-list")}
+          <h3>建议追问</h3>
+          ${renderSuggestedFollowups(sections, message)}
         </section>
       </div>
       <section class="answer-section uncertainty">
-        <h3>不确定性</h3>
+        <h3>不确定性 / 证据不足</h3>
         ${renderAnswerList(sections.uncertaintyItems, sections.uncertainty, "answer-warning-list")}
       </section>
     </article>
   `;
+}
+
+function getAnswerStatus(message = {}, sections = {}, evidenceLevel = "medium") {
+  const citations = message.citationItems || [];
+  const bestScore = getBestCitationScore(citations);
+  const query = message.query || message.originalQuestion || "";
+  if (!citations.length || evidenceLevel === "low" || bestScore < 0.12 || isEvidenceInsufficientText(sections.conclusion || "")) {
+    return { key: "insufficient", label: "证据不足", tone: "bad" };
+  }
+  if (isBroadProjectQuestion(query)) {
+    return { key: "broad", label: "问题过泛，建议收窄", tone: "warn" };
+  }
+  if (evidenceLevel === "high" && bestScore >= 0.45) {
+    return { key: "answerable", label: "可回答", tone: "ok" };
+  }
+  return { key: "partial", label: "部分可回答", tone: "warn" };
+}
+
+function renderAnswerStatusBadge(status = {}) {
+  return `<span class="answer-status-badge answer-status-${escapeHtml(status.tone || "warn")}">${escapeHtml(status.label || "部分可回答")}</span>`;
+}
+
+function renderQuestionUnderstanding(message = {}, intent = {}, evidenceLevel = "medium", status = {}) {
+  const citations = message.citationItems || [];
+  const knowledgeLabel = inferMatchedKnowledgeLabel(citations);
+  const broadHint = status.key === "broad"
+    ? `<div class="answer-intent-hint">当前问题较宽泛，系统将按当前知识库中的 ${escapeHtml(knowledgeLabel)} 回答。若想了解 SuperRAG 项目本身，请选择项目说明文档或更换知识库。</div>`
+    : "";
+  return `
+    <section class="answer-intent-card">
+      <span>当前问题意图：<strong>${escapeHtml(intent.label)}</strong></span>
+      <span>匹配知识库：<strong>${escapeHtml(knowledgeLabel)}</strong></span>
+      <span>证据状态：<strong>${escapeHtml(getEvidenceLevelLabel(evidenceLevel))}</strong></span>
+      ${broadHint}
+    </section>
+  `;
+}
+
+function inferQuestionIntent(query) {
+  const text = String(query || "");
+  if (/风险|注意|缺口|不足|问题|权限/.test(text)) {
+    return { key: "risk", label: "风险分析" };
+  }
+  if (/设计|用例|模块|功能清单|规则|需求/.test(text)) {
+    return { key: "design", label: "设计辅助" };
+  }
+  if (/交接|接手|待办|负责人|进度/.test(text)) {
+    return { key: "handover", label: "交接总结" };
+  }
+  if (/是什么|哪些|支持|关系|关联|流程|解释|总结/.test(text)) {
+    return { key: "business", label: "业务解释" };
+  }
+  if (/功能|模块|字段|接口/.test(text)) {
+    return { key: "feature", label: "功能查询" };
+  }
+  return { key: "unknown", label: "不明确" };
+}
+
+function inferMatchedKnowledgeLabel(citations = []) {
+  const text = citations.map((item) => `${item.documentTitle || ""} ${item.sourceName || ""} ${item.snippet || ""}`).join(" ");
+  if (/客户|商机|合同|回款|发票|CRM/i.test(text)) {
+    return "CRM 演示库";
+  }
+  return citations.length ? "当前知识库" : "全部知识库";
+}
+
+function isBroadProjectQuestion(query) {
+  const text = String(query || "");
+  return /这个项目主要解决什么问题|当前系统有哪些核心模块|项目主要解决/.test(text);
+}
+
+function renderBasisSummary(message = {}, sections = {}) {
+  const citations = message.citationItems || [];
+  if (!citations.length) {
+    return renderEmptyState("当前回答缺少可引用证据。", "建议补充需求文档、接口文档、交接记录或换一个更具体的问题。");
+  }
+  const grouped = groupCitationsByDocument(citations);
+  const docsText = grouped.slice(0, 4).map((item) => `${item.title}（${item.items.length} 个片段）`).join("、");
+  const topicText = inferMatchedKnowledgeLabel(citations);
+  return `
+    <div class="answer-basis-summary">
+      <p>本次回答主要基于 ${escapeHtml(topicText)} 中的 ${escapeHtml(docsText)}。</p>
+      <p>${escapeHtml(getBestCitationScore(citations) < 0.25 ? "部分证据相关度偏低，正式使用前建议人工复核。" : "证据可支撑当前问题的初步回答，正式结论仍建议核对原文。")}</p>
+    </div>
+  `;
+}
+
+function renderSuggestedFollowups(sections = {}, message = {}) {
+  const items = Array.isArray(sections.followUpItems) && sections.followUpItems.length
+    ? sections.followUpItems
+    : buildFrontendFollowups(message);
+  return renderAnswerList(items, "", "answer-action-list");
+}
+
+function buildFrontendFollowups(message = {}) {
+  const text = [message.query, ...(message.citationItems || []).map((item) => `${item.documentTitle} ${item.snippet}`)].join(" ");
+  if (/客户|商机|合同|回款|发票|CRM/i.test(text)) {
+    return [
+      "是否需要进一步生成 CRM 模块功能清单？",
+      "是否需要整理客户-商机-合同-回款-发票的业务流程？",
+      "是否需要转入设计辅助模式生成详细文本用例？",
+      "是否需要检查当前回答中证据不足的业务规则？",
+    ];
+  }
+  return [
+    "是否需要把当前结论整理为功能清单？",
+    "是否需要查看引用文档原文？",
+    "是否需要转入设计辅助模式生成结构化产物？",
+  ];
 }
 
 function renderAnswerConclusion(sections = {}) {
@@ -614,13 +731,35 @@ function renderAnswerEvidence(sections = {}, message = {}) {
                 <span>证据 ${index + 1}</span>
                 <strong>${escapeHtml(item.title || item.documentTitle || "知识库片段")}</strong>
               </div>
-              <p>${escapeHtml(formatEvidenceDisplayText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。"))}</p>
-              <small>相关度：${escapeHtml(scoreText)}</small>
+              <p>${escapeHtml(formatEvidenceDisplayText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。", 150))}</p>
+              <div class="answer-evidence-actions">
+                <small>相关度：${escapeHtml(scoreText)}</small>
+                ${renderCitationSourceButton(item)}
+              </div>
             </article>
           `;
         })
         .join("")}
     </div>
+  `;
+}
+
+function renderCitationSourceButton(item = {}) {
+  const title = item.title || item.documentTitle || item.sourceName || "";
+  const documentId = item.documentId || item.document_id || "";
+  const chunkId = item.chunkId || item.segmentId || item.id || "";
+  if (!documentId && !title && !chunkId) {
+    return "";
+  }
+  return `
+    <button
+      type="button"
+      class="text-link-button citation-inline-action"
+      data-citation-title="${escapeHtml(title || "知识库片段")}"
+      data-document-id="${escapeHtml(documentId)}"
+      data-source-name="${escapeHtml(item.sourceName || title)}"
+      data-chunk-id="${escapeHtml(chunkId)}"
+    >查看原文</button>
   `;
 }
 
@@ -798,11 +937,46 @@ function renderChatCitationPanel() {
   warningNode.hidden = level !== "low";
 
   if (!chatState.citations.length) {
-    listNode.innerHTML = '<div class="empty-inline">暂无引用证据。</div>';
+    listNode.innerHTML = renderEmptyState("当前回答暂无引用证据。", "建议补充 CRM 需求、接口、交接或业务规则文档，或换一个更具体的问题。");
     return;
   }
 
-  listNode.innerHTML = chatState.citations.map(renderCitationCard).join("");
+  listNode.innerHTML = `
+    ${renderCitationOverview(chatState.citations, level)}
+    ${renderCitationDocumentSummary(chatState.citations)}
+    <div class="citation-detail-stack">
+      ${chatState.citations.map(renderCitationCard).join("")}
+    </div>
+  `;
+}
+
+function renderCitationOverview(citations = [], level = "medium") {
+  const grouped = groupCitationsByDocument(citations);
+  const bestScore = getBestCitationScore(citations);
+  return `
+    <section class="citation-overview-card">
+      <div class="citation-overview-grid">
+        <article><span>引用文档</span><strong>${escapeHtml(grouped.length)}</strong></article>
+        <article><span>命中片段</span><strong>${escapeHtml(citations.length)}</strong></article>
+        <article><span>最高相关度</span><strong>${escapeHtml(bestScore ? bestScore.toFixed(2) : "0.00")}</strong></article>
+      </div>
+      <div class="citation-trust-note citation-trust-${escapeHtml(level)}">
+        ${escapeHtml(level === "low" ? "不建议直接采信，需要补充证据。" : level === "high" ? "证据较充分，可作为初步结论依据。" : "可部分采信，建议人工复核关键结论。")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCitationDocumentSummary(citations = []) {
+  const grouped = groupCitationsByDocument(citations);
+  return `
+    <section class="citation-document-summary">
+      <h3>证据摘要</h3>
+      ${grouped
+        .map((group) => `<span>${escapeHtml(group.title)}：命中 ${escapeHtml(group.items.length)} 个片段</span>`)
+        .join("")}
+    </section>
+  `;
 }
 
 function renderCitationCard(citation) {
@@ -811,12 +985,12 @@ function renderCitationCard(citation) {
   const title = citation.documentTitle || citation.title || "知识库片段";
   const chunkId = citation.chunkId || citation.segmentId || citation.id || "";
   return `
-    <article class="citation-card">
-      <div class="citation-card-head">
+    <details class="citation-card" ${score >= 0.45 ? "open" : ""}>
+      <summary class="citation-card-head">
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(displayScore)}</span>
-      </div>
-      <p>${escapeHtml(formatEvidenceDisplayText(citation.snippet || citation.content || "暂无片段摘要。"))}</p>
+      </summary>
+      <p>${escapeHtml(formatEvidenceDisplayText(citation.snippet || citation.content || "暂无片段摘要。", 160))}</p>
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
         <button
@@ -827,7 +1001,7 @@ function renderCitationCard(citation) {
           data-chunk-id="${escapeHtml(chunkId)}"
         >查看原文</button>
       </div>
-    </article>
+    </details>
   `;
 }
 
@@ -1085,6 +1259,25 @@ function bindHistoryActions() {
   });
 }
 
+function getBestCitationScore(citations = []) {
+  const scores = (Array.isArray(citations) ? citations : [])
+    .map((citation) => Number(citation.relevanceScore ?? citation.score ?? citation.evidenceScore ?? 0))
+    .filter((score) => Number.isFinite(score));
+  return scores.length ? Math.max(...scores) : 0;
+}
+
+function groupCitationsByDocument(citations = []) {
+  const groups = new Map();
+  (Array.isArray(citations) ? citations : []).forEach((citation) => {
+    const title = citation.documentTitle || citation.title || citation.sourceName || "知识库片段";
+    if (!groups.has(title)) {
+      groups.set(title, []);
+    }
+    groups.get(title).push(citation);
+  });
+  return [...groups.entries()].map(([title, items]) => ({ title, items }));
+}
+
 function bindSettingsActions() {
   document.addEventListener("click", async (event) => {
     const workflowAction = event.target.closest("[data-workflow-action]");
@@ -1110,7 +1303,7 @@ async function renderTrainingPage() {
     populateScenarioSelect("training-topic", options.topics, "项目背景");
     populateScenarioSelect("training-project", options.projects, "企业知识库");
     trainingState.loaded = true;
-    await generateTrainingResult("这个项目主要解决什么问题？", { silent: true });
+    await generateTrainingResult("请为 CRM 新人生成 7 天上手学习路径，重点覆盖客户、商机、合同、回款和发票模块。", { silent: true });
     return;
   }
 
@@ -1186,21 +1379,43 @@ function renderTrainingResult(result) {
     </section>
     <section class="scenario-section">
       <h3>核心术语解释</h3>
-      <div class="term-grid">${result.terms.map(renderTermCard).join("")}</div>
+      <div class="term-grid">${result.terms?.length ? result.terms.map(renderTermCard).join("") : renderEmptyState("当前证据不足，暂未抽取核心术语。", "建议补充 CRM 业务术语、字段说明或培训资料。")}</div>
     </section>
     <section class="scenario-section">
-      <h3>学习路径</h3>
-      <div class="learning-timeline">${result.learningPath.map(renderLearningStep).join("")}</div>
+      <h3>3-7 天学习路径</h3>
+      <div class="learning-timeline">${result.learningPath?.length ? result.learningPath.map(renderLearningStep).join("") : renderEmptyState("当前证据不足，暂未生成学习路径。", "建议先上传需求文档、接口文档、部署说明或新人培训资料。")}</div>
     </section>
     <section class="scenario-section">
       <h3>推荐阅读资料</h3>
-      <div class="recommended-doc-grid">${result.recommendedDocs.map(renderRecommendedDoc).join("")}</div>
+      <div class="recommended-doc-grid">${result.recommendedDocs?.length ? result.recommendedDocs.map(renderRecommendedDoc).join("") : renderEmptyState("暂无推荐阅读资料。", "请补充可作为新人培训材料的业务说明或模块文档。")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>新人自测问题</h3>
+      ${renderTrainingSelfTest(result)}
     </section>
     <section class="scenario-section">
       <h3>引用证据</h3>
-      <div class="scenario-evidence-list">${result.citations.map(renderScenarioCitation).join("")}</div>
+      <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : renderEmptyState("暂无引用证据。", "当前培训计划不能作为正式材料，建议补充更多项目文档。")}</div>
     </section>
   `;
+}
+
+function renderTrainingSelfTest(result = {}) {
+  const topic = result.topic || "CRM 业务";
+  const citationText = (result.citations || []).map((item) => item.documentTitle || item.sourceName || "").join(" ");
+  const crmQuestions = [
+    "客户、商机、合同、回款、发票分别承担什么业务职责？",
+    "从商机推进到合同和回款，关键状态或动作有哪些？",
+    "客户转移、公海、团队成员权限中哪些内容需要重点核对？",
+    "哪些结论已经有文档证据，哪些仍需要人工确认？",
+  ];
+  const genericQuestions = [
+    `请用自己的话解释 ${topic} 的核心目标。`,
+    "当前知识库中哪些文档最适合作为入门资料？",
+    "哪些模块或流程还缺少证据支撑？",
+  ];
+  const questions = /客户|商机|合同|回款|发票|CRM/i.test(citationText + topic) ? crmQuestions : genericQuestions;
+  return renderRichList(questions, "scenario-bullet-list compact-list");
 }
 
 function renderTermCard(item) {
@@ -1248,7 +1463,7 @@ async function renderHandoverPage() {
     populateScenarioSelect("handover-project", options.projects, "企业知识库");
     populateScenarioSelect("handover-scope", options.scopes, "功能模块");
     handoverState.loaded = true;
-    await generateHandoverResult("请总结当前项目进度", { silent: true });
+    await generateHandoverResult("请基于 CRM 客户、商机、合同、回款、发票文档，生成模块交接总览和接手者待办清单", { silent: true });
     return;
   }
 
@@ -1310,6 +1525,7 @@ function renderHandoverResult(result) {
     ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
     ${renderRetrievalVisibility(result)}
     ${renderScenarioQualityAssessment(result.qualityAssessment, "handover")}
+    ${renderHandoverOverviewBoard(result)}
     <section class="handover-summary-grid">
       ${renderInfoBlock("项目背景", result.projectBackground)}
       ${renderInfoBlock("当前进度", result.currentProgress)}
@@ -1342,6 +1558,45 @@ function renderHandoverResult(result) {
       <h3>引用证据</h3>
       <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : '<div class="empty-inline">暂无引用证据。</div>'}</div>
     </section>
+  `;
+}
+
+function renderHandoverOverviewBoard(result = {}) {
+  const risks = result.riskRegister?.length ? result.riskRegister : result.risks || [];
+  const todos = result.todoList?.length ? result.todoList : result.todos || [];
+  const docs = result.dependentDocuments?.length ? result.dependentDocuments : result.dependentDocs || [];
+  const gaps = result.informationGaps || [];
+  const highestRisk = risks.find((item) => /高|严重|阻塞|风险/.test([item.risk, item.description, item.riskLevel, item.impact].join(" "))) || risks[0];
+  const firstTodo = todos.find((item) => /high|高|优先/.test(String(item.priority || ""))) || todos[0];
+  const shouldHandover = !gaps.length && !risks.some((item) => /高|严重|证据不足|待确认/.test([item.risk, item.description, item.impact].join(" ")));
+
+  return `
+    <section class="handover-overview-board scenario-section">
+      <div class="card-title-row">
+        <div>
+          <p class="eyebrow">Handover Overview</p>
+          <h3>交接总览看板</h3>
+        </div>
+        <span class="quality-score-badge quality-score-${shouldHandover ? "ready" : "partial"}">${escapeHtml(shouldHandover ? "可交接" : "需复核")}</span>
+      </div>
+      <div class="handover-overview-grid">
+        ${renderHandoverOverviewItem("当前进度摘要", result.currentProgress || "暂无当前进度摘要。")}
+        ${renderHandoverOverviewItem("最高风险", highestRisk ? highestRisk.risk || highestRisk.description || "待确认风险" : "当前未识别明确高风险。", highestRisk ? "risk" : "")}
+        ${renderHandoverOverviewItem("接手者第一步", firstTodo ? firstTodo.taskName || firstTodo.task || "先阅读依赖文档并核对待办。" : "先确认依赖文档和负责人。")}
+        ${renderHandoverOverviewItem("必须优先阅读的文档", docs.slice(0, 3).map(formatDisplayValue).join("；") || "暂未识别明确依赖文档。")}
+        ${renderHandoverOverviewItem("最大信息缺口", gaps[0] || "暂无明显信息缺口。", gaps.length ? "gap" : "")}
+        ${renderHandoverOverviewItem("是否建议直接交接", shouldHandover ? "可以进入交接，但仍建议人工复核证据。" : "不建议直接交接，请先补充缺失资料或确认高风险项。", shouldHandover ? "ok" : "risk")}
+      </div>
+    </section>
+  `;
+}
+
+function renderHandoverOverviewItem(label, value, tone = "") {
+  return `
+    <article class="handover-overview-item ${tone ? `handover-overview-${tone}` : ""}">
+      <span>${escapeHtml(label)}</span>
+      ${renderRichTextBlock(value, "compact-rich-answer inline-rich-answer")}
+    </article>
   `;
 }
 
@@ -1589,11 +1844,11 @@ function renderTodoTable(todos = []) {
           ${todos
             .map(
               (todo) => `
-                <tr>
-                  <td>${escapeHtml(todo.taskName)}</td>
+                <tr class="${/high|高/.test(String(todo.priority || "")) ? "row-highlight" : ""}">
+                  <td><strong>${escapeHtml(todo.taskName)}</strong></td>
                   <td><span class="priority-badge priority-${getPriorityClass(todo.priority)}">${escapeHtml(todo.priority)}</span></td>
-                  <td>${escapeHtml(todo.riskLevel)}</td>
-                  <td>${escapeHtml(todo.suggestedOwner || todo.owner)}</td>
+                  <td><span class="risk-level-badge risk-${getRiskClass(todo.riskLevel)}">${escapeHtml(todo.riskLevel || "待评估")}</span></td>
+                  <td>${escapeHtml(todo.suggestedOwner || todo.owner || "待确认负责人")}</td>
                   <td>${escapeHtml(todo.dependentDocument || todo.evidenceSource || "待确认文档")}</td>
                   <td>${escapeHtml(todo.status)}</td>
                 </tr>
@@ -1642,7 +1897,7 @@ function renderHandoverRiskTable(risks = []) {
         </thead>
         <tbody>
           ${risks.map((risk) => `
-            <tr>
+            <tr class="${/高|严重|阻塞/.test([risk.risk, risk.description, risk.impact].join(" ")) ? "row-highlight" : ""}">
               <td><strong>${escapeHtml(stripMarkdownDecorators(risk.risk || risk.description || "待确认风险"))}</strong></td>
               <td>${renderRichTextBlock(risk.impact || "待确认影响范围", "compact-rich-answer inline-rich-answer")}</td>
               <td>${renderRichTextBlock(risk.suggestion || "补充文档或人工确认。", "compact-rich-answer inline-rich-answer")}</td>
@@ -1815,7 +2070,7 @@ async function generateDesignOutput(options = {}) {
       project: document.getElementById("design-project")?.value || "企业知识助手系统",
       granularity: document.getElementById("design-granularity")?.value || "标准",
     });
-    designState.activeTab = "functions";
+    designState.activeTab = "overview";
     renderDesignResult(designState.result);
     renderDesignEvidencePanel(designState.result);
     if (!options.silent) {
@@ -1877,6 +2132,7 @@ function renderDesignResult(result) {
 
 function renderDesignTabContent(result) {
   const renderers = {
+    overview: renderDesignOverview,
     business: renderDesignBusinessAnalysis,
     functions: renderDesignFunctionTable,
     useCases: renderDesignUseCases,
@@ -1887,8 +2143,115 @@ function renderDesignTabContent(result) {
     risks: renderDesignRisks,
     actions: renderDesignNextActions,
   };
-  const renderer = renderers[designState.activeTab] || renderDesignFunctionTable;
+  const renderer = renderers[designState.activeTab] || renderDesignOverview;
   return renderer(result);
+}
+
+function renderDesignOverview(result = {}) {
+  const risks = Array.isArray(result.risks) ? result.risks : [];
+  const openQuestions = Array.isArray(result.openQuestions) ? result.openQuestions : [];
+  const citations = Array.isArray(result.citations) ? result.citations : [];
+  const review = getDesignReviewAdvice(result);
+  const topConclusions = getDesignTopConclusions(result);
+  const confirmItems = getDesignConfirmItems(result);
+
+  return `
+    <section class="design-overview-grid">
+      <article class="scenario-section design-overview-summary">
+        <div class="card-title-row">
+          <div>
+            <p class="eyebrow">Design Overview</p>
+            <h3>本次生成摘要</h3>
+          </div>
+          ${renderGenerationModeBadge(result.generationMode || result.source)}
+        </div>
+        <dl class="design-overview-dl">
+          <div><dt>用户设计目标</dt><dd>${renderRichTextBlock(result.inputQuestion || "暂无设计目标", "compact-rich-answer inline-rich-answer")}</dd></div>
+          <div><dt>所属项目</dt><dd>${escapeHtml(result.project || "当前项目")}</dd></div>
+          <div><dt>输出粒度</dt><dd>${escapeHtml(result.granularity || "标准")}</dd></div>
+          <div><dt>生成时间</dt><dd>${escapeHtml(result.createdAt || nowText())}</dd></div>
+        </dl>
+      </article>
+
+      <article class="scenario-section design-review-card review-${escapeHtml(review.tone)}">
+        <p class="eyebrow">Review Advice</p>
+        <h3>${escapeHtml(review.title)}</h3>
+        <p>${escapeHtml(review.description)}</p>
+      </article>
+    </section>
+
+    <section class="scenario-section">
+      <h3>产物统计</h3>
+      <div class="design-overview-metrics">
+        ${renderStructuredCountCard("功能点", result.functionList?.length || 0)}
+        ${renderStructuredCountCard("文本用例", result.useCases?.length || 0)}
+        ${renderStructuredCountCard("模块建议", result.moduleSuggestions?.length || 0)}
+        ${renderStructuredCountCard("风险", risks.length)}
+        ${renderStructuredCountCard("待确认", openQuestions.length)}
+        ${renderStructuredCountCard("引用文档", groupCitationsByDocument(citations).length)}
+      </div>
+    </section>
+
+    <section class="design-overview-grid">
+      <article class="scenario-section">
+        <h3>最重要的 3 条结论</h3>
+        ${renderRichList(topConclusions, "scenario-bullet-list compact-list")}
+      </article>
+      <article class="scenario-section gap-section">
+        <h3>最需要人工确认的 3 个问题</h3>
+        ${renderRichList(confirmItems, "scenario-bullet-list compact-list")}
+      </article>
+    </section>
+
+    <section class="scenario-section">
+      <h3>证据覆盖摘要</h3>
+      ${renderEvidenceCoverage(result.evidenceCoverage || {})}
+      <div class="design-overview-metrics compact">
+        ${renderStructuredCountCard("未引用项", result.qualityAssessment?.uncitedItems || 0)}
+        ${renderStructuredCountCard("低证据项", result.qualityAssessment?.lowEvidenceItems || 0)}
+        ${renderStructuredCountCard("已绑定证据", result.qualityAssessment?.evidenceBoundItems || citations.length)}
+      </div>
+    </section>
+  `;
+}
+
+function getDesignReviewAdvice(result = {}) {
+  const quality = result.qualityAssessment || {};
+  const coverageLevel = mapCoverageLevel(result.evidenceCoverage?.coverageLevel);
+  if (quality.canEnterReview || (result.evidenceLevel === "high" && coverageLevel !== "low")) {
+    return {
+      tone: "ok",
+      title: "可以进入人工评审",
+      description: quality.reviewSuggestion || "当前设计产物已绑定较多引用证据，可进入人工评审，但仍需由负责人确认业务规则和异常流程。",
+    };
+  }
+  if (result.evidenceLevel === "low" || coverageLevel === "low") {
+    return {
+      tone: "bad",
+      title: "不建议直接使用",
+      description: quality.reviewSuggestion || "当前证据不足或覆盖面偏弱，建议补充需求文档、接口文档、异常流程说明后再进入评审。",
+    };
+  }
+  return {
+    tone: "warn",
+    title: "建议补充证据后评审",
+    description: quality.reviewSuggestion || "当前产物可作为初稿，但部分功能、风险或用例仍需要人工确认。",
+  };
+}
+
+function getDesignTopConclusions(result = {}) {
+  return [
+    ...(result.functionList || []).slice(0, 1).map((item) => `核心功能：${item.name || item.description || "待确认功能"}`),
+    ...(result.businessRules || []).slice(0, 1).map((item) => `关键规则：${item.rule || item.description || "待确认规则"}`),
+    ...(result.risks || []).slice(0, 1).map((item) => `主要风险：${item.description || item.risk || "待确认风险"}`),
+  ].filter(Boolean).slice(0, 3);
+}
+
+function getDesignConfirmItems(result = {}) {
+  const reviewRisks = (result.risks || [])
+    .filter((item) => item.needsReview || /待确认|证据不足|缺少/.test([item.description, item.impact, item.supplement].join(" ")))
+    .map((item) => item.description || item.risk || "待确认风险");
+  return [...(result.openQuestions || []), ...reviewRisks].filter(Boolean).slice(0, 3);
 }
 
 function renderDesignFunctionTable(result) {
@@ -2292,17 +2655,16 @@ function renderTraceabilityTable(items = []) {
     return '<div class="empty-inline">当前文档证据不足，暂未生成追踪矩阵。</div>';
   }
   return `
-    <div class="table-wrap">
-      <table class="scenario-table design-table">
+    <div class="table-wrap traceability-table-wrap">
+      <table class="scenario-table design-table traceability-table">
         <thead>
           <tr>
             <th>需求/业务规则来源</th>
             <th>功能点</th>
             <th>文本用例</th>
             <th>建议模块</th>
-            <th>证据片段</th>
-            <th>来源文档</th>
             <th>证据等级</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -2312,9 +2674,18 @@ function renderTraceabilityTable(items = []) {
               <td><strong>${escapeHtml(stripMarkdownDecorators(item.functionName || "待关联功能"))}</strong></td>
               <td>${escapeHtml(stripMarkdownDecorators(item.useCaseName || "待关联用例"))}</td>
               <td>${escapeHtml(stripMarkdownDecorators(item.moduleName || "待关联模块"))}</td>
-              <td>${renderEvidenceSnippet(item.evidenceSnippet)}</td>
-              <td>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</td>
               <td>${escapeHtml(stripMarkdownDecorators(item.evidenceLevel || resultEvidenceLevelLabel(item)))}</td>
+              <td>
+                <details class="traceability-evidence-detail">
+                  <summary>查看证据</summary>
+                  <dl>
+                    <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
+                    <div><dt>chunk id</dt><dd>${escapeHtml(stripMarkdownDecorators(item.chunkId || item.segmentId || "未标注"))}</dd></div>
+                    <div><dt>score</dt><dd>${escapeHtml(Number(item.score || item.evidenceScore || 0).toFixed(2))}</dd></div>
+                  </dl>
+                  <p>${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet || "当前追踪项缺少明确证据片段。", 220))}</p>
+                </details>
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -2689,9 +3060,23 @@ function formatMarkdownValue(value) {
 }
 
 function cleanPresentationText(value) {
-  return String(value || "")
+  return cleanDisplayText(value);
+}
+
+function cleanDisplayText(value, options = {}) {
+  const maxLength = Number(options.maxLength || 0);
+  const text = String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/原始链接[:：][^\n>]*/g, "")
+    .replace(/来源[:：][^\n>]*/g, "")
+    .replace(/SuperRAG演示整理版/g, "")
+    .replace(/本文件为课程项目演示用途[^\n。；]*[。；]?/g, "")
+    .replace(/本文作为课程项目演示用途[^\n。；]*[。；]?/g, "")
+    .replace(/悟空CRM帮助中心/g, "")
+    .replace(/^\s*\d+[_-][^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
+    .replace(/^\s*[^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
     .replace(/Based on the retrieved project evidence, the most relevant findings are:?/gi, "根据当前知识库检索结果：")
     .replace(/\bI could not find grounded project evidence for this question in the current knowledge base\.?/gi, "当前知识库没有检索到足够证据。")
     .replace(/\bNo grounded evidence was found.*$/gim, "当前知识库没有检索到足够证据。")
@@ -2708,7 +3093,11 @@ function cleanPresentationText(value) {
     .replace(/\bOnly a small amount of supporting evidence was found\.?/gi, "当前只找到少量支撑证据，建议补充更多项目文档。")
     .replace(/\bvector search unavailable:/gi, "向量检索暂不可用：")
     .replace(/\s+mentions\s+/gi, "：")
+    .replace(/[>#*_`]/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
+  return maxLength && text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
 function stripHtml(value) {
@@ -2869,12 +3258,12 @@ async function renderKnowledgeGapsPage() {
     });
     knowledgeGapState.data = data;
     knowledgeGapState.loaded = true;
-    const items = Array.isArray(data.items) ? data.items : [];
+    const items = sortKnowledgeGapItems(Array.isArray(data.items) ? data.items : []);
     const summary = data.summary || {};
     if (countNode) {
       countNode.textContent = `${items.length} 类缺口`;
     }
-    summaryNode.innerHTML = renderKnowledgeGapSummary(summary);
+    summaryNode.innerHTML = renderKnowledgeGapSummary(summary, items);
     tableBody.innerHTML = items.length
       ? items.map(renderKnowledgeGapRow).join("")
       : '<tr><td colspan="7">暂无知识缺口。生成并保存历史产物后，系统会自动聚合待确认问题和低证据项。</td></tr>';
@@ -2886,16 +3275,46 @@ async function renderKnowledgeGapsPage() {
   }
 }
 
-function renderKnowledgeGapSummary(summary = {}) {
+function sortKnowledgeGapItems(items = []) {
+  const severityRank = { high: 3, medium: 2, low: 1 };
+  return [...items].sort((a, b) => {
+    const severityDelta = (severityRank[String(b.severity || "low").toLowerCase()] || 0) - (severityRank[String(a.severity || "low").toLowerCase()] || 0);
+    if (severityDelta) {
+      return severityDelta;
+    }
+    const countDelta = Number(b.count || 0) - Number(a.count || 0);
+    if (countDelta) {
+      return countDelta;
+    }
+    return String(b.impactScope || "").length - String(a.impactScope || "").length;
+  });
+}
+
+function renderKnowledgeGapSummary(summary = {}, items = []) {
   const sceneCounts = summary.sceneCounts || {};
+  const highCount = items.filter((item) => String(item.severity || "").toLowerCase() === "high").length || summary.highSeverityCount || 0;
+  const mediumCount = items.filter((item) => String(item.severity || "").toLowerCase() === "medium").length;
+  const reviewBlockers = items.filter((item) => /评审|设计|接口|需求|验收|证据/.test([item.impactScope, item.suggestion, item.gapType].join(" "))).length;
+  const docTypes = inferPriorityDocTypes(items).join("、") || "需求文档 / 接口文档 / 测试记录";
   return `
-    ${renderGapSummaryCard("历史产物", summary.artifactCount || 0, "已纳入聚合分析的问答、培训、交接和设计产物")}
-    ${renderGapSummaryCard("缺口类型", summary.gapTypeCount || 0, "按缺口描述合并后的问题类别")}
-    ${renderGapSummaryCard("缺口出现", summary.totalGapOccurrences || 0, "历史产物中累计出现的缺口次数")}
-    ${renderGapSummaryCard("高风险缺口", summary.highSeverityCount || 0, "建议优先补充文档或人工复核")}
+    ${renderGapSummaryCard("高风险缺口", highCount, "优先补充文档或安排人工复核")}
+    ${renderGapSummaryCard("中风险缺口", mediumCount, "建议进入下一轮补证计划")}
+    ${renderGapSummaryCard("影响评审", reviewBlockers, "可能影响设计评审或交接结论")}
+    ${renderGapSummaryCard("优先补充", docTypes, "建议优先补充的文档类型")}
     ${renderGapSummaryCard("设计缺口", sceneCounts.design || 0, "来自需求设计辅助产物")}
     ${renderGapSummaryCard("交接缺口", sceneCounts.handover || 0, "来自项目交接产物")}
   `;
+}
+
+function inferPriorityDocTypes(items = []) {
+  const text = items.map((item) => [item.gapType, item.suggestion, item.impactScope].join(" ")).join(" ");
+  const types = [];
+  if (/接口|字段|错误码|异常/.test(text)) types.push("接口文档");
+  if (/需求|规则|业务/.test(text)) types.push("需求文档");
+  if (/测试|验收|用例/.test(text)) types.push("测试记录");
+  if (/部署|环境|运维/.test(text)) types.push("部署说明");
+  if (/负责人|交接|责任/.test(text)) types.push("交接记录");
+  return uniqueValues(types).slice(0, 3);
 }
 
 function renderGapSummaryCard(label, value, description) {
@@ -2913,13 +3332,13 @@ function renderKnowledgeGapRow(item = {}) {
   const docs = (item.relatedDocuments || []).slice(0, 3).join("、") || "暂无明确关联文档";
   return `
     <tr>
-      <td><strong>${escapeHtml(item.gapType || "知识缺口")}</strong></td>
+      <td><strong>${escapeHtml(cleanDisplayText(item.gapType || "知识缺口", { maxLength: 80 }))}</strong></td>
       <td>${escapeHtml(scenes || "待确认")}</td>
-      <td>${escapeHtml(item.impactScope || "待确认影响范围")}</td>
+      <td>${escapeHtml(cleanDisplayText(item.impactScope || "待确认影响范围", { maxLength: 120 }))}</td>
       <td>${escapeHtml(docs)}</td>
       <td>${escapeHtml(item.count || 0)}</td>
       <td>${renderGapSeverityBadge(item.severity)}</td>
-      <td>${escapeHtml(item.suggestion || "补充相关文档")}</td>
+      <td>${escapeHtml(cleanDisplayText(item.suggestion || "补充相关文档", { maxLength: 120 }))}</td>
     </tr>
   `;
 }
@@ -3103,6 +3522,7 @@ function closeHistoryDrawer() {
 
 function renderHistoryDetail(detail) {
   return `
+    ${renderHistoryArtifactSummaryCard(detail)}
     <section class="history-review-panel">
       <div>
         <p class="eyebrow">Review Workflow</p>
@@ -3149,11 +3569,39 @@ function renderHistoryDetail(detail) {
     </section>
     <section class="detail-section">
       <h3>引用证据</h3>
-      <div class="scenario-evidence-list one-column">${detail.citations.length ? detail.citations.map(renderScenarioCitation).join("") : renderEmptyState("暂无引用证据。")}</div>
+      <details class="history-citation-details">
+        <summary>展开 ${escapeHtml(detail.citations?.length || 0)} 条引用证据</summary>
+        <div class="scenario-evidence-list one-column">${detail.citations.length ? detail.citations.map(renderScenarioCitation).join("") : renderEmptyState("暂无引用证据。")}</div>
+      </details>
     </section>
     <section class="detail-section">
       <h3>版本记录</h3>
       ${renderArtifactVersionTimeline(detail.versionRecords)}
+    </section>
+  `;
+}
+
+function renderHistoryArtifactSummaryCard(detail = {}) {
+  const quality = detail.qualityAssessment || {};
+  const score = Number(quality.score || 0);
+  const canReview = quality.canEnterReview || detail.reviewStatus === "已确认";
+  return `
+    <section class="artifact-summary-card">
+      <div>
+        <p class="eyebrow">Artifact Summary</p>
+        <h3>${escapeHtml(detail.title || "历史产物")}</h3>
+        <p>${escapeHtml(cleanDisplayText(detail.outputSummary || detail.summary || "当前产物暂无摘要。", { maxLength: 180 }))}</p>
+      </div>
+      <div class="artifact-summary-metrics">
+        ${renderStructuredCountCard("产物类型", detail.artifactType || formatSceneMode(detail.sceneMode))}
+        ${renderStructuredCountCard("场景", formatSceneMode(detail.sceneMode))}
+        ${renderStructuredCountCard("引用文档", groupCitationsByDocument(detail.citations || []).length)}
+        ${renderStructuredCountCard("质量评分", score ? `${Math.round(score * 100)}%` : "待评估")}
+      </div>
+      <div class="artifact-summary-status">
+        ${renderReviewStatusBadge(detail.reviewStatus)}
+        <span class="quality-score-badge quality-score-${canReview ? "ready" : "partial"}">${escapeHtml(canReview ? "建议进入评审" : "建议人工复核")}</span>
+      </div>
     </section>
   `;
 }
@@ -3755,10 +4203,21 @@ function populateScenarioSelect(selectId, values, fallbackLabel) {
 
 function getPriorityClass(value) {
   const text = String(value || "");
-  if (text.includes("高")) {
+  if (text.includes("高") || /high/i.test(text)) {
     return "high";
   }
-  if (text.includes("低")) {
+  if (text.includes("低") || /low/i.test(text)) {
+    return "low";
+  }
+  return "medium";
+}
+
+function getRiskClass(value) {
+  const text = String(value || "");
+  if (/高|严重|阻塞|high|critical/i.test(text)) {
+    return "high";
+  }
+  if (/低|low/i.test(text)) {
     return "low";
   }
   return "medium";

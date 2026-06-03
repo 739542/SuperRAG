@@ -1938,6 +1938,69 @@ select {
   line-height: 1.75;
 }
 
+.answer-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.answer-status-ok {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.answer-status-warn {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.answer-status-bad {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.answer-intent-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.answer-intent-card > span {
+  padding: 5px 9px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.answer-intent-hint {
+  width: 100%;
+  padding: 9px 10px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  line-height: 1.65;
+}
+
+.answer-direct-section {
+  border-left: 4px solid var(--primary);
+}
+
+.answer-basis-summary {
+  display: grid;
+  gap: 6px;
+}
+
 .answer-conclusion-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2004,6 +2067,17 @@ select {
 
 .answer-evidence-card small {
   color: var(--muted);
+  font-size: 12px;
+}
+
+.answer-evidence-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.citation-inline-action {
   font-size: 12px;
 }
 
@@ -2234,6 +2308,86 @@ select {
   gap: 10px;
 }
 
+.citation-overview-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #f8fbff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+}
+
+.citation-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.citation-overview-grid article {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.citation-overview-grid span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.citation-overview-grid strong {
+  color: var(--text);
+}
+
+.citation-trust-note {
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.citation-trust-high {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.citation-trust-medium {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.citation-trust-low {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.citation-document-summary {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.citation-document-summary h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.citation-document-summary span {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.citation-detail-stack {
+  display: grid;
+  gap: 10px;
+}
+
 .citation-card {
   display: grid;
   gap: 10px;
@@ -2247,6 +2401,7 @@ select {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  cursor: pointer;
 }
 
 .citation-card-head strong {
@@ -2419,6 +2574,78 @@ select {
   line-height: 1.75;
 }
 
+.handover-overview-board {
+  border-color: #bfdbfe;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.95), #ffffff 70%),
+    radial-gradient(circle at top right, rgba(22, 119, 255, 0.12), transparent 34%);
+}
+
+.handover-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.handover-overview-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.handover-overview-item > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.handover-overview-risk {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.handover-overview-gap {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.handover-overview-ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.row-highlight td {
+  background: #fffbeb;
+}
+
+.risk-level-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.risk-high {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.risk-medium {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.risk-low {
+  color: #047857;
+  background: #d1fae5;
+}
+
 .retrieval-visibility-card {
   border-color: #c7d2fe;
   background:
@@ -2543,6 +2770,7 @@ select {
 }
 
 .quality-score-high,
+.quality-score-ready,
 .severity-low {
   color: #047857;
   background: #d1fae5;
@@ -2930,6 +3158,69 @@ select {
   gap: 14px;
 }
 
+.design-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.design-overview-summary {
+  background: #f8fbff;
+  border-color: #bfdbfe;
+}
+
+.design-overview-dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.design-overview-dl div {
+  display: grid;
+  gap: 4px;
+}
+
+.design-overview-dl dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.design-overview-dl dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.design-review-card {
+  align-content: center;
+}
+
+.design-review-card.review-ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.design-review-card.review-warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.design-review-card.review-bad {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.design-overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.design-overview-metrics.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
 .design-summary-card {
   display: flex;
   align-items: flex-start;
@@ -2974,6 +3265,48 @@ select {
 
 .design-table {
   min-width: 900px;
+}
+
+.traceability-table {
+  min-width: 960px;
+  table-layout: fixed;
+}
+
+.traceability-table td,
+.traceability-table th {
+  max-width: 220px;
+}
+
+.traceability-evidence-detail {
+  min-width: 150px;
+}
+
+.traceability-evidence-detail summary {
+  color: var(--primary-dark);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.traceability-evidence-detail dl {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+  color: #475569;
+  font-size: 12px;
+}
+
+.traceability-evidence-detail div {
+  display: grid;
+  gap: 2px;
+}
+
+.traceability-evidence-detail dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.traceability-evidence-detail dd {
+  margin: 0;
 }
 
 .use-case-grid,
@@ -4035,6 +4368,56 @@ select {
   width: min(760px, 100vw);
 }
 
+.artifact-summary-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.95), #ffffff 68%),
+    radial-gradient(circle at top right, rgba(22, 119, 255, 0.12), transparent 34%);
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+}
+
+.artifact-summary-card h3,
+.artifact-summary-card p {
+  margin: 0;
+}
+
+.artifact-summary-card p {
+  color: #475569;
+  line-height: 1.65;
+}
+
+.artifact-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.artifact-summary-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-citation-details {
+  padding: 12px;
+  background: #fbfdff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.history-citation-details summary {
+  color: var(--primary-dark);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.history-citation-details .scenario-evidence-list {
+  margin-top: 12px;
+}
+
 .evidence-empty-state {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -4743,8 +5126,11 @@ select {
   .history-summary-metrics,
   .history-structured-summary,
   .history-structured-blocks,
+  .design-overview-grid,
+  .handover-overview-grid,
   .gap-summary-grid,
   .quality-category-grid,
+  .artifact-summary-metrics,
   .design-dl.compact,
   .settings-grid,
   .handover-summary-grid,
@@ -4782,6 +5168,8 @@ select {
   .demo-artifact-metrics,
   .demo-gap-summary,
   .history-summary-metrics,
+  .design-overview-metrics,
+  .citation-overview-grid,
   .chat-config-bar,
   .retrieval-metrics-grid,
   .gap-summary-grid,
@@ -4870,6 +5258,11 @@ select {
   .history-summary-metrics,
   .history-structured-summary,
   .history-structured-blocks,
+  .design-overview-grid,
+  .design-overview-metrics,
+  .handover-overview-grid,
+  .citation-overview-grid,
+  .artifact-summary-metrics,
   .gap-summary-grid,
   .quality-category-grid,
   .scenario-evidence-list {
