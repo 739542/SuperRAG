@@ -221,6 +221,14 @@ def knowledge_gaps():
     return jsonify(frontend_service.get_knowledge_gaps())
 
 
+@api_blueprint.route("/api/demo-center", methods=["GET", "OPTIONS"])
+def demo_center():
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+    return jsonify(frontend_service.get_demo_center())
+
+
 @api_blueprint.route("/api/documents/import", methods=["POST", "OPTIONS"])
 def import_document():
     frontend_service = current_app.config["FRONTEND_SERVICE"]

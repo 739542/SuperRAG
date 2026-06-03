@@ -73,6 +73,10 @@
           <span class="nav-icon" aria-hidden="true">H</span>
           <span>首页</span>
         </a>
+        <a class="nav-link" href="#/demo-center" data-route="/demo-center">
+          <span class="nav-icon" aria-hidden="true">P</span>
+          <span>演示中心</span>
+        </a>
         <a class="nav-link" href="#/documents" data-route="/documents">
           <span class="nav-icon" aria-hidden="true">D</span>
           <span>文档管理</span>
@@ -221,6 +225,115 @@
                   </div>
                 </div>
                 <div class="knowledge-status-grid" id="knowledge-status"></div>
+              </article>
+            </section>
+          </div>
+        </section>
+
+        <section class="page-panel" data-page="/demo-center">
+          <div class="page-header">
+            <p class="eyebrow">Demo Center</p>
+            <h1>答辩演示中心</h1>
+            <p>用一页讲清 SuperRAG 的完整闭环：文档入库、RAG 检索、结构化生成、证据追踪、知识缺口和历史产物复核。</p>
+          </div>
+
+          <div class="demo-center-page">
+            <section class="demo-hero dashboard-card">
+              <div>
+                <p class="eyebrow">Defense Walkthrough</p>
+                <h2 id="demo-center-title">SuperRAG 答辩演示中心</h2>
+                <p id="demo-center-subtitle">正在读取演示准备状态...</p>
+              </div>
+              <div class="demo-readiness-ring" aria-label="演示准备度">
+                <strong id="demo-ready-score">0/0</strong>
+                <span>准备度</span>
+              </div>
+            </section>
+
+            <section class="demo-summary-grid" id="demo-summary">
+              <article class="skeleton-card"></article>
+              <article class="skeleton-card"></article>
+              <article class="skeleton-card"></article>
+              <article class="skeleton-card"></article>
+            </section>
+
+            <section class="dashboard-card">
+              <div class="card-title-row">
+                <div>
+                  <p class="eyebrow">Closed Loop</p>
+                  <h2>答辩演示路线</h2>
+                </div>
+                <a class="text-link" href="#/documents">从文档入库开始</a>
+              </div>
+              <div class="demo-flow-timeline" id="demo-flow"></div>
+            </section>
+
+            <section class="demo-two-column">
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Demo Documents</p>
+                    <h2>CRM 演示文档覆盖</h2>
+                  </div>
+                  <a class="text-link" href="#/documents">查看文档治理</a>
+                </div>
+                <div class="demo-doc-coverage" id="demo-doc-coverage"></div>
+              </article>
+
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Readiness</p>
+                    <h2>演示准备检查</h2>
+                  </div>
+                </div>
+                <div class="demo-check-list" id="demo-readiness"></div>
+              </article>
+            </section>
+
+            <section class="demo-two-column">
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Recommended Questions</p>
+                    <h2>推荐演示问题</h2>
+                  </div>
+                </div>
+                <div class="demo-question-list" id="demo-questions"></div>
+              </article>
+
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Presenter Notes</p>
+                    <h2>答辩讲解要点</h2>
+                  </div>
+                </div>
+                <div class="demo-talking-points" id="demo-talking-points"></div>
+              </article>
+            </section>
+
+            <section class="demo-two-column">
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Artifacts</p>
+                    <h2>历史产物沉淀</h2>
+                  </div>
+                  <a class="text-link" href="#/history">进入历史产物</a>
+                </div>
+                <div id="demo-artifact-summary"></div>
+              </article>
+
+              <article class="dashboard-card">
+                <div class="card-title-row">
+                  <div>
+                    <p class="eyebrow">Knowledge Gaps</p>
+                    <h2>知识缺口提示</h2>
+                  </div>
+                  <a class="text-link" href="#/knowledge-gaps">查看缺口详情</a>
+                </div>
+                <div id="demo-gaps"></div>
               </article>
             </section>
           </div>
@@ -976,10 +1089,11 @@
   <script src="./document-service.js"></script>
   <script src="./chat-service.js"></script>
   <script src="./training-service.js"></script>
-  <script src="./handover-service.js"></script>
-  <script src="./design-service.js"></script>
-  <script src="./history-service.js"></script>
-  <script src="./settings-service.js"></script>
-  <script src="./app.js"></script>
+    <script src="./handover-service.js"></script>
+    <script src="./design-service.js"></script>
+    <script src="./history-service.js"></script>
+    <script src="./demo-service.js"></script>
+    <script src="./settings-service.js"></script>
+    <script src="./app.js"></script>
 </body>
 </html>

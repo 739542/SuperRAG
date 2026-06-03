@@ -821,6 +821,278 @@ class FrontendService:
             "items": items,
         }
 
+    def get_demo_center(self) -> dict[str, Any]:
+        documents = self.list_documents()
+        artifacts = [self._serialize_artifact(item) for item in self._repository.list_artifacts()]
+        gaps = self.get_knowledge_gaps()
+        total_chunks = sum(int(item.get("chunkCount") or 0) for item in documents)
+        total_chars = sum(int(item.get("charCount") or 0) for item in documents)
+        scene_counts = {scene: 0 for scene in ["general", "training", "handover", "design"]}
+        review_counts = {"草稿": 0, "待复核": 0, "已确认": 0, "需补充证据": 0}
+        citation_count = 0
+        for artifact in artifacts:
+            scene = self._normalize_scene(artifact.get("scene") or artifact.get("sceneMode") or "general")
+            scene_counts[scene] = scene_counts.get(scene, 0) + 1
+            review_status = str(artifact.get("reviewStatus") or "草稿")
+            review_counts[review_status] = review_counts.get(review_status, 0) + 1
+            citation_count += len(artifact.get("citations") or [])
+
+        expected_docs = self._demo_expected_documents()
+        document_coverage = [
+            {
+                **item,
+                "status": "已入库" if self._match_demo_document(item, documents) else "待上传",
+                "matchedDocument": self._match_demo_document(item, documents),
+            }
+            for item in expected_docs
+        ]
+
+        readiness_checks = self._build_demo_readiness_checks(
+            documents=documents,
+            total_chunks=total_chunks,
+            scene_counts=scene_counts,
+            citation_count=citation_count,
+            gaps=gaps,
+            review_counts=review_counts,
+        )
+        ready_count = sum(1 for item in readiness_checks if item["status"] == "ready")
+        return {
+            "title": "SuperRAG 答辩演示中心",
+            "subtitle": "从 CRM 演示文档到结构化软件工程产物的可解释 RAG 闭环",
+            "summary": {
+                "documentCount": len(documents),
+                "chunkCount": total_chunks,
+                "charCount": total_chars,
+                "artifactCount": len(artifacts),
+                "citationCount": citation_count,
+                "knowledgeGapCount": gaps.get("summary", {}).get("gapTypeCount", 0),
+                "readyCount": ready_count,
+                "checkCount": len(readiness_checks),
+            },
+            "documentCoverage": document_coverage,
+            "artifactSummary": {
+                "sceneCounts": scene_counts,
+                "reviewCounts": review_counts,
+                "recentArtifacts": artifacts[:6],
+            },
+            "knowledgeGapSummary": gaps.get("summary", {}),
+            "topKnowledgeGaps": gaps.get("items", [])[:5],
+            "readinessChecks": readiness_checks,
+            "flowSteps": self._demo_flow_steps(readiness_checks),
+            "recommendedQuestions": self._demo_recommended_questions(),
+            "talkingPoints": self._demo_talking_points(),
+        }
+
+    def _demo_expected_documents(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "crm-customer",
+                "title": "01_CRM客户管理模块说明.md",
+                "module": "客户管理",
+                "keywords": ["客户", "负责人", "团队成员", "公海"],
+                "purpose": "支撑客户对象、负责人权限、重复客户和公海规则分析。",
+            },
+            {
+                "id": "crm-opportunity",
+                "title": "02_CRM商机管理模块说明.md",
+                "module": "商机管理",
+                "keywords": ["商机", "阶段", "赢单", "输单"],
+                "purpose": "支撑商机阶段流转、赢单转合同和销售过程风险分析。",
+            },
+            {
+                "id": "crm-contract",
+                "title": "03_CRM合同管理模块说明.md",
+                "module": "合同管理",
+                "keywords": ["合同", "产品", "金额", "审批"],
+                "purpose": "支撑合同金额联动、合同状态和删除约束设计。",
+            },
+            {
+                "id": "crm-payment",
+                "title": "04_CRM回款管理模块说明.md",
+                "module": "回款管理",
+                "keywords": ["回款", "计划", "记录", "金额"],
+                "purpose": "支撑回款计划、回款记录和合同回款一致性分析。",
+            },
+            {
+                "id": "crm-invoice",
+                "title": "05_CRM发票管理模块说明.md",
+                "module": "发票管理",
+                "keywords": ["发票", "开票", "金额", "合同"],
+                "purpose": "支撑发票金额限制、开票流程和异常场景分析。",
+            },
+        ]
+
+    def _match_demo_document(self, expected: dict[str, Any], documents: list[dict[str, Any]]) -> dict[str, Any] | None:
+        keywords = [str(item) for item in expected.get("keywords", [])]
+        expected_title = str(expected.get("title") or "")
+        for document in documents:
+            haystack = " ".join(
+                [
+                    str(document.get("title") or ""),
+                    str(document.get("originalName") or ""),
+                    str(document.get("summary") or ""),
+                    str(document.get("type") or ""),
+                ]
+            )
+            if expected_title and expected_title in haystack:
+                return document
+            if keywords and any(keyword in haystack for keyword in keywords):
+                return document
+        return None
+
+    def _build_demo_readiness_checks(
+        self,
+        *,
+        documents: list[dict[str, Any]],
+        total_chunks: int,
+        scene_counts: dict[str, int],
+        citation_count: int,
+        gaps: dict[str, Any],
+        review_counts: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "documents",
+                "label": "CRM 演示文档已入库",
+                "status": "ready" if len(documents) >= 5 else "warning",
+                "route": "#/documents",
+                "description": f"当前已入库 {len(documents)} 份文档，推荐至少上传 5 份 CRM 演示文档。",
+            },
+            {
+                "id": "chunks",
+                "label": "RAG 切片可见",
+                "status": "ready" if total_chunks > 0 else "warning",
+                "route": "#/documents",
+                "description": f"当前知识库包含 {total_chunks} 个 chunk，可在文档详情中查看切片预览。",
+            },
+            {
+                "id": "design",
+                "label": "设计辅助产物已生成",
+                "status": "ready" if scene_counts.get("design", 0) > 0 else "pending",
+                "route": "#/design-assistant",
+                "description": f"当前已有 {scene_counts.get('design', 0)} 个设计辅助历史产物。",
+            },
+            {
+                "id": "handover",
+                "label": "交接清单已生成",
+                "status": "ready" if scene_counts.get("handover", 0) > 0 else "pending",
+                "route": "#/handover",
+                "description": f"当前已有 {scene_counts.get('handover', 0)} 个交接模式历史产物。",
+            },
+            {
+                "id": "citations",
+                "label": "引用证据可追踪",
+                "status": "ready" if citation_count > 0 else "warning",
+                "route": "#/history",
+                "description": f"历史产物累计绑定 {citation_count} 条引用证据。",
+            },
+            {
+                "id": "gaps",
+                "label": "知识缺口可解释",
+                "status": "ready" if gaps.get("summary", {}).get("gapTypeCount", 0) > 0 else "pending",
+                "route": "#/knowledge-gaps",
+                "description": f"当前聚合 {gaps.get('summary', {}).get('gapTypeCount', 0)} 类知识缺口。",
+            },
+            {
+                "id": "review",
+                "label": "产物复核流程可演示",
+                "status": "ready" if review_counts.get("已确认", 0) or review_counts.get("需补充证据", 0) else "pending",
+                "route": "#/history",
+                "description": "历史产物支持人工复核状态、备注和版本时间线。",
+            },
+        ]
+
+    def _demo_flow_steps(self, checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        status_by_id = {item["id"]: item["status"] for item in checks}
+        return [
+            {
+                "step": "01",
+                "title": "上传 CRM 演示文档",
+                "description": "导入客户、商机、合同、回款、发票五类业务文档，形成私有知识库。",
+                "route": "#/documents",
+                "status": status_by_id.get("documents", "pending"),
+            },
+            {
+                "step": "02",
+                "title": "查看 RAG 入库与切片",
+                "description": "在文档详情中展示 chunk 数量、切片预览、质量检查和引用记录。",
+                "route": "#/documents",
+                "status": status_by_id.get("chunks", "pending"),
+            },
+            {
+                "step": "03",
+                "title": "生成需求设计产物",
+                "description": "用设计辅助生成业务对象、业务规则、文本用例、模块建议和追踪矩阵。",
+                "route": "#/design-assistant",
+                "status": status_by_id.get("design", "pending"),
+            },
+            {
+                "step": "04",
+                "title": "生成项目交接清单",
+                "description": "用交接模式生成风险登记表、接手者待办、依赖文档和信息缺口。",
+                "route": "#/handover",
+                "status": status_by_id.get("handover", "pending"),
+            },
+            {
+                "step": "05",
+                "title": "解释证据与知识缺口",
+                "description": "查看引用证据、低证据项、待确认问题和建议补充文档。",
+                "route": "#/knowledge-gaps",
+                "status": status_by_id.get("gaps", "pending"),
+            },
+            {
+                "step": "06",
+                "title": "复核并沉淀历史产物",
+                "description": "在历史产物中保存复核状态、人工备注和版本记录，形成可复用资产。",
+                "route": "#/history",
+                "status": status_by_id.get("review", "pending"),
+            },
+        ]
+
+    def _demo_recommended_questions(self) -> list[dict[str, str]]:
+        return [
+            {
+                "scene": "design",
+                "route": "#/design-assistant",
+                "question": "请基于 CRM 文档，为客户管理模块生成详细文本用例、业务规则和风险清单",
+                "expectedOutput": "业务对象、业务规则、功能清单、文本用例、模块建议、追踪矩阵。",
+            },
+            {
+                "scene": "design",
+                "route": "#/design-assistant",
+                "question": "请分析合同、回款、发票之间的数据一致性和异常场景",
+                "expectedOutput": "跨模块依赖、金额联动规则、异常场景、待确认问题。",
+            },
+            {
+                "scene": "handover",
+                "route": "#/handover",
+                "question": "请生成 CRM 项目接手者第一周待办清单，并指出缺失资料",
+                "expectedOutput": "当前进度、待办清单、风险登记、依赖文档、信息缺口。",
+            },
+            {
+                "scene": "chat",
+                "route": "#/chat",
+                "question": "客户负责人和团队成员的权限边界是什么？哪些结论证据不足？",
+                "expectedOutput": "结论、依据、引用证据、不确定性和补充资料建议。",
+            },
+            {
+                "scene": "knowledge-gaps",
+                "route": "#/knowledge-gaps",
+                "question": "查看当前系统自动发现了哪些知识缺口",
+                "expectedOutput": "低证据问题、缺失文档类型、影响范围和补充建议。",
+            },
+        ]
+
+    def _demo_talking_points(self) -> list[str]:
+        return [
+            "SuperRAG 不是普通聊天机器人，而是面向软件研发团队的知识交接与需求设计辅助系统。",
+            "系统先把企业文档切片入库，再通过多路 RAG 检索找到证据，最后生成结构化软件工程产物。",
+            "设计辅助输出功能清单、详细文本用例、模块建议、风险和追踪矩阵，并绑定引用证据。",
+            "交接模式输出可执行待办、风险登记、责任边界和信息缺口，适合新人接手或项目答辩。",
+            "知识缺口页面说明系统不会无依据编造，证据不足时会提示补充文档或人工复核。",
+            "历史产物支持复核状态、人工备注和版本记录，形成可沉淀、可追踪的团队知识资产。",
+        ]
+
     def _resolve_or_create_collection(self, project: str) -> dict[str, Any]:
         project_name = project.strip() or "默认项目"
         existing = self._repository.get_collection_by_name(project_name)

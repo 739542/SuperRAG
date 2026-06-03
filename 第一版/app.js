@@ -1,6 +1,7 @@
 const routes = {
   "/login": "登录",
   "/dashboard": "首页 / 控制台",
+  "/demo-center": "答辩演示中心",
   "/documents": "文档管理",
   "/chat": "智能问答",
   "/training": "培训模式",
@@ -57,6 +58,10 @@ const knowledgeGapState = {
   loaded: false,
   data: null,
 };
+const demoCenterState = {
+  loaded: false,
+  data: null,
+};
 const settingsState = {
   loaded: false,
   settings: null,
@@ -66,6 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindLoginActions();
   bindTopbarActions();
   bindDashboardActions();
+  bindDemoCenterActions();
   bindChatActions();
   bindTrainingActions();
   bindHandoverActions();
@@ -133,6 +139,10 @@ function renderCurrentRoute() {
     renderDashboardPage();
   }
 
+  if (normalizedRoute === "/demo-center") {
+    renderDemoCenterPage();
+  }
+
   if (normalizedRoute === "/documents") {
     renderDocumentsPage();
   }
@@ -192,6 +202,22 @@ function bindDashboardActions() {
       return;
     }
     window.location.hash = sessionItem.dataset.sessionRoute;
+  });
+}
+
+function bindDemoCenterActions() {
+  document.addEventListener("click", async (event) => {
+    const copyButton = event.target.closest("[data-demo-copy-question]");
+    if (!copyButton) {
+      return;
+    }
+    const question = copyButton.dataset.demoCopyQuestion || "";
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(question);
+      toast("演示问题已复制，可以粘贴到对应场景页面。");
+      return;
+    }
+    toast("当前浏览器不支持自动复制，请手动复制问题。");
   });
 }
 
@@ -3616,6 +3642,284 @@ function renderKnowledgeStatus(documents) {
     .join("");
 }
 
+async function renderDemoCenterPage() {
+  const service = getDemoCenterService();
+  if (!service) {
+    return;
+  }
+
+  const summaryNode = document.getElementById("demo-summary");
+  const flowNode = document.getElementById("demo-flow");
+  const titleNode = document.getElementById("demo-center-title");
+  const subtitleNode = document.getElementById("demo-center-subtitle");
+  const readyScoreNode = document.getElementById("demo-ready-score");
+  if (!summaryNode || !flowNode) {
+    return;
+  }
+
+  summaryNode.innerHTML = renderLoadingState("正在聚合演示准备状态...");
+  flowNode.innerHTML = '<div class="empty-inline">正在生成答辩演示路线...</div>';
+
+  try {
+    const data = await service.getDemoCenter();
+    demoCenterState.data = data;
+    demoCenterState.loaded = true;
+    if (titleNode) {
+      titleNode.textContent = data.title || "SuperRAG 答辩演示中心";
+    }
+    if (subtitleNode) {
+      subtitleNode.textContent = data.subtitle || "从文档入库到结构化产物复核的可解释 RAG 闭环";
+    }
+    if (readyScoreNode) {
+      readyScoreNode.textContent = `${data.summary.readyCount || 0}/${data.summary.checkCount || 0}`;
+    }
+    summaryNode.innerHTML = renderDemoSummary(data.summary);
+    flowNode.innerHTML = renderDemoFlow(data.flowSteps);
+    renderDemoDocumentCoverage(data.documentCoverage);
+    renderDemoReadiness(data.readinessChecks);
+    renderDemoQuestions(data.recommendedQuestions);
+    renderDemoTalkingPoints(data.talkingPoints);
+    renderDemoArtifactSummary(data.artifactSummary);
+    renderDemoGaps(data.topKnowledgeGaps, data.knowledgeGapSummary);
+  } catch (error) {
+    summaryNode.innerHTML = renderEmptyState("演示中心加载失败。", error.message || String(error));
+    flowNode.innerHTML = '<div class="empty-inline">请确认后端服务是否已启动。</div>';
+  }
+}
+
+function renderDemoSummary(summary = {}) {
+  return [
+    renderDemoSummaryCard("入库文档", summary.documentCount || 0, "CRM 演示资料与项目文档"),
+    renderDemoSummaryCard("知识切片", summary.chunkCount || 0, "可被 RAG 检索的 chunk"),
+    renderDemoSummaryCard("历史产物", summary.artifactCount || 0, "问答、交接、设计和培训产物"),
+    renderDemoSummaryCard("引用证据", summary.citationCount || 0, "产物中绑定的文档片段"),
+    renderDemoSummaryCard("知识缺口", summary.knowledgeGapCount || 0, "低证据或待确认问题"),
+    renderDemoSummaryCard("准备检查", `${summary.readyCount || 0}/${summary.checkCount || 0}`, "答辩演示闭环完成度"),
+  ].join("");
+}
+
+function renderDemoSummaryCard(label, value, description) {
+  return `
+    <article class="demo-summary-card dashboard-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(formatNumberValue(value))}</strong>
+      <p>${escapeHtml(description)}</p>
+    </article>
+  `;
+}
+
+function renderDemoFlow(steps = []) {
+  if (!steps.length) {
+    return renderEmptyState("暂无演示路线。", "请确认 demo-center 服务是否可用。");
+  }
+  return steps
+    .map(
+      (item) => `
+        <article class="demo-flow-step demo-status-${escapeHtml(item.status || "pending")}">
+          <div class="demo-flow-index">${escapeHtml(item.step || "")}</div>
+          <div>
+            <h3>${escapeHtml(item.title || "演示步骤")}</h3>
+            <p>${escapeHtml(item.description || "")}</p>
+            <a class="text-link" href="${escapeHtml(item.route || "#/dashboard")}">进入该步骤</a>
+          </div>
+          ${renderDemoStatusBadge(item.status)}
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderDemoDocumentCoverage(items = []) {
+  const node = document.getElementById("demo-doc-coverage");
+  if (!node) {
+    return;
+  }
+  if (!items.length) {
+    node.innerHTML = renderEmptyState("暂无推荐演示文档。");
+    return;
+  }
+  node.innerHTML = items
+    .map((item) => {
+      const matched = item.matchedDocument || {};
+      return `
+        <article class="demo-doc-card">
+          <div>
+            <strong>${escapeHtml(item.module || item.title || "演示文档")}</strong>
+            <span>${escapeHtml(item.title || "")}</span>
+            <p>${escapeHtml(item.purpose || "用于支撑演示问题。")}</p>
+            ${matched.title ? `<small>已匹配：${escapeHtml(matched.title)} · ${escapeHtml(matched.chunkCount || 0)} chunks</small>` : ""}
+          </div>
+          ${renderDemoStatusBadge(item.status === "已入库" ? "ready" : "warning", item.status)}
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderDemoReadiness(items = []) {
+  const node = document.getElementById("demo-readiness");
+  if (!node) {
+    return;
+  }
+  if (!items.length) {
+    node.innerHTML = renderEmptyState("暂无准备度检查。");
+    return;
+  }
+  node.innerHTML = items
+    .map(
+      (item) => `
+        <article class="demo-check-card">
+          <div>
+            <strong>${escapeHtml(item.label || "检查项")}</strong>
+            <p>${escapeHtml(item.description || "")}</p>
+          </div>
+          <a href="${escapeHtml(item.route || "#/dashboard")}">${renderDemoStatusBadge(item.status)}</a>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderDemoQuestions(items = []) {
+  const node = document.getElementById("demo-questions");
+  if (!node) {
+    return;
+  }
+  if (!items.length) {
+    node.innerHTML = renderEmptyState("暂无推荐问题。");
+    return;
+  }
+  node.innerHTML = items
+    .map(
+      (item) => `
+        <article class="demo-question-card">
+          <div class="demo-question-head">
+            ${renderSceneBadge(item.scene === "general" ? "chat" : item.scene || "chat")}
+            <a class="text-link" href="${escapeHtml(item.route || "#/chat")}">打开场景</a>
+          </div>
+          <strong>${escapeHtml(item.question || "")}</strong>
+          <p>${escapeHtml(item.expectedOutput || "")}</p>
+          <button type="button" data-demo-copy-question="${escapeHtml(item.question || "")}">复制问题</button>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderDemoTalkingPoints(items = []) {
+  const node = document.getElementById("demo-talking-points");
+  if (!node) {
+    return;
+  }
+  if (!items.length) {
+    node.innerHTML = renderEmptyState("暂无讲解要点。");
+    return;
+  }
+  node.innerHTML = `
+    <ol class="demo-talking-list">
+      ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+    </ol>
+  `;
+}
+
+function renderDemoArtifactSummary(summary = {}) {
+  const node = document.getElementById("demo-artifact-summary");
+  if (!node) {
+    return;
+  }
+  const sceneCounts = summary.sceneCounts || {};
+  const reviewCounts = summary.reviewCounts || {};
+  const recentArtifacts = summary.recentArtifacts || [];
+  node.innerHTML = `
+    <div class="demo-artifact-metrics">
+      ${renderStructuredCountCard("智能问答", sceneCounts.general || 0)}
+      ${renderStructuredCountCard("新人培训", sceneCounts.training || 0)}
+      ${renderStructuredCountCard("项目交接", sceneCounts.handover || 0)}
+      ${renderStructuredCountCard("设计辅助", sceneCounts.design || 0)}
+    </div>
+    <div class="demo-review-row">
+      ${Object.entries(reviewCounts)
+        .filter(([, count]) => Number(count) > 0)
+        .map(([status, count]) => `<span>${renderReviewStatusBadge(status)} ${escapeHtml(count)}</span>`)
+        .join("") || '<span class="empty-inline">暂无复核状态统计。</span>'}
+    </div>
+    <div class="demo-recent-artifacts">
+      ${
+        recentArtifacts.length
+          ? recentArtifacts
+              .map(
+                (item) => `
+                  <a href="#/history">
+                    <strong>${escapeHtml(item.title || "历史产物")}</strong>
+                    <span>${escapeHtml(formatSceneMode(item.sceneMode || (item.scene === "general" ? "chat" : item.scene || "chat")))} · ${escapeHtml(formatShortTime(item.createdAt))}</span>
+                  </a>
+                `,
+              )
+              .join("")
+          : '<div class="empty-inline">暂无历史产物，建议先运行设计辅助或交接模式。</div>'
+      }
+    </div>
+  `;
+}
+
+function renderDemoGaps(items = [], summary = {}) {
+  const node = document.getElementById("demo-gaps");
+  if (!node) {
+    return;
+  }
+  if (!items.length) {
+    node.innerHTML = renderEmptyState("暂无知识缺口。", "生成并保存设计或交接产物后，系统会聚合低证据项。");
+    return;
+  }
+  node.innerHTML = `
+    <div class="demo-gap-summary">
+      ${renderStructuredCountCard("缺口类型", summary.gapTypeCount || items.length)}
+      ${renderStructuredCountCard("累计出现", summary.totalGapOccurrences || 0)}
+      ${renderStructuredCountCard("高风险", summary.highSeverityCount || 0)}
+    </div>
+    <div class="demo-gap-list">
+      ${items
+        .map(
+          (item) => `
+            <article>
+              <div>
+                <strong>${escapeHtml(item.gapType || "知识缺口")}</strong>
+                <p>${escapeHtml(item.suggestion || "建议补充相关文档。")}</p>
+              </div>
+              ${renderGapSeverityBadge(item.severity)}
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderDemoStatusBadge(status, customLabel = "") {
+  const normalized = normalizeDemoStatus(status);
+  const labelMap = {
+    ready: "已就绪",
+    warning: "需检查",
+    pending: "待演示",
+  };
+  return `<span class="demo-status-badge demo-status-${escapeHtml(normalized)}">${escapeHtml(customLabel || labelMap[normalized] || "待演示")}</span>`;
+}
+
+function normalizeDemoStatus(status) {
+  const value = String(status || "pending").toLowerCase();
+  if (["ready", "done", "completed", "已入库", "已就绪"].includes(value)) {
+    return "ready";
+  }
+  if (["warning", "warn", "needs_check", "需检查", "待上传"].includes(value)) {
+    return "warning";
+  }
+  return "pending";
+}
+
+function formatNumberValue(value) {
+  return typeof value === "number" ? formatNumber(value) : String(value || 0);
+}
+
 function bindDocumentsActions() {
   document.addEventListener("input", (event) => {
     if (event.target.id !== "document-search") {
@@ -4193,6 +4497,14 @@ function getDashboardService() {
     return null;
   }
   return window.dashboardService;
+}
+
+function getDemoCenterService() {
+  if (!window.demoCenterService) {
+    toast("Demo center service 未加载。");
+    return null;
+  }
+  return window.demoCenterService;
 }
 
 function getChatService() {
