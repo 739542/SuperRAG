@@ -3543,7 +3543,227 @@ select {
 }
 
 .history-drawer {
-  width: min(520px, 100vw);
+  width: min(760px, 100vw);
+}
+
+.review-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.review-draft {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.review-pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.review-confirmed {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.review-needs_evidence {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.history-review-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+  border: 1px solid #cfe0f7;
+  border-radius: var(--radius-lg);
+}
+
+.history-review-panel h3,
+.history-review-panel p {
+  margin: 0;
+}
+
+.history-review-panel p {
+  color: #475569;
+  line-height: 1.7;
+}
+
+.artifact-review-form {
+  display: grid;
+  gap: 12px;
+}
+
+.artifact-review-form label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.artifact-review-form select,
+.artifact-review-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: 0;
+  resize: vertical;
+}
+
+.artifact-review-form select:focus,
+.artifact-review-form textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.1);
+}
+
+.review-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.history-structured-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.structured-count-card {
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.structured-count-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.structured-count-card strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 22px;
+}
+
+.history-structured-blocks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.history-structured-block {
+  padding: 13px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.history-structured-block h4 {
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+.history-structured-block ul {
+  display: grid;
+  gap: 7px;
+  padding-left: 18px;
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.history-json-preview {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #f8fafc;
+}
+
+.history-json-preview summary {
+  cursor: pointer;
+  padding: 12px;
+  font-weight: 800;
+}
+
+.history-json-preview pre {
+  max-height: 420px;
+  margin: 0;
+  padding: 0 12px 12px;
+  overflow: auto;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+}
+
+.artifact-version-timeline {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.artifact-version-timeline li {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 12px 12px 12px 16px;
+  background: #fbfdff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.artifact-version-timeline li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.artifact-version-timeline div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.artifact-version-timeline strong {
+  color: var(--primary-dark);
+}
+
+.artifact-version-timeline span,
+.artifact-version-timeline small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.artifact-version-timeline p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.6;
 }
 
 .scene-badge {
@@ -3877,6 +4097,8 @@ select {
   .exception-scenario-grid,
   .coverage-card-grid,
   .retrieval-hit-list,
+  .history-structured-summary,
+  .history-structured-blocks,
   .gap-summary-grid,
   .quality-category-grid,
   .design-dl.compact,
@@ -3987,6 +4209,8 @@ select {
   .risk-card-grid,
   .retrieval-metrics-grid,
   .retrieval-hit-list,
+  .history-structured-summary,
+  .history-structured-blocks,
   .gap-summary-grid,
   .quality-category-grid,
   .scenario-evidence-list {

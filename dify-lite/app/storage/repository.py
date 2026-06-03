@@ -360,6 +360,61 @@ class Repository:
             ).fetchone()
         return self._decode_artifact(dict(row)) if row else None
 
+    def count_artifact_versions(self, artifact_id: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM artifact_versions WHERE artifact_id = ?",
+                (artifact_id,),
+            ).fetchone()
+        return int(row["total"] if row else 0)
+
+    def save_artifact_version(
+        self,
+        *,
+        artifact_id: str,
+        version: str = "",
+        operator: str = "",
+        change_summary: str = "",
+        snapshot: dict | None = None,
+    ) -> dict:
+        now = utc_now()
+        next_index = self.count_artifact_versions(artifact_id) + 1
+        record = {
+            "id": str(uuid4()),
+            "artifact_id": artifact_id,
+            "version": version.strip() or f"v{next_index}",
+            "operator": operator.strip() or "course-demo-user",
+            "change_summary": change_summary.strip() or "保存产物版本快照",
+            "snapshot_json": json.dumps(snapshot or {}, ensure_ascii=True),
+            "created_at": now,
+        }
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO artifact_versions (
+                    id, artifact_id, version, operator, change_summary, snapshot_json, created_at
+                ) VALUES (
+                    :id, :artifact_id, :version, :operator, :change_summary, :snapshot_json, :created_at
+                )
+                """,
+                record,
+            )
+            connection.commit()
+        return self._decode_artifact_version(record)
+
+    def list_artifact_versions(self, artifact_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, artifact_id, version, operator, change_summary, snapshot_json, created_at
+                FROM artifact_versions
+                WHERE artifact_id = ?
+                ORDER BY created_at DESC
+                """,
+                (artifact_id,),
+            ).fetchall()
+        return [self._decode_artifact_version(dict(row)) for row in rows]
+
     def update_artifact_review(self, artifact_id: str, *, review_status: str, human_notes: str) -> dict | None:
         with self._connect() as connection:
             connection.execute(
@@ -375,6 +430,7 @@ class Repository:
 
     def delete_artifact(self, artifact_id: str) -> bool:
         with self._connect() as connection:
+            connection.execute("DELETE FROM artifact_versions WHERE artifact_id = ?", (artifact_id,))
             cursor = connection.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
             connection.commit()
         return cursor.rowcount > 0
@@ -383,6 +439,10 @@ class Repository:
         record["structured_output"] = _loads_json(record.pop("structured_output_json", "{}"), {})
         record["citations"] = _loads_json(record.pop("citations_json", "[]"), [])
         record["quality_assessment"] = _loads_json(record.pop("quality_assessment_json", "{}"), {})
+        return record
+
+    def _decode_artifact_version(self, record: dict) -> dict:
+        record["snapshot"] = _loads_json(record.pop("snapshot_json", "{}"), {})
         return record
 
 

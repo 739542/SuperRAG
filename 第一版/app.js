@@ -7,7 +7,7 @@ const routes = {
   "/handover": "交接模式",
   "/design-assistant": "设计辅助",
   "/knowledge-gaps": "知识缺口与证据",
-  "/history": "历史记录",
+  "/history": "历史产物",
   "/settings": "后台配置",
 };
 
@@ -51,6 +51,7 @@ const historyState = {
   loaded: false,
   records: [],
   options: null,
+  activeRecordId: "",
 };
 const knowledgeGapState = {
   loaded: false,
@@ -947,6 +948,15 @@ function bindHistoryActions() {
       return;
     }
     await handleHistoryAction(actionButton.dataset.historyAction, actionButton.dataset.historyId);
+  });
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-history-review-form]");
+    if (!form) {
+      return;
+    }
+    event.preventDefault();
+    await submitHistoryReviewForm(form);
   });
 }
 
@@ -2320,7 +2330,22 @@ async function handleDesignAction(action) {
   }
 
   if (action === "save") {
-    toast("保存历史占位：后续将写入历史记录接口。");
+    window.SuperRagBackend?.appendHistoryRecord?.({
+      id: designState.result.id,
+      title: designState.result.title,
+      sceneMode: "design",
+      artifactType: "design_output",
+      project: designState.result.project,
+      summary: designState.result.inputQuestion,
+      query: designState.result.inputQuestion,
+      originalQuestion: designState.result.inputQuestion,
+      outputSummary: designState.result.functionList.map((item) => item.description).join("\n"),
+      structuredOutput: designState.result,
+      qualityAssessment: designState.result.qualityAssessment || {},
+      citations: designState.result.citations,
+      changeSummary: "手动保存设计产物",
+    });
+    toast("设计产物已保存到历史产物。");
   }
 }
 
@@ -2729,15 +2754,15 @@ async function renderHistoryList() {
     return;
   }
 
-  listNode.innerHTML = renderLoadingState("正在加载历史记录...");
+  listNode.innerHTML = renderLoadingState("正在加载历史产物...");
   const result = await service.getHistoryRecords(getHistoryQueryParams());
   historyState.records = result.list;
   if (countNode) {
-    countNode.textContent = `${result.total} 条记录`;
+    countNode.textContent = `${result.total} 条产物`;
   }
 
   if (!result.list.length) {
-    listNode.innerHTML = renderEmptyState("暂无符合条件的历史记录。", "调整筛选条件后可以继续查找问答、培训、交接或设计产物。");
+    listNode.innerHTML = renderEmptyState("暂无符合条件的历史产物。", "调整筛选条件后可以继续查找问答、培训、交接或设计产物。");
     return;
   }
 
@@ -2764,6 +2789,7 @@ function renderHistoryItem(record) {
             <h3>${escapeHtml(record.title)}</h3>
             <div class="history-record-meta">
               ${renderSceneBadge(record.sceneMode)}
+              ${renderReviewStatusBadge(record.reviewStatus)}
               <span>${escapeHtml(record.project)}</span>
               <span>${escapeHtml(record.creator)}</span>
               <time>${escapeHtml(formatShortTime(record.createdAt))}</time>
@@ -2792,7 +2818,7 @@ async function handleHistoryAction(action, id) {
       await copyHistoryRecord(id);
       break;
     case "export":
-      toast("历史记录导出占位：后续将接入 Markdown / Word 导出。");
+      await exportHistoryRecord(id);
       break;
     case "delete":
       await removeHistoryRecord(id);
@@ -2813,11 +2839,12 @@ async function openHistoryDrawer(id) {
 
   const detail = await service.getHistoryRecordDetail(id);
   if (!detail) {
-    toast("历史记录不存在或已删除。");
+    toast("历史产物不存在或已删除。");
     return;
   }
 
   titleNode.textContent = detail.title;
+  historyState.activeRecordId = id;
   contentNode.innerHTML = renderHistoryDetail(detail);
   drawer.hidden = false;
 }
@@ -2831,6 +2858,29 @@ function closeHistoryDrawer() {
 
 function renderHistoryDetail(detail) {
   return `
+    <section class="history-review-panel">
+      <div>
+        <p class="eyebrow">Review Workflow</p>
+        <h3>产物复核状态</h3>
+        <p>将生成结果标记为草稿、待复核、已确认或需补充证据，方便小组协作和答辩说明。</p>
+      </div>
+      <form class="artifact-review-form" data-history-review-form data-history-id="${escapeHtml(detail.id)}">
+        <label>
+          复核状态
+          <select name="reviewStatus">
+            ${renderReviewStatusOptions(detail.reviewStatus)}
+          </select>
+        </label>
+        <label>
+          人工复核备注
+          <textarea name="humanNotes" rows="4" placeholder="例如：接口异常流程证据不足，进入评审前需要补充接口错误码说明。">${escapeHtml(detail.humanNotes || "")}</textarea>
+        </label>
+        <div class="review-form-actions">
+          <button class="primary-button" type="submit">保存复核意见</button>
+          <span>${renderReviewStatusBadge(detail.reviewStatus)}</span>
+        </div>
+      </form>
+    </section>
     <section class="detail-section">
       <h3>原始问题</h3>
       <p>${escapeHtml(detail.originalQuestion)}</p>
@@ -2844,6 +2894,13 @@ function renderHistoryDetail(detail) {
       ${renderDetailItem("所属项目", detail.project)}
       ${renderDetailItem("创建用户", detail.creator)}
       ${renderDetailItem("创建时间", detail.createdAt)}
+      ${renderDetailItem("更新时间", detail.updatedAt || detail.createdAt)}
+      ${renderDetailItem("当前状态", renderReviewStatusBadge(detail.reviewStatus), true)}
+    </section>
+    ${renderScenarioQualityAssessment(detail.qualityAssessment, detail.sceneMode === "handover" ? "handover" : "design")}
+    <section class="detail-section">
+      <h3>结构化产物</h3>
+      ${renderHistoryStructuredOutput(detail)}
     </section>
     <section class="detail-section">
       <h3>引用证据</h3>
@@ -2851,19 +2908,148 @@ function renderHistoryDetail(detail) {
     </section>
     <section class="detail-section">
       <h3>版本记录</h3>
-      <ol class="log-list">
-        ${detail.versionRecords
-          .map(
-            (item) => `
-              <li>
-                <strong>${escapeHtml(item.version)} · ${escapeHtml(item.time)} · ${escapeHtml(item.operator)}</strong>
-                <span>${escapeHtml(item.change)}</span>
-              </li>
-            `,
-          )
-          .join("")}
-      </ol>
+      ${renderArtifactVersionTimeline(detail.versionRecords)}
     </section>
+  `;
+}
+
+function renderReviewStatusOptions(currentStatus) {
+  const statuses = [
+    ["草稿", "草稿"],
+    ["待复核", "待复核"],
+    ["已确认", "已确认"],
+    ["需补充证据", "需补充证据"],
+  ];
+  return statuses
+    .map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === currentStatus ? "selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+}
+
+function renderReviewStatusBadge(status) {
+  const normalized = normalizeReviewStatus(status);
+  const labels = {
+    draft: "草稿",
+    pending: "待复核",
+    confirmed: "已确认",
+    needs_evidence: "需补充证据",
+  };
+  return `<span class="review-status-badge review-${escapeHtml(normalized)}">${escapeHtml(labels[normalized] || status || "草稿")}</span>`;
+}
+
+function normalizeReviewStatus(status) {
+  const value = String(status || "草稿").trim().toLowerCase();
+  if (["已确认", "confirmed", "approved", "ready"].includes(value)) {
+    return "confirmed";
+  }
+  if (["待复核", "pending", "pending_review", "review"].includes(value)) {
+    return "pending";
+  }
+  if (["需补充证据", "needs_evidence", "need_evidence", "blocked", "evidence"].includes(value)) {
+    return "needs_evidence";
+  }
+  return "draft";
+}
+
+function renderHistoryStructuredOutput(detail) {
+  const output = detail.structuredOutput || {};
+  if (!output || !Object.keys(output).length) {
+    return renderEmptyState("暂无结构化产物。", "该记录可能来自旧版本地 mock，或生成时没有返回 structuredOutput。");
+  }
+  if (detail.sceneMode === "design") {
+    return renderHistoryDesignOutput(output);
+  }
+  if (detail.sceneMode === "handover") {
+    return renderHistoryHandoverOutput(output);
+  }
+  return `
+    <details class="history-json-preview" open>
+      <summary>查看结构化 JSON</summary>
+      <pre>${escapeHtml(JSON.stringify(output, null, 2).slice(0, 6000))}</pre>
+    </details>
+  `;
+}
+
+function renderHistoryDesignOutput(output = {}) {
+  return `
+    <div class="history-structured-summary">
+      ${renderStructuredCountCard("业务对象", output.businessObjects?.length || 0)}
+      ${renderStructuredCountCard("业务规则", output.businessRules?.length || 0)}
+      ${renderStructuredCountCard("功能点", output.functionList?.length || 0)}
+      ${renderStructuredCountCard("文本用例", output.useCases?.length || 0)}
+      ${renderStructuredCountCard("待确认", output.openQuestions?.length || 0)}
+    </div>
+    <div class="history-structured-blocks">
+      ${renderHistoryMiniList("功能清单", output.functionList, (item) => `${item.id || ""} ${item.name || item.description || "未命名功能"}`)}
+      ${renderHistoryMiniList("详细文本用例", output.useCases, (item) => `${item.id || ""} ${item.name || "未命名用例"}`)}
+      ${renderHistoryMiniList("模块建议", output.moduleSuggestions, (item) => `${item.name || "未命名模块"}：${item.responsibility || ""}`)}
+      ${renderHistoryMiniList("风险与待确认", [...(output.risks || []), ...(output.openQuestions || [])], formatMarkdownValue)}
+    </div>
+  `;
+}
+
+function renderHistoryHandoverOutput(output = {}) {
+  return `
+    <div class="history-structured-summary">
+      ${renderStructuredCountCard("已完成", output.completedItems?.length || output.completedFeatures?.length || 0)}
+      ${renderStructuredCountCard("未完成", output.unfinishedItems?.length || 0)}
+      ${renderStructuredCountCard("风险", output.riskRegister?.length || output.risks?.length || 0)}
+      ${renderStructuredCountCard("待办", output.todoList?.length || output.todos?.length || 0)}
+      ${renderStructuredCountCard("信息缺口", output.informationGaps?.length || 0)}
+    </div>
+    <div class="history-structured-blocks">
+      ${renderHistoryMiniList("当前进度", [output.currentProgress].filter(Boolean), formatMarkdownValue)}
+      ${renderHistoryMiniList("接手者待办", output.todoList?.length ? output.todoList : output.todos, (item) => `${item.taskName || item.task || "待办事项"}（${item.priority || "medium"}）`)}
+      ${renderHistoryMiniList("风险登记", output.riskRegister?.length ? output.riskRegister : output.risks, (item) => `${item.risk || item.description || "待确认风险"}：${item.suggestion || "补充文档或人工确认"}`)}
+      ${renderHistoryMiniList("信息缺口", output.informationGaps, formatMarkdownValue)}
+    </div>
+  `;
+}
+
+function renderStructuredCountCard(label, value) {
+  return `
+    <article class="structured-count-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `;
+}
+
+function renderHistoryMiniList(title, items = [], formatter = formatMarkdownValue) {
+  const list = (Array.isArray(items) ? items : []).filter(Boolean);
+  return `
+    <article class="history-structured-block">
+      <h4>${escapeHtml(title)}</h4>
+      ${
+        list.length
+          ? `<ul>${list.slice(0, 8).map((item) => `<li>${escapeHtml(stripMarkdownDecorators(formatter(item)))}</li>`).join("")}</ul>`
+          : '<div class="empty-inline">暂无数据或当前证据不足。</div>'
+      }
+    </article>
+  `;
+}
+
+function renderArtifactVersionTimeline(versionRecords = []) {
+  const versions = Array.isArray(versionRecords) ? versionRecords : [];
+  if (!versions.length) {
+    return renderEmptyState("暂无版本记录。", "新生成或复核后的产物会自动写入版本时间线。");
+  }
+  return `
+    <ol class="artifact-version-timeline">
+      ${versions
+        .map(
+          (item) => `
+            <li>
+              <div>
+                <strong>${escapeHtml(item.version || "v?")}</strong>
+                <span>${escapeHtml(formatShortTime(item.time) || item.time || "未记录时间")}</span>
+              </div>
+              <p>${escapeHtml(item.change || "保存产物版本快照")}</p>
+              <small>${escapeHtml(item.operator || "course-demo-user")}</small>
+            </li>
+          `,
+        )
+        .join("")}
+    </ol>
   `;
 }
 
@@ -2871,16 +3057,96 @@ async function copyHistoryRecord(id) {
   const service = getHistoryService();
   const detail = await service.getHistoryRecordDetail(id);
   if (!detail) {
-    toast("历史记录不存在或已删除。");
+    toast("历史产物不存在或已删除。");
     return;
   }
   const text = [`# ${detail.title}`, "", `场景：${formatSceneMode(detail.sceneMode)}`, `问题：${detail.originalQuestion}`, "", detail.outputSummary].join("\n");
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
-    toast("历史记录内容已复制。");
+    toast("历史产物内容已复制。");
     return;
   }
   toast("当前浏览器不支持自动复制，请手动复制详情内容。");
+}
+
+async function exportHistoryRecord(id) {
+  const service = getHistoryService();
+  const detail = await service.getHistoryRecordDetail(id);
+  if (!detail) {
+    toast("历史产物不存在或已删除。");
+    return;
+  }
+  const markdown = buildHistoryMarkdown(detail);
+  downloadTextFile(markdown, `SuperRAG-历史产物-${detail.id || Date.now()}.md`, "text/markdown;charset=utf-8");
+  toast("历史产物 Markdown 已导出。");
+}
+
+async function submitHistoryReviewForm(form) {
+  const service = getHistoryService();
+  const id = form.dataset.historyId || historyState.activeRecordId;
+  if (!service || !id) {
+    return;
+  }
+  const formData = new FormData(form);
+  const reviewStatus = String(formData.get("reviewStatus") || "待复核");
+  const humanNotes = String(formData.get("humanNotes") || "");
+  const updated = await service.updateHistoryReview(id, {
+    reviewStatus,
+    humanNotes,
+    operator: "course-demo-user",
+    changeSummary: `人工复核状态更新为：${reviewStatus}`,
+  });
+  if (!updated) {
+    toast("复核意见保存失败。");
+    return;
+  }
+  const titleNode = document.getElementById("history-detail-title");
+  const contentNode = document.getElementById("history-detail-content");
+  if (titleNode) {
+    titleNode.textContent = updated.title;
+  }
+  if (contentNode) {
+    contentNode.innerHTML = renderHistoryDetail(updated);
+  }
+  knowledgeGapState.loaded = false;
+  await renderHistoryList();
+  toast("复核意见已保存，版本记录已更新。");
+}
+
+function buildHistoryMarkdown(detail) {
+  const lines = [
+    `# ${detail.title}`,
+    "",
+    `场景：${formatSceneMode(detail.sceneMode)}`,
+    `项目：${detail.project}`,
+    `创建人：${detail.creator}`,
+    `创建时间：${detail.createdAt}`,
+    `复核状态：${detail.reviewStatus || "草稿"}`,
+    "",
+    "## 原始问题",
+    detail.originalQuestion || "暂无原始问题",
+    "",
+    "## 输出摘要",
+    detail.outputSummary || "暂无输出摘要",
+    "",
+    "## 人工复核备注",
+    detail.humanNotes || "暂无复核备注",
+    "",
+    "## 质量评估",
+    formatMarkdownValue(detail.qualityAssessment || {}),
+    "",
+    "## 结构化产物",
+    "```json",
+    JSON.stringify(detail.structuredOutput || {}, null, 2),
+    "```",
+    "",
+    "## 引用证据",
+    ...(detail.citations || []).map((item) => `- ${item.documentTitle || "知识库片段"}：${item.snippet || ""}`),
+    "",
+    "## 版本记录",
+    ...(detail.versionRecords || []).map((item) => `- ${item.version || "v?"} · ${item.time || ""} · ${item.operator || ""}：${item.change || ""}`),
+  ];
+  return lines.join("\n");
 }
 
 async function removeHistoryRecord(id) {
@@ -2889,14 +3155,14 @@ async function removeHistoryRecord(id) {
   if (!detail) {
     return;
   }
-  const confirmed = window.confirm(`确认删除历史记录“${detail.title}”吗？当前仅删除前端 mock 数据。`);
+  const confirmed = window.confirm(`确认删除历史产物“${detail.title}”吗？`);
   if (!confirmed) {
     return;
   }
   await service.deleteHistoryRecord(id);
   closeHistoryDrawer();
   await renderHistoryList();
-  toast("历史记录已删除。");
+  toast("历史产物已删除。");
 }
 
 async function renderSettingsPage() {

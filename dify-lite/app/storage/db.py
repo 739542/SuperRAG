@@ -73,6 +73,19 @@ def bootstrap_database(settings: Settings) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artifact_versions (
+                id TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                operator TEXT,
+                change_summary TEXT,
+                snapshot_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         _ensure_column(connection, "documents", "title", "TEXT")
         _ensure_column(connection, "documents", "doc_type", "TEXT")
         _ensure_column(connection, "documents", "project", "TEXT")

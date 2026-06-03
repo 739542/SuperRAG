@@ -97,6 +97,19 @@
     });
   }
 
+  async function updateHistoryReview(id, payload = {}) {
+    const saved = await requestJson(`/artifacts/${encodeURIComponent(id)}/review`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      timeoutMs: window.SuperRagConfig?.DOCUMENT_API_TIMEOUT_MS || 60000,
+      body: JSON.stringify(payload),
+    });
+    const normalized = mapArtifactToLocalHistory(saved);
+    const records = [normalized, ...getHistoryRecords().filter((item) => item.id !== normalized.id)].slice(0, 80);
+    localStorage.setItem("superrag_real_history", JSON.stringify(records));
+    return saved;
+  }
+
   function appendHistoryRecord(record) {
     const normalized = normalizeArtifactRecord(record);
     const records = [normalized, ...getHistoryRecords().filter((item) => item.id !== normalized.id)].slice(0, 80);
@@ -157,6 +170,8 @@
       humanNotes: record.humanNotes || "",
       creator: record.creator || "course-demo-user",
       createdAt,
+      updatedAt: record.updatedAt || record.updated_at || createdAt,
+      versionRecords: normalizeVersionRecords(record.versionRecords || record.version_records || []),
     };
   }
 
@@ -215,7 +230,23 @@
       humanNotes: raw.humanNotes || raw.human_notes || "",
       creator: raw.creator || "course-demo-user",
       createdAt: raw.createdAt || raw.created_at || nowText(),
+      updatedAt: raw.updatedAt || raw.updated_at || raw.createdAt || raw.created_at || nowText(),
+      versionRecords: normalizeVersionRecords(raw.versionRecords || raw.version_records || []),
     };
+  }
+
+  function normalizeVersionRecords(items = []) {
+    return (Array.isArray(items) ? items : [])
+      .filter(Boolean)
+      .map((item, index) => ({
+        id: item.id || `version-${index + 1}`,
+        artifactId: item.artifactId || item.artifact_id || "",
+        version: item.version || `v${index + 1}`,
+        time: item.time || item.createdAt || item.created_at || "",
+        operator: item.operator || "course-demo-user",
+        change: item.change || item.changeSummary || item.change_summary || "保存产物版本快照",
+        snapshot: item.snapshot || {},
+      }));
   }
 
   window.SuperRagBackend = {
@@ -225,9 +256,11 @@
     getHistoryRecords,
     fetchHistoryRecords,
     fetchHistoryRecord,
+    updateHistoryReview,
     appendHistoryRecord,
     deleteHistoryRecord,
     normalizeCitations,
+    normalizeVersionRecords,
     normalizeArtifactRecord,
     mapArtifactToLocalHistory,
   };

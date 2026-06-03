@@ -57,6 +57,44 @@
     };
   }
 
+  async function updateHistoryReview(id, payload = {}) {
+    try {
+      const saved = await window.SuperRagBackend?.updateHistoryReview?.(id, payload);
+      if (saved) {
+        return clone(mapBackendHistoryToHistoryDetail(mapArtifactLikeRecord(saved)));
+      }
+    } catch (error) {
+      console.warn(`[SuperRAG HistoryService] backend review update fallback: ${error.message || error}`);
+    }
+
+    const localRecords = window.SuperRagBackend?.getHistoryRecords?.() || [];
+    const target = localRecords.find((item) => item.id === id);
+    if (target) {
+      target.reviewStatus = payload.reviewStatus || payload.review_status || target.reviewStatus || "待复核";
+      target.humanNotes = payload.humanNotes || payload.human_notes || target.humanNotes || "";
+      target.updatedAt = window.SuperRagBackend?.nowText?.() || new Date().toISOString();
+      target.versionRecords = [
+        {
+          id: `local-version-${Date.now()}`,
+          version: `v${(target.versionRecords || []).length + 1}`,
+          time: target.updatedAt,
+          operator: payload.operator || target.creator || "course-demo-user",
+          change: payload.changeSummary || `人工复核状态更新为：${target.reviewStatus}`,
+          snapshot: {
+            reviewStatus: target.reviewStatus,
+            humanNotes: target.humanNotes,
+            title: target.title,
+          },
+        },
+        ...(target.versionRecords || []),
+      ];
+      localStorage.setItem("superrag_real_history", JSON.stringify(localRecords));
+      return clone(mapBackendHistoryToHistoryDetail(target));
+    }
+
+    return null;
+  }
+
   async function getHistoryOptions() {
     const sourceRecords = await getCombinedRecords();
     return {
@@ -74,6 +112,7 @@
       project: raw.project || raw.projectName || raw.project_name || "SuperRAG",
       creator: raw.creator || raw.createdByName || raw.created_by_name || "course-demo-user",
       createdAt: raw.createdAt || raw.created_at || "",
+      updatedAt: raw.updatedAt || raw.updated_at || raw.createdAt || raw.created_at || "",
       summary: raw.summary || raw.outputSummary || raw.output_summary || "",
       citationCount: Number(raw.citationCount ?? raw.citation_count ?? raw.citations?.length ?? 0),
       reviewStatus: raw.reviewStatus || raw.review_status || "草稿",
@@ -95,7 +134,8 @@
       qualityAssessment: raw.qualityAssessment || raw.quality_assessment || {},
       reviewStatus: raw.reviewStatus || raw.review_status || "草稿",
       humanNotes: raw.humanNotes || raw.human_notes || "",
-      versionRecords: raw.versionRecords || raw.version_records || [],
+      updatedAt: raw.updatedAt || raw.updated_at || raw.createdAt || raw.created_at || "",
+      versionRecords: window.SuperRagBackend?.normalizeVersionRecords?.(raw.versionRecords || raw.version_records || []) || [],
     };
   }
 
@@ -176,6 +216,7 @@
     getHistoryRecords,
     getHistoryRecordDetail,
     deleteHistoryRecord,
+    updateHistoryReview,
     getHistoryOptions,
     mapBackendHistoryToHistory,
     mapBackendHistoryToHistoryDetail,

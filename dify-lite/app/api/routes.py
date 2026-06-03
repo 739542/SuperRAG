@@ -201,6 +201,18 @@ def artifact_review(artifact_id: str):
         return jsonify({"error": str(exc)}), 404
 
 
+@api_blueprint.route("/api/artifacts/<artifact_id>/versions", methods=["GET", "OPTIONS"])
+def artifact_versions(artifact_id: str):
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    try:
+        return jsonify({"items": frontend_service.get_artifact(artifact_id).get("versionRecords", [])})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
 @api_blueprint.route("/api/knowledge-gaps", methods=["GET", "OPTIONS"])
 def knowledge_gaps():
     frontend_service = current_app.config["FRONTEND_SERVICE"]

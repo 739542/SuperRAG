@@ -99,7 +99,7 @@
         </a>
         <a class="nav-link" href="#/history" data-route="/history">
           <span class="nav-icon" aria-hidden="true">R</span>
-          <span>历史记录</span>
+          <span>历史产物</span>
         </a>
         <a class="nav-link" href="#/settings" data-route="/settings">
           <span class="nav-icon" aria-hidden="true">S</span>
@@ -538,7 +538,7 @@
           <div class="page-header">
             <p class="eyebrow">Handover</p>
             <h1>交接模式</h1>
-            <p>从企业文档和历史记录中汇总项目背景、当前进度、风险点和待办事项。</p>
+            <p>从企业文档和历史产物中汇总项目背景、当前进度、风险点和待办事项。</p>
           </div>
 
           <div class="scenario-page handover-page">
@@ -658,7 +658,7 @@
                   <div class="design-action-bar">
                     <button type="button" data-design-action="copy">复制结果</button>
                     <button type="button" data-design-action="export">导出 Markdown</button>
-                    <button type="button" data-design-action="save">保存到历史记录</button>
+                    <button type="button" data-design-action="save">保存到历史产物</button>
                     <button type="button" data-design-action="regenerate">重新生成</button>
                   </div>
                 </div>
@@ -762,13 +762,13 @@
 
         <section class="page-panel" data-page="/history">
           <div class="page-header">
-            <p class="eyebrow">History</p>
-            <h1>历史记录</h1>
-            <p>查看和复用过往问答、场景分析和设计产物。</p>
+            <p class="eyebrow">Artifacts</p>
+            <h1>历史产物</h1>
+            <p>管理可复用的问答结论、培训计划、交接清单和设计产物，并支持人工复核、证据追踪与版本沉淀。</p>
           </div>
 
           <div class="history-page">
-            <section class="history-filters dashboard-card" aria-label="历史记录筛选">
+            <section class="history-filters dashboard-card" aria-label="历史产物筛选">
               <label>
                 开始时间
                 <input id="history-date-from" type="date">
@@ -805,21 +805,21 @@
               <div class="card-title-row">
                 <div>
                   <p class="eyebrow">Reusable Outputs</p>
-                  <h2>历史记录列表</h2>
+                  <h2>历史产物列表</h2>
                 </div>
-                <span class="table-count" id="history-result-count">0 条记录</span>
+                <span class="table-count" id="history-result-count">0 条产物</span>
               </div>
               <div class="history-list" id="history-list"></div>
             </section>
           </div>
 
-          <aside class="detail-drawer history-drawer" id="history-detail-drawer" hidden aria-label="历史记录详情">
+          <aside class="detail-drawer history-drawer" id="history-detail-drawer" hidden aria-label="历史产物详情">
             <div class="drawer-head">
               <div>
-                <p class="eyebrow">History Detail</p>
-                <h2 id="history-detail-title">历史详情</h2>
+                <p class="eyebrow">Artifact Detail</p>
+                <h2 id="history-detail-title">产物详情</h2>
               </div>
-              <button class="ghost-icon-button" type="button" id="close-history-drawer" aria-label="关闭历史详情">×</button>
+              <button class="ghost-icon-button" type="button" id="close-history-drawer" aria-label="关闭产物详情">×</button>
             </div>
             <div id="history-detail-content" class="drawer-content"></div>
           </aside>

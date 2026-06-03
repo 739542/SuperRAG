@@ -625,6 +625,15 @@ class FrontendService:
         record["created_at"] = created_at
         record["citations"] = citations
         saved = self._repository.save_artifact(record)
+        version_count = self._repository.count_artifact_versions(artifact_id)
+        self._repository.save_artifact_version(
+            artifact_id=artifact_id,
+            version=str(payload.get("version") or f"v{version_count + 1}"),
+            operator=str(payload.get("operator") or payload.get("creator") or record["creator"]),
+            change_summary=str(payload.get("changeSummary") or payload.get("change_summary") or "生成并保存历史产物"),
+            snapshot=self._artifact_version_snapshot(saved),
+        )
+        saved["version_records"] = self._repository.list_artifact_versions(artifact_id)
         return self._serialize_artifact(saved)
 
     def list_artifacts(self, params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -643,13 +652,28 @@ class FrontendService:
         return self._serialize_artifact(artifact)
 
     def update_artifact_review(self, artifact_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        review_status = str(payload.get("reviewStatus") or payload.get("review_status") or "待复核")
+        human_notes = str(payload.get("humanNotes") or payload.get("human_notes") or "")
         artifact = self._repository.update_artifact_review(
             artifact_id,
-            review_status=str(payload.get("reviewStatus") or payload.get("review_status") or "待复核"),
-            human_notes=str(payload.get("humanNotes") or payload.get("human_notes") or ""),
+            review_status=review_status,
+            human_notes=human_notes,
         )
         if not artifact:
             raise ValueError("artifact not found")
+        version_count = self._repository.count_artifact_versions(artifact_id)
+        self._repository.save_artifact_version(
+            artifact_id=artifact_id,
+            version=str(payload.get("version") or f"v{version_count + 1}"),
+            operator=str(payload.get("operator") or artifact.get("creator") or "course-demo-user"),
+            change_summary=str(
+                payload.get("changeSummary")
+                or payload.get("change_summary")
+                or f"人工复核状态更新为：{review_status}"
+            ),
+            snapshot=self._artifact_version_snapshot(artifact),
+        )
+        artifact["version_records"] = self._repository.list_artifact_versions(artifact_id)
         return self._serialize_artifact(artifact)
 
     def delete_artifact(self, artifact_id: str) -> dict[str, Any]:
@@ -1034,9 +1058,13 @@ class FrontendService:
 
     def _serialize_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
         scene = self._normalize_scene(artifact.get("scene") or "general")
+        artifact_id = artifact.get("id") or ""
+        version_records = artifact.get("version_records")
+        if version_records is None and artifact_id:
+            version_records = self._repository.list_artifact_versions(artifact_id)
         return {
-            "id": artifact.get("id") or "",
-            "artifactId": artifact.get("id") or "",
+            "id": artifact_id,
+            "artifactId": artifact_id,
             "scene": scene,
             "sceneMode": scene if scene != "general" else "chat",
             "artifactType": artifact.get("artifact_type") or scene,
@@ -1055,6 +1083,37 @@ class FrontendService:
             "creator": artifact.get("creator") or "course-demo-user",
             "createdAt": artifact.get("created_at") or "",
             "updatedAt": artifact.get("updated_at") or "",
+            "versionRecords": [
+                self._serialize_artifact_version(item)
+                for item in self._as_list(version_records)
+                if isinstance(item, dict)
+            ],
+        }
+
+    def _serialize_artifact_version(self, version: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": version.get("id") or "",
+            "artifactId": version.get("artifact_id") or version.get("artifactId") or "",
+            "version": version.get("version") or "",
+            "time": version.get("created_at") or version.get("createdAt") or "",
+            "operator": version.get("operator") or "course-demo-user",
+            "change": version.get("change_summary") or version.get("changeSummary") or "保存产物版本快照",
+            "snapshot": version.get("snapshot") or {},
+        }
+
+    def _artifact_version_snapshot(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "title": artifact.get("title") or "未命名历史产物",
+            "scene": self._normalize_scene(artifact.get("scene") or "general"),
+            "artifactType": artifact.get("artifact_type") or artifact.get("artifactType") or "",
+            "project": artifact.get("project") or "",
+            "query": artifact.get("query") or "",
+            "outputSummary": artifact.get("output_summary") or artifact.get("outputSummary") or "",
+            "reviewStatus": artifact.get("review_status") or artifact.get("reviewStatus") or "草稿",
+            "humanNotes": artifact.get("human_notes") or artifact.get("humanNotes") or "",
+            "structuredOutput": artifact.get("structured_output") or artifact.get("structuredOutput") or {},
+            "qualityAssessment": artifact.get("quality_assessment") or artifact.get("qualityAssessment") or {},
+            "citationCount": len(artifact.get("citations") or []),
         }
 
     def _normalize_citation(
