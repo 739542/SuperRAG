@@ -2081,6 +2081,28 @@ select {
   font-size: 12px;
 }
 
+.answer-followup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.answer-followup-grid button {
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--primary-dark);
+  text-align: left;
+  line-height: 1.45;
+  background: #f8fbff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+}
+
+.answer-followup-grid button:hover {
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+
 .answer-action-list,
 .answer-warning-list {
   display: grid;
@@ -3142,6 +3164,137 @@ select {
   border-color: var(--primary);
 }
 
+.design-edit-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin: 14px 0;
+  padding: 14px;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.96), #ffffff 72%),
+    radial-gradient(circle at top right, rgba(22, 119, 255, 0.12), transparent 34%);
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+}
+
+.design-edit-toolbar.is-editing {
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.95), #ffffff 72%),
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.16), transparent 34%);
+  border-color: #fde68a;
+}
+
+.design-edit-toolbar h3,
+.design-edit-toolbar p {
+  margin: 0;
+}
+
+.design-edit-toolbar p:last-child {
+  color: #475569;
+  line-height: 1.6;
+}
+
+.design-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.design-edit-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--primary-dark);
+  background: #ffffff;
+  border: 1px solid #b7d4ff;
+  border-radius: var(--radius);
+  font-weight: 900;
+}
+
+.design-edit-section {
+  border-color: #bfdbfe;
+}
+
+.design-edit-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.design-edit-card-grid.one-column {
+  grid-template-columns: 1fr;
+}
+
+.design-edit-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fbfdff;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.design-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.design-edit-field {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.design-edit-field input,
+.design-edit-field textarea,
+.design-edit-field select {
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 500;
+}
+
+.design-edit-field textarea {
+  min-height: 80px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.design-edit-field input:focus,
+.design-edit-field textarea:focus,
+.design-edit-field select:focus {
+  border-color: var(--primary);
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.1);
+}
+
+.design-edit-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.design-edit-evidence-note {
+  padding: 9px 10px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .design-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -3678,6 +3831,46 @@ select {
   background: #fffbeb;
   border: 1px solid #fde68a;
   border-radius: 10px;
+}
+
+.expandable-text-block {
+  display: block;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.expandable-text-block summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  cursor: pointer;
+  list-style: none;
+}
+
+.expandable-text-block summary::-webkit-details-marker {
+  display: none;
+}
+
+.expandable-text-block summary em {
+  color: var(--primary-dark);
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.expandable-text-block[open] summary em::before {
+  content: "收起";
+}
+
+.expandable-text-block[open] summary em {
+  font-size: 0;
+}
+
+.expandable-text-block p {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.5);
 }
 
 .muted-inline {
@@ -4326,6 +4519,13 @@ select {
   margin: 0;
   color: #475569;
   line-height: 1.7;
+}
+
+.history-record-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .citation-count {
@@ -5128,6 +5328,9 @@ select {
   .history-structured-blocks,
   .design-overview-grid,
   .handover-overview-grid,
+  .design-edit-toolbar,
+  .design-edit-card-grid,
+  .design-edit-grid,
   .gap-summary-grid,
   .quality-category-grid,
   .artifact-summary-metrics,
@@ -5170,6 +5373,7 @@ select {
   .history-summary-metrics,
   .design-overview-metrics,
   .citation-overview-grid,
+  .answer-followup-grid,
   .chat-config-bar,
   .retrieval-metrics-grid,
   .gap-summary-grid,
@@ -5261,6 +5465,10 @@ select {
   .design-overview-grid,
   .design-overview-metrics,
   .handover-overview-grid,
+  .design-edit-toolbar,
+  .design-edit-card-grid,
+  .design-edit-grid,
+  .answer-followup-grid,
   .citation-overview-grid,
   .artifact-summary-metrics,
   .gap-summary-grid,

@@ -46,6 +46,11 @@ const designState = {
   result: null,
   activeTab: "overview",
   loading: false,
+  editing: false,
+  originalResult: null,
+  editedResult: null,
+  hasManualEdits: false,
+  modifiedAt: null,
 };
 let mermaidLoaderPromise = null;
 const historyState = {
@@ -676,7 +681,20 @@ function renderSuggestedFollowups(sections = {}, message = {}) {
   const items = Array.isArray(sections.followUpItems) && sections.followUpItems.length
     ? sections.followUpItems
     : buildFrontendFollowups(message);
-  return renderAnswerList(items, "", "answer-action-list");
+  if (!items.length) {
+    return renderEmptyState("当前没有建议追问。", "可以换一个更具体的问题，或转入设计辅助生成结构化产物。");
+  }
+  return `
+    <div class="answer-followup-grid">
+      ${items
+        .slice(0, 6)
+        .map((item) => {
+          const text = formatHumanReadableItem(item, { compact: true, maxLength: 80 });
+          return `<button type="button" data-chat-question="${escapeHtml(text)}">${escapeHtml(text)}</button>`;
+        })
+        .join("")}
+    </div>
+  `;
 }
 
 function buildFrontendFollowups(message = {}) {
@@ -731,7 +749,7 @@ function renderAnswerEvidence(sections = {}, message = {}) {
                 <span>证据 ${index + 1}</span>
                 <strong>${escapeHtml(item.title || item.documentTitle || "知识库片段")}</strong>
               </div>
-              <p>${escapeHtml(formatEvidenceDisplayText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。", 150))}</p>
+              ${renderExpandableText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。", { threshold: 150, className: "answer-evidence-snippet" })}
               <div class="answer-evidence-actions">
                 <small>相关度：${escapeHtml(scoreText)}</small>
                 ${renderCitationSourceButton(item)}
@@ -842,7 +860,7 @@ function renderInlineMarkdown(value) {
 }
 
 function normalizeRichTextSource(value) {
-  return cleanPresentationText(value)
+  return cleanPresentationText(value && typeof value === "object" ? formatHumanReadableItem(value) : value)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/```(?:[a-zA-Z0-9_-]+)?/g, "")
@@ -854,6 +872,9 @@ function normalizeRichTextSource(value) {
 }
 
 function stripMarkdownDecorators(value) {
+  if (value && typeof value === "object") {
+    return formatHumanReadableItem(value);
+  }
   return String(value || "")
     .replace(/^\s*#{1,6}\s*/g, "")
     .replace(/^\s*[-*+]\s+/g, "")
@@ -990,7 +1011,7 @@ function renderCitationCard(citation) {
         <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(displayScore)}</span>
       </summary>
-      <p>${escapeHtml(formatEvidenceDisplayText(citation.snippet || citation.content || "暂无片段摘要。", 160))}</p>
+      ${renderExpandableText(citation.snippet || citation.content || "暂无片段摘要。", { threshold: 160, className: "citation-snippet" })}
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
         <button
@@ -1201,6 +1222,22 @@ function bindHandoverActions() {
 }
 
 function bindDesignActions() {
+  document.addEventListener("input", (event) => {
+    const editField = event.target.closest("[data-design-edit-field]");
+    if (!editField) {
+      return;
+    }
+    updateDesignEditedField(editField);
+  });
+
+  document.addEventListener("change", (event) => {
+    const editField = event.target.closest("[data-design-edit-field]");
+    if (!editField) {
+      return;
+    }
+    updateDesignEditedField(editField);
+  });
+
   document.addEventListener("click", async (event) => {
     const tabButton = event.target.closest("[data-design-tab]");
     if (tabButton) {
@@ -1752,7 +1789,7 @@ function renderRetrievalHit(item = {}) {
         <strong>${escapeHtml(title)}</strong>
         <span>score ${escapeHtml(score ? score.toFixed(2) : "0.00")}</span>
       </div>
-      <p>${escapeHtml(formatEvidenceDisplayText(item.snippet || item.content || "暂无片段摘要。"))}</p>
+      ${renderExpandableText(item.snippet || item.content || "暂无片段摘要。", { threshold: 150, className: "retrieval-hit-snippet" })}
       <div class="retrieval-hit-scores">
         <span>vector ${escapeHtml(vectorScore ? vectorScore.toFixed(2) : "0.00")}</span>
         <span>lexical ${escapeHtml(lexicalScore ? lexicalScore.toFixed(2) : "0.00")}</span>
@@ -1845,12 +1882,12 @@ function renderTodoTable(todos = []) {
             .map(
               (todo) => `
                 <tr class="${/high|高/.test(String(todo.priority || "")) ? "row-highlight" : ""}">
-                  <td><strong>${escapeHtml(todo.taskName)}</strong></td>
-                  <td><span class="priority-badge priority-${getPriorityClass(todo.priority)}">${escapeHtml(todo.priority)}</span></td>
+                  <td><strong>${escapeHtml(formatHumanReadableItem(todo.taskName || todo.task || todo.action || todo, { maxLength: 90 }))}</strong></td>
+                  <td><span class="priority-badge priority-${getPriorityClass(todo.priority)}">${escapeHtml(todo.priority || "中")}</span></td>
                   <td><span class="risk-level-badge risk-${getRiskClass(todo.riskLevel)}">${escapeHtml(todo.riskLevel || "待评估")}</span></td>
-                  <td>${escapeHtml(todo.suggestedOwner || todo.owner || "待确认负责人")}</td>
-                  <td>${escapeHtml(todo.dependentDocument || todo.evidenceSource || "待确认文档")}</td>
-                  <td>${escapeHtml(todo.status)}</td>
+                  <td>${escapeHtml(formatHumanReadableItem(todo.suggestedOwner || todo.owner || "待确认负责人", { maxLength: 60 }))}</td>
+                  <td>${escapeHtml(formatHumanReadableItem(todo.dependentDocument || todo.evidenceSource || "待确认文档", { maxLength: 80 }))}</td>
+                  <td>${escapeHtml(formatHumanReadableItem(todo.status || "待处理", { maxLength: 60 }))}</td>
                 </tr>
               `,
             )
@@ -1951,7 +1988,7 @@ function renderChecklistBlock(items = []) {
 }
 
 function renderChecklist(items = []) {
-  const list = Array.isArray(items) ? items.filter((item) => item !== null && item !== undefined && String(item).trim()) : [];
+  const list = Array.isArray(items) ? items.filter((item) => item !== null && item !== undefined && formatHumanReadableItem(item).trim()) : [];
   if (!list.length) {
     return '<div class="empty-inline">当前文档证据不足，暂未生成检查清单。</div>';
   }
@@ -1960,7 +1997,7 @@ function renderChecklist(items = []) {
       ${list.map((item) => `
         <label>
           <input type="checkbox">
-          <span>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</span>
+          <span>${renderRichTextBlock(formatHumanReadableItem(item), "compact-rich-answer inline-rich-answer")}</span>
         </label>
       `).join("")}
     </div>
@@ -1985,8 +2022,8 @@ function renderEvidenceMapTable(items = []) {
         <tbody>
           ${items.map((item) => `
             <tr>
-              <td>${renderRichTextBlock(item.conclusion || "待确认结论", "compact-rich-answer inline-rich-answer")}</td>
-              <td>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</td>
+              <td>${renderRichTextBlock(formatHumanReadableItem(item.conclusion || item, { maxLength: 120 }), "compact-rich-answer inline-rich-answer")}</td>
+              <td>${escapeHtml(formatHumanReadableItem(item.sourceDocument || "待关联文档", { maxLength: 80 }))}</td>
               <td>${renderEvidenceSnippet(item.evidenceSnippet)}</td>
               <td>${Number(item.score || 0).toFixed(2)}</td>
             </tr>
@@ -2057,6 +2094,7 @@ async function generateDesignOutput(options = {}) {
   }
 
   designState.loading = true;
+  resetDesignEditState();
   const resultNode = document.getElementById("design-result");
   if (resultNode) {
     resultNode.innerHTML = renderScenarioLoading("正在检索企业文档并生成结构化设计初稿...");
@@ -2071,6 +2109,7 @@ async function generateDesignOutput(options = {}) {
       granularity: document.getElementById("design-granularity")?.value || "标准",
     });
     designState.activeTab = "overview";
+    designState.originalResult = cloneDesignValue(designState.result);
     renderDesignResult(designState.result);
     renderDesignEvidencePanel(designState.result);
     if (!options.silent) {
@@ -2104,30 +2143,33 @@ function renderDesignResult(result) {
     return;
   }
 
-  const intermediateDocumentBlock = renderDesignIntermediateDocument(result);
+  const displayResult = getDesignDisplayResult(result);
+  const intermediateDocumentBlock = renderDesignIntermediateDocument(displayResult);
 
   container.innerHTML = `
     <section class="design-summary-card">
       <div>
-        <p class="eyebrow">${escapeHtml(result.outputTypeLabel || result.outputType)}</p>
-        <h3>${escapeHtml(stripMarkdownDecorators(result.title))}</h3>
-        ${renderRichTextBlock(result.inputQuestion, "compact-rich-answer")}
+        <p class="eyebrow">${escapeHtml(displayResult.outputTypeLabel || displayResult.outputType)}</p>
+        <h3>${escapeHtml(stripMarkdownDecorators(displayResult.title))}</h3>
+        ${renderRichTextBlock(displayResult.inputQuestion, "compact-rich-answer")}
       </div>
       <div class="design-summary-meta">
-        <span>${escapeHtml(result.project)}</span>
-        <span>${escapeHtml(result.granularity || "标准")}</span>
-        ${renderGenerationModeBadge(result.generationMode || result.source)}
-        ${renderEvidenceLevelBadge(result.evidenceLevel)}
+        <span>${escapeHtml(displayResult.project)}</span>
+        <span>${escapeHtml(displayResult.granularity || "标准")}</span>
+        ${renderGenerationModeBadge(displayResult.generationMode || displayResult.source)}
+        ${renderEvidenceLevelBadge(displayResult.evidenceLevel)}
+        ${renderManualEditBadges(displayResult)}
       </div>
     </section>
-    ${result.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(result.fallbackNotice)}</div>` : ""}
-    ${result.warning ? `<div class="alert-card warning">${escapeHtml(result.warning)}</div>` : ""}
+    ${displayResult.fallbackNotice ? `<div class="alert-card warning">${escapeHtml(displayResult.fallbackNotice)}</div>` : ""}
+    ${displayResult.warning ? `<div class="alert-card warning">${escapeHtml(displayResult.warning)}</div>` : ""}
+    ${renderDesignEditToolbar(displayResult)}
     ${intermediateDocumentBlock}
-    ${renderRetrievalVisibility(result)}
-    ${renderScenarioQualityAssessment(result.qualityAssessment, "design")}
-    ${renderDesignTabContent(result)}
+    ${renderRetrievalVisibility(displayResult)}
+    ${renderScenarioQualityAssessment(displayResult.qualityAssessment, "design")}
+    ${renderDesignTabContent(displayResult)}
   `;
-  scheduleDesignDiagramRender(result);
+  scheduleDesignDiagramRender(displayResult);
 }
 
 function renderDesignTabContent(result) {
@@ -2255,6 +2297,9 @@ function getDesignConfirmItems(result = {}) {
 }
 
 function renderDesignFunctionTable(result) {
+  if (designState.editing) {
+    return renderDesignFunctionEditor(result);
+  }
   return `
     <section class="scenario-section">
       <h3>功能清单</h3>
@@ -2290,7 +2335,33 @@ function renderDesignFunctionTable(result) {
   `;
 }
 
+function renderDesignFunctionEditor(result) {
+  const list = result.functionList || [];
+  return `
+    <section class="scenario-section design-edit-section">
+      <h3>编辑功能清单</h3>
+      <div class="design-edit-card-grid">
+        ${list.length ? list.map((item, index) => `
+          <article class="design-edit-card">
+            <div class="card-title-row">
+              <strong>${escapeHtml(item.id || `F-${index + 1}`)}</strong>
+              <span class="quality-score-badge quality-score-partial">可编辑</span>
+            </div>
+            ${renderEditInput("functionList", index, "name", item.name, "功能名称")}
+            ${renderEditInput("functionList", index, "description", item.description, "功能描述", { type: "textarea", rows: 4 })}
+            ${renderEditInput("functionList", index, "priority", item.priority, "优先级", { type: "select", choices: ["高", "中", "低", "high", "medium", "low"] })}
+            <div class="design-edit-evidence-note">证据来源保留：${escapeHtml(formatHumanReadableItem(item.sourceDocument || item.relatedDocument || "待关联文档", { maxLength: 80 }))}</div>
+          </article>
+        `).join("") : renderEmptyState("当前文档证据不足，暂未生成可编辑功能点。", "建议补充需求文档、接口说明或交接记录后重新生成。")}
+      </div>
+    </section>
+  `;
+}
+
 function renderDesignUseCases(result) {
+  if (designState.editing) {
+    return renderDesignUseCaseEditor(result);
+  }
   return `
     <section class="scenario-section">
       <h3>详细文本用例</h3>
@@ -2357,7 +2428,7 @@ function renderDesignUseCases(result) {
 
                 <aside class="use-case-evidence">
                   <strong>引用证据</strong>
-                  <p>${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet || "当前用例缺少明确引用片段，建议补充需求或接口文档。", 220))}</p>
+                  ${renderExpandableText(item.evidenceSnippet || "当前用例缺少明确引用片段，建议补充需求或接口文档。", { threshold: 160, className: "evidence-snippet" })}
                 </aside>
               </article>
             `,
@@ -2368,7 +2439,39 @@ function renderDesignUseCases(result) {
   `;
 }
 
+function renderDesignUseCaseEditor(result) {
+  const list = result.useCases || [];
+  return `
+    <section class="scenario-section design-edit-section">
+      <h3>编辑详细文本用例</h3>
+      <div class="design-edit-card-grid one-column">
+        ${list.length ? list.map((item, index) => `
+          <article class="design-edit-card">
+            <div class="card-title-row">
+              <strong>${escapeHtml(item.id || `UC-${index + 1}`)}</strong>
+              <span class="quality-score-badge quality-score-partial">一行一条流程</span>
+            </div>
+            <div class="design-edit-grid">
+              ${renderEditInput("useCases", index, "name", item.name, "用例名称")}
+              ${renderEditInput("useCases", index, "actor", item.actor, "参与者")}
+            </div>
+            ${renderEditInput("useCases", index, "preconditions", item.preconditions, "前置条件", { type: "list", rows: 4 })}
+            ${renderEditInput("useCases", index, "mainSuccessScenario", item.mainSuccessScenario, "主成功场景", { type: "list", rows: 6 })}
+            ${renderEditInput("useCases", index, "extensionScenarios", item.extensionScenarios, "扩展场景", { type: "list", rows: 4 })}
+            ${renderEditInput("useCases", index, "exceptionScenarios", item.exceptionScenarios, "异常场景", { type: "list", rows: 4 })}
+            ${renderEditInput("useCases", index, "postconditions", item.postconditions, "后置条件", { type: "textarea", rows: 3 })}
+            <div class="design-edit-evidence-note">证据来源保留：${escapeHtml(formatHumanReadableItem(item.sourceDocument || "待关联文档", { maxLength: 100 }))}</div>
+          </article>
+        `).join("") : renderEmptyState("当前文档证据不足，暂未生成可编辑文本用例。", "建议补充业务流程、角色权限和异常流程说明。")}
+      </div>
+    </section>
+  `;
+}
+
 function renderDesignModules(result) {
+  if (designState.editing) {
+    return renderDesignModuleEditor(result);
+  }
   return `
     <section class="scenario-section">
       <h3>模块划分建议</h3>
@@ -2393,7 +2496,31 @@ function renderDesignModules(result) {
   `;
 }
 
+function renderDesignModuleEditor(result) {
+  const list = result.moduleSuggestions || [];
+  return `
+    <section class="scenario-section design-edit-section">
+      <h3>编辑模块划分建议</h3>
+      <div class="design-edit-card-grid">
+        ${list.length ? list.map((item, index) => `
+          <article class="design-edit-card">
+            ${renderEditInput("moduleSuggestions", index, "name", item.name, "模块名称")}
+            ${renderEditInput("moduleSuggestions", index, "responsibility", item.responsibility, "模块职责", { type: "textarea", rows: 4 })}
+            ${renderEditInput("moduleSuggestions", index, "input", item.input, "输入", { type: "list", rows: 3 })}
+            ${renderEditInput("moduleSuggestions", index, "output", item.output, "输出", { type: "list", rows: 3 })}
+            ${renderEditInput("moduleSuggestions", index, "dependencies", item.dependencies, "依赖模块", { type: "list", rows: 3 })}
+            <div class="design-edit-evidence-note">证据来源保留：${escapeHtml(formatHumanReadableItem(item.sourceDocument || "待关联文档", { maxLength: 100 }))}</div>
+          </article>
+        `).join("") : renderEmptyState("当前文档证据不足，暂未生成可编辑模块建议。", "建议补充模块边界、接口依赖或系统设计说明。")}
+      </div>
+    </section>
+  `;
+}
+
 function renderDesignRisks(result) {
+  if (designState.editing) {
+    return renderDesignRiskEditor(result);
+  }
   return `
     <section class="scenario-section">
       <h3>风险与待确认问题</h3>
@@ -2415,6 +2542,46 @@ function renderDesignRisks(result) {
             `,
           )
           .join("")}
+      </div>
+    </section>
+    <section class="scenario-section gap-section">
+      <h3>待确认问题</h3>
+      ${renderRichList(result.openQuestions || [], "scenario-bullet-list compact-list")}
+    </section>
+  `;
+}
+
+function renderDesignRiskEditor(result) {
+  const risks = result.risks || [];
+  const openQuestions = result.openQuestions || [];
+  return `
+    <section class="scenario-section design-edit-section">
+      <h3>编辑风险项</h3>
+      <div class="design-edit-card-grid">
+        ${risks.length ? risks.map((item, index) => `
+          <article class="design-edit-card">
+            <div class="card-title-row">
+              <strong>风险 ${index + 1}</strong>
+              ${renderEditInput("risks", index, "needsReview", item.needsReview, "需要人工复核", { type: "boolean" })}
+            </div>
+            ${renderEditInput("risks", index, "description", item.description || item.risk, "风险描述", { type: "textarea", rows: 3 })}
+            ${renderEditInput("risks", index, "impact", item.impact, "影响范围", { type: "textarea", rows: 3 })}
+            ${renderEditInput("risks", index, "supplement", item.supplement || item.suggestion, "建议处理", { type: "textarea", rows: 3 })}
+            <div class="design-edit-evidence-note">证据来源保留：${escapeHtml(formatHumanReadableItem(item.sourceDocument || "待关联文档", { maxLength: 100 }))}</div>
+          </article>
+        `).join("") : renderEmptyState("当前没有明确风险项。", "若准备进入评审，仍建议人工检查权限、金额、状态流转和异常流程。")}
+      </div>
+    </section>
+    <section class="scenario-section design-edit-section gap-section">
+      <h3>编辑待确认问题</h3>
+      <div class="design-edit-card-grid">
+        ${openQuestions.length ? openQuestions.map((item, index) => `
+          <article class="design-edit-card">
+            ${renderEditInput("openQuestions", index, "question", item.question || item.description || item.item, "待确认问题", { type: "textarea", rows: 3 })}
+            ${renderEditInput("openQuestions", index, "reason", item.reason || item.impact, "原因", { type: "textarea", rows: 3 })}
+            ${renderEditInput("openQuestions", index, "suggestion", item.suggestion || item.supplement, "建议补充内容", { type: "textarea", rows: 3 })}
+          </article>
+        `).join("") : renderEmptyState("当前没有待确认问题。", "如果你发现 AI 初稿缺少依据，可以在保存后通过历史产物复核备注补充说明。")}
       </div>
     </section>
   `;
@@ -2551,6 +2718,9 @@ function renderTextOrList(value) {
   if (Array.isArray(value)) {
     return renderRichList(value, "scenario-bullet-list compact-list");
   }
+  if (value && typeof value === "object") {
+    return renderRichTextBlock(formatHumanReadableItem(value), "compact-rich-answer inline-rich-answer");
+  }
   return renderRichTextBlock(value, "compact-rich-answer inline-rich-answer");
 }
 
@@ -2683,7 +2853,7 @@ function renderTraceabilityTable(items = []) {
                     <div><dt>chunk id</dt><dd>${escapeHtml(stripMarkdownDecorators(item.chunkId || item.segmentId || "未标注"))}</dd></div>
                     <div><dt>score</dt><dd>${escapeHtml(Number(item.score || item.evidenceScore || 0).toFixed(2))}</dd></div>
                   </dl>
-                  <p>${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet || "当前追踪项缺少明确证据片段。", 220))}</p>
+                  ${renderExpandableText(item.evidenceSnippet || "当前追踪项缺少明确证据片段。", { threshold: 160, className: "evidence-snippet" })}
                 </details>
               </td>
             </tr>
@@ -2695,6 +2865,21 @@ function renderTraceabilityTable(items = []) {
 }
 
 function renderDesignBusinessAnalysis(result) {
+  if (designState.editing) {
+    return `
+      <section class="scenario-section">
+        <h3>业务对象识别</h3>
+        <div class="business-object-grid">
+          ${renderCollectionOrEmpty(result.businessObjects, renderBusinessObjectCard, "当前文档证据不足，暂未识别明确业务对象。")}
+        </div>
+      </section>
+      ${renderDesignBusinessRuleEditor(result)}
+      <section class="scenario-section">
+        <h3>证据覆盖率</h3>
+        ${renderEvidenceCoverage(result.evidenceCoverage)}
+      </section>
+    `;
+  }
   return `
     <section class="scenario-section">
       <h3>业务对象识别</h3>
@@ -2715,6 +2900,26 @@ function renderDesignBusinessAnalysis(result) {
   `;
 }
 
+function renderDesignBusinessRuleEditor(result) {
+  const list = result.businessRules || [];
+  return `
+    <section class="scenario-section design-edit-section">
+      <h3>编辑业务规则</h3>
+      <div class="design-edit-card-grid">
+        ${list.length ? list.map((item, index) => `
+          <article class="design-edit-card">
+            ${renderEditInput("businessRules", index, "rule", item.rule || item.description, "规则名称")}
+            ${renderEditInput("businessRules", index, "description", item.description || item.rule, "规则描述", { type: "textarea", rows: 4 })}
+            ${renderEditInput("businessRules", index, "impactScope", item.impactScope || item.impact, "影响范围", { type: "textarea", rows: 3 })}
+            ${renderEditInput("businessRules", index, "needsReview", item.needsReview, "需要人工复核", { type: "boolean" })}
+            <div class="design-edit-evidence-note">证据来源保留：${escapeHtml(formatHumanReadableItem(item.sourceDocument || "待关联文档", { maxLength: 100 }))}</div>
+          </article>
+        `).join("") : renderEmptyState("当前文档证据不足，暂未抽取可编辑业务规则。", "建议补充业务流程、权限边界和异常流程说明。")}
+      </div>
+    </section>
+  `;
+}
+
 function renderBusinessObjectCard(item) {
   return `
     <article class="business-object-card">
@@ -2724,7 +2929,7 @@ function renderBusinessObjectCard(item) {
         <div><dt>关联模块</dt><dd>${renderTagList(item.relatedModules, "待关联模块")}</dd></div>
         <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
       </dl>
-      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet, 180))}</p>` : ""}
+      ${item.evidenceSnippet ? renderExpandableText(item.evidenceSnippet, { threshold: 160, className: "evidence-snippet" }) : ""}
     </article>
   `;
 }
@@ -2741,7 +2946,7 @@ function renderBusinessRuleCard(item) {
         <div><dt>影响范围</dt><dd>${renderRichTextBlock(item.impactScope || item.impact || "待确认影响范围", "compact-rich-answer inline-rich-answer")}</dd></div>
         <div><dt>来源文档</dt><dd>${escapeHtml(stripMarkdownDecorators(item.sourceDocument || "待关联文档"))}</dd></div>
       </dl>
-      ${item.evidenceSnippet ? `<p class="evidence-snippet">${escapeHtml(formatEvidenceDisplayText(item.evidenceSnippet, 180))}</p>` : ""}
+      ${item.evidenceSnippet ? renderExpandableText(item.evidenceSnippet, { threshold: 160, className: "evidence-snippet" }) : ""}
     </article>
   `;
 }
@@ -2759,11 +2964,97 @@ function renderTagList(value, emptyText = "待补充") {
   `;
 }
 
-function formatDisplayValue(value) {
-  if (value && typeof value === "object") {
-    return cleanPresentationText(value.name || value.title || value.role || value.field || value.description || JSON.stringify(value));
+const HUMAN_READABLE_FIELD_LABELS = {
+  sourceDocument: "来源",
+  evidenceSource: "来源",
+  evidenceSnippet: "证据",
+  reason: "原因",
+  suggestion: "建议",
+  supplement: "建议",
+  impact: "影响",
+  impactScope: "影响范围",
+  priority: "优先级",
+  owner: "负责人",
+  suggestedOwner: "建议负责人",
+  dependentDocument: "依赖文档",
+  status: "状态",
+};
+
+function formatHumanReadableItem(value, options = {}) {
+  const maxLength = Number(options.maxLength || 0);
+  if (typeof value === "string" && /^\s*[{[]/.test(value)) {
+    try {
+      return formatHumanReadableItem(JSON.parse(value), options);
+    } catch (error) {
+      // Keep rendering the original string when it is not valid JSON.
+    }
   }
-  return cleanPresentationText(value);
+  if (Array.isArray(value)) {
+    const text = value.map((item) => formatHumanReadableItem(item, { compact: true })).filter(Boolean).join("；");
+    return maxLength ? cleanDisplayText(text, { maxLength }) : cleanDisplayText(text);
+  }
+  if (!value || typeof value !== "object") {
+    return cleanDisplayText(value || "", maxLength ? { maxLength } : {});
+  }
+
+  const primaryKeys = [
+    "question",
+    "title",
+    "name",
+    "description",
+    "risk",
+    "item",
+    "gap",
+    "action",
+    "conclusion",
+    "taskName",
+    "task",
+    "rule",
+    "requirementSource",
+    "functionName",
+    "useCaseName",
+    "moduleName",
+  ];
+  const primary = primaryKeys.map((key) => value[key]).find((item) => item !== null && item !== undefined && String(item).trim());
+  const pieces = [];
+  if (primary) {
+    pieces.push(cleanDisplayText(primary));
+  }
+
+  Object.entries(HUMAN_READABLE_FIELD_LABELS).forEach(([key, label]) => {
+    const fieldValue = value[key] ?? value[toSnakeCase(key)];
+    if (fieldValue === null || fieldValue === undefined || String(fieldValue).trim() === "") {
+      return;
+    }
+    const text = cleanDisplayText(Array.isArray(fieldValue) ? fieldValue.join("、") : fieldValue, {
+      maxLength: key.toLowerCase().includes("snippet") ? 120 : 0,
+    });
+    if (!text || pieces.some((piece) => piece.includes(text))) {
+      return;
+    }
+    pieces.push(`${label}：${text}`);
+  });
+
+  if (!pieces.length) {
+    Object.entries(value).some(([key, fieldValue]) => {
+      if (fieldValue === null || fieldValue === undefined || typeof fieldValue === "object" || String(fieldValue).trim() === "") {
+        return false;
+      }
+      pieces.push(`${key}：${cleanDisplayText(fieldValue)}`);
+      return pieces.length >= 3;
+    });
+  }
+
+  const text = pieces.join(options.compact ? "；" : "\n");
+  return maxLength ? cleanDisplayText(text, { maxLength }) : cleanDisplayText(text);
+}
+
+function toSnakeCase(value) {
+  return String(value || "").replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+function formatDisplayValue(value) {
+  return formatHumanReadableItem(value);
 }
 
 function renderCollectionOrEmpty(items, renderer, emptyText) {
@@ -2781,7 +3072,11 @@ function renderEvidenceSnippet(value, limit = 120) {
   if (!text) {
     return '<span class="muted-inline">暂无证据片段</span>';
   }
-  return `<span class="evidence-snippet-inline">${escapeHtml(text)}</span>`;
+  return renderExpandableText(value, {
+    threshold: limit,
+    className: "evidence-snippet-inline",
+    emptyText: "暂无证据片段",
+  });
 }
 
 function formatEvidenceDisplayText(value, limit = 180) {
@@ -2802,6 +3097,26 @@ function formatEvidenceDisplayText(value, limit = 180) {
     return "";
   }
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+function renderExpandableText(value, options = {}) {
+  const threshold = Number(options.threshold || 160);
+  const className = options.className || "expandable-text";
+  const emptyText = options.emptyText || "当前文档证据不足，暂未生成明确内容。";
+  const fullText = cleanDisplayText(value || "");
+  if (!fullText) {
+    return `<span class="muted-inline">${escapeHtml(emptyText)}</span>`;
+  }
+  if (fullText.length <= threshold) {
+    return `<span class="${escapeHtml(className)}">${escapeHtml(fullText)}</span>`;
+  }
+  const shortText = cleanDisplayText(fullText, { maxLength: threshold });
+  return `
+    <details class="expandable-text-block ${escapeHtml(className)}">
+      <summary><span>${escapeHtml(shortText)}</span><em>展开</em></summary>
+      <p>${escapeHtml(fullText)}</p>
+    </details>
+  `;
 }
 
 function resultEvidenceLevelLabel(item = {}) {
@@ -2878,9 +3193,275 @@ function downloadTextFile(content, filename, type = "text/plain;charset=utf-8") 
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function cloneDesignValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getDesignDisplayResult(result = designState.result) {
+  return designState.editing && designState.editedResult ? designState.editedResult : result;
+}
+
+function resetDesignEditState() {
+  designState.editing = false;
+  designState.originalResult = null;
+  designState.editedResult = null;
+  designState.hasManualEdits = false;
+  designState.modifiedAt = null;
+}
+
+function startDesignEditMode() {
+  if (!designState.result) {
+    toast("请先生成设计初稿。");
+    return;
+  }
+  designState.originalResult = designState.originalResult || cloneDesignValue(designState.result);
+  designState.editedResult = normalizeDesignEditableResult(cloneDesignValue(designState.result));
+  designState.editing = true;
+  renderDesignResult(designState.result);
+  renderDesignEvidencePanel(designState.editedResult);
+  toast("已进入人工修订模式。");
+}
+
+function saveDesignEditMode() {
+  if (!designState.editing || !designState.editedResult) {
+    return;
+  }
+  const modifiedAt = nowText();
+  designState.result = {
+    ...cloneDesignValue(designState.editedResult),
+    manualEdited: true,
+    modifiedAt,
+    reviewStatus: "待复核",
+    humanNotes: "用户已对 AI 生成结果进行人工修订",
+  };
+  designState.editing = false;
+  designState.editedResult = null;
+  designState.hasManualEdits = true;
+  designState.modifiedAt = modifiedAt;
+  renderDesignResult(designState.result);
+  renderDesignEvidencePanel(designState.result);
+  toast("人工修订已保存，当前产物状态为待复核。");
+}
+
+function cancelDesignEditMode() {
+  designState.editing = false;
+  designState.editedResult = null;
+  renderDesignResult(designState.result);
+  renderDesignEvidencePanel(designState.result);
+  toast("已取消本次编辑，保留当前设计结果。");
+}
+
+function restoreDesignOriginalResult() {
+  if (!designState.originalResult) {
+    toast("当前没有可恢复的 AI 原始结果。");
+    return;
+  }
+  designState.result = cloneDesignValue(designState.originalResult);
+  designState.editing = false;
+  designState.editedResult = null;
+  designState.hasManualEdits = false;
+  designState.modifiedAt = null;
+  renderDesignResult(designState.result);
+  renderDesignEvidencePanel(designState.result);
+  toast("已恢复 AI 原始结果。");
+}
+
+function normalizeDesignEditableResult(result = {}) {
+  const next = result || {};
+  next.functionList = (next.functionList || []).map((item, index) => typeof item === "object" ? item : {
+    id: `F-${String(index + 1).padStart(3, "0")}`,
+    name: String(item || `功能 ${index + 1}`),
+    description: String(item || ""),
+    priority: "中",
+  });
+  next.useCases = (next.useCases || []).map((item, index) => typeof item === "object" ? item : {
+    id: `UC-${String(index + 1).padStart(3, "0")}`,
+    name: String(item || `用例 ${index + 1}`),
+    actor: "业务用户",
+    preconditions: [],
+    mainSuccessScenario: [String(item || "")].filter(Boolean),
+    extensionScenarios: [],
+    exceptionScenarios: [],
+    postconditions: "待补充",
+  });
+  next.risks = (next.risks || []).map((item) => typeof item === "object" ? item : {
+    description: String(item || "待确认风险"),
+    impact: "影响设计结论可信度。",
+    supplement: "补充相关文档或人工确认。",
+    needsReview: true,
+  });
+  next.openQuestions = (next.openQuestions || []).map((item) => typeof item === "object" ? item : {
+    question: String(item || "待确认问题"),
+    reason: "当前证据不足。",
+    suggestion: "建议补充需求、接口或业务规则文档。",
+  });
+  next.moduleSuggestions = (next.moduleSuggestions || []).map((item, index) => typeof item === "object" ? item : {
+    name: String(item || `模块 ${index + 1}`),
+    responsibility: String(item || ""),
+    input: [],
+    output: [],
+    dependencies: [],
+  });
+  next.businessRules = (next.businessRules || []).map((item, index) => typeof item === "object" ? item : {
+    rule: String(item || `业务规则 ${index + 1}`),
+    description: String(item || ""),
+    impactScope: "待确认影响范围",
+    needsReview: true,
+  });
+  return next;
+}
+
+function updateDesignEditedField(fieldNode) {
+  if (!designState.editing || !designState.editedResult || !fieldNode) {
+    return;
+  }
+  const collection = fieldNode.dataset.designEditCollection;
+  const index = Number(fieldNode.dataset.designEditIndex);
+  const field = fieldNode.dataset.designEditField;
+  const type = fieldNode.dataset.designEditType || "text";
+  if (!collection || !field || !Number.isInteger(index)) {
+    return;
+  }
+  const list = designState.editedResult[collection];
+  if (!Array.isArray(list) || !list[index]) {
+    return;
+  }
+  let value = fieldNode.type === "checkbox" ? fieldNode.checked : fieldNode.value;
+  if (type === "list") {
+    value = splitTextareaLines(value);
+  }
+  if (type === "boolean") {
+    value = Boolean(fieldNode.checked);
+  }
+  list[index][field] = value;
+  designState.hasManualEdits = true;
+}
+
+function splitTextareaLines(value) {
+  return String(value || "")
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function valueToTextarea(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => formatHumanReadableItem(item, { compact: true })).join("\n");
+  }
+  return formatHumanReadableItem(value, { compact: true });
+}
+
+function renderDesignEditToolbar(result = {}) {
+  const manualEdited = Boolean(result.manualEdited || designState.hasManualEdits);
+  const modifiedAt = result.modifiedAt || designState.modifiedAt || "";
+  const title = designState.editing ? "人工修订中" : manualEdited ? "已人工修订" : "AI 生成初稿";
+  const description = designState.editing
+    ? "正在编辑功能点、文本用例、风险和待确认问题。证据链不会被修改，请在评审前核对引用证据。"
+    : manualEdited
+      ? `本产物已人工修订${modifiedAt ? `，修订时间：${modifiedAt}` : ""}，当前状态为待复核。`
+      : "当前结果是 AI 基于 RAG 证据生成的工程初稿，可进入人工修订。";
+  return `
+    <section class="design-edit-toolbar ${designState.editing ? "is-editing" : ""}">
+      <div>
+        <p class="eyebrow">Human Review Loop</p>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(description)}</p>
+      </div>
+      <div class="design-edit-actions">
+        ${
+          designState.editing
+            ? `
+              <button class="primary-button" type="button" data-design-action="save-edit">保存修改</button>
+              <button type="button" data-design-action="cancel-edit">取消编辑</button>
+              <button type="button" data-design-action="restore-ai">恢复 AI 原始结果</button>
+            `
+            : `
+              <button type="button" data-design-action="start-edit">进入编辑模式</button>
+              ${manualEdited && designState.originalResult ? '<button type="button" data-design-action="restore-ai">恢复 AI 原始结果</button>' : ""}
+            `
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderManualEditBadges(result = {}) {
+  return `
+    <span class="quality-score-badge quality-score-ready">AI 生成初稿</span>
+    ${result.manualEdited ? '<span class="quality-score-badge quality-score-partial">已人工修订</span>' : ""}
+    ${result.manualEdited || result.reviewStatus ? `<span class="quality-score-badge quality-score-partial">${escapeHtml(result.reviewStatus || "待复核")}</span>` : ""}
+  `;
+}
+
+function renderEditInput(collection, index, field, value, label, options = {}) {
+  const type = options.type || "text";
+  const inputClass = options.className || "";
+  const valueText = type === "list" ? valueToTextarea(value) : formatHumanReadableItem(value, { compact: true });
+  const commonAttrs = `data-design-edit-collection="${escapeHtml(collection)}" data-design-edit-index="${escapeHtml(index)}" data-design-edit-field="${escapeHtml(field)}" data-design-edit-type="${escapeHtml(type)}"`;
+  if (type === "select") {
+    const choices = options.choices || ["高", "中", "低"];
+    return `
+      <label class="design-edit-field ${escapeHtml(inputClass)}">
+        <span>${escapeHtml(label)}</span>
+        <select ${commonAttrs}>
+          ${choices.map((choice) => `<option value="${escapeHtml(choice)}" ${choice === value ? "selected" : ""}>${escapeHtml(choice)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+  if (type === "boolean") {
+    return `
+      <label class="design-edit-checkbox ${escapeHtml(inputClass)}">
+        <input type="checkbox" ${commonAttrs} ${value ? "checked" : ""} />
+        <span>${escapeHtml(label)}</span>
+      </label>
+    `;
+  }
+  if (type === "textarea" || type === "list") {
+    return `
+      <label class="design-edit-field ${escapeHtml(inputClass)}">
+        <span>${escapeHtml(label)}</span>
+        <textarea rows="${escapeHtml(options.rows || 4)}" ${commonAttrs}>${escapeHtml(valueText)}</textarea>
+      </label>
+    `;
+  }
+  return `
+    <label class="design-edit-field ${escapeHtml(inputClass)}">
+      <span>${escapeHtml(label)}</span>
+      <input type="text" value="${escapeHtml(valueText)}" ${commonAttrs} />
+    </label>
+  `;
+}
+
 async function handleDesignAction(action) {
   if (action === "regenerate") {
     await generateDesignOutput();
+    return;
+  }
+
+  if (action === "start-edit") {
+    startDesignEditMode();
+    return;
+  }
+
+  if (action === "save-edit") {
+    saveDesignEditMode();
+    return;
+  }
+
+  if (action === "cancel-edit") {
+    cancelDesignEditMode();
+    return;
+  }
+
+  if (action === "restore-ai") {
+    restoreDesignOriginalResult();
     return;
   }
 
@@ -2889,8 +3470,10 @@ async function handleDesignAction(action) {
     return;
   }
 
+  const activeResult = getDesignDisplayResult(designState.result);
+
   if (action === "copy") {
-    const markdown = buildDesignMarkdown(designState.result);
+    const markdown = buildDesignMarkdown(activeResult);
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(markdown);
       toast("设计结果已复制为 Markdown。");
@@ -2901,7 +3484,7 @@ async function handleDesignAction(action) {
   }
 
   if (action === "copy-diagram") {
-    const diagramText = String(designState.result.diagram || "").trim();
+    const diagramText = String(activeResult.diagram || "").trim();
     if (!diagramText) {
       toast("当前没有可复制的图示源码。");
       return;
@@ -2916,30 +3499,52 @@ async function handleDesignAction(action) {
   }
 
   if (action === "export") {
-    const markdown = buildDesignMarkdown(designState.result);
+    const markdown = buildDesignMarkdown(activeResult);
     downloadTextFile(markdown, `SuperRAG-需求设计产物-${Date.now()}.md`, "text/markdown;charset=utf-8");
     toast("设计产物 Markdown 已导出。");
     return;
   }
 
   if (action === "save") {
+    if (designState.editing) {
+      toast("请先点击“保存修改”，再保存到历史产物。");
+      return;
+    }
+    const result = designState.result;
     window.SuperRagBackend?.appendHistoryRecord?.({
-      id: designState.result.id,
-      title: designState.result.title,
+      id: `${result.id || "design"}-saved-${Date.now()}`,
+      title: result.title,
       sceneMode: "design",
       artifactType: "design_output",
-      project: designState.result.project,
-      summary: designState.result.inputQuestion,
-      query: designState.result.inputQuestion,
-      originalQuestion: designState.result.inputQuestion,
-      outputSummary: designState.result.functionList.map((item) => item.description).join("\n"),
-      structuredOutput: designState.result,
-      qualityAssessment: designState.result.qualityAssessment || {},
-      citations: designState.result.citations,
-      changeSummary: "手动保存设计产物",
+      project: result.project,
+      summary: buildDesignHistorySummary(result),
+      query: result.inputQuestion,
+      originalQuestion: result.inputQuestion,
+      outputSummary: buildDesignHistorySummary(result),
+      structuredOutput: result,
+      qualityAssessment: result.qualityAssessment || {},
+      citations: result.citations,
+      manualEdited: Boolean(result.manualEdited),
+      modifiedAt: result.modifiedAt || "",
+      reviewStatus: result.manualEdited ? "待复核" : result.reviewStatus || "草稿",
+      humanNotes: result.manualEdited ? "用户已对 AI 生成结果进行人工修订" : "",
+      changeSummary: result.manualEdited ? "保存人工修订后的设计产物" : "手动保存设计产物",
     });
     toast("设计产物已保存到历史产物。");
   }
+}
+
+function buildDesignHistorySummary(result = {}) {
+  const functions = (result.functionList || []).slice(0, 4).map((item) => `${item.id || ""} ${item.name || item.description || ""}`.trim());
+  const useCases = (result.useCases || []).slice(0, 3).map((item) => `${item.id || ""} ${item.name || ""}`.trim());
+  const risks = (result.risks || []).slice(0, 3).map((item) => item.description || item.risk || formatHumanReadableItem(item));
+  const lines = [
+    result.manualEdited ? "该设计产物已由用户人工修订，当前状态为待复核。" : "该设计产物为 AI 基于 RAG 证据生成的工程初稿。",
+    functions.length ? `功能点：${functions.join("；")}` : "",
+    useCases.length ? `文本用例：${useCases.join("；")}` : "",
+    risks.length ? `待复核风险：${risks.join("；")}` : "",
+  ].filter(Boolean);
+  return cleanDisplayText(lines.join("\n"), { maxLength: 900 });
 }
 
 function buildDesignMarkdown(result) {
@@ -2952,14 +3557,21 @@ function buildDesignMarkdown(result) {
     `生成来源：${stripHtml(renderGenerationModeBadge(result.generationMode || result.source))}`,
     `生成链路：${result.pipelineVersion || "未标注"}`,
     "",
+    "## 修订信息",
+    `- 生成来源：AI 结构化生成`,
+    `- 是否人工修订：${result.manualEdited ? "是" : "否"}`,
+    `- 修订时间：${result.modifiedAt || "未修订"}`,
+    `- 当前状态：${result.reviewStatus || (result.manualEdited ? "待复核" : "草稿")}`,
+    `- 说明：${result.manualEdited ? "本产物为 AI 生成初稿，经人工修订后形成，仍需结合引用证据复核。" : "本产物为 AI 生成初稿，进入正式评审前建议人工核对引用证据。"}`,
+    "",
     "## 业务对象识别",
-    ...(result.businessObjects || []).map((item) => `- ${item.name}：${item.meaning || item.description || ""}（来源：${item.sourceDocument || "待关联"}）`),
+    ...(result.businessObjects || []).map((item) => `- ${formatMarkdownValue(item)}`),
     "",
     "## 业务规则",
-    ...(result.businessRules || []).map((item) => `- ${item.rule || item.description}；影响范围：${item.impactScope || item.impact || "待确认"}；来源：${item.sourceDocument || "待关联"}`),
+    ...(result.businessRules || []).map((item) => `- ${formatMarkdownValue(item)}`),
     "",
     "## 功能清单",
-    ...(result.functionList || []).map((item) => `- ${item.id} ${item.name}：${item.description}（${item.priority}，${item.sourceDocument || item.relatedDocument}）`),
+    ...(result.functionList || []).map((item) => `- ${item.id || ""} ${item.name || "未命名功能"}：${formatMarkdownValue(item.description)}（${item.priority || "中"}，${formatMarkdownValue(item.sourceDocument || item.relatedDocument || "待关联文档")}）`),
     "",
     "## 详细文本用例",
     ...(result.useCases || []).flatMap((item) => [
@@ -2975,26 +3587,26 @@ function buildDesignMarkdown(result) {
     ]),
     "",
     "## 模块划分建议",
-    ...(result.moduleSuggestions || []).map((item) => `- ${item.name}：${item.responsibility}`),
+    ...(result.moduleSuggestions || []).map((item) => `- ${formatMarkdownValue(item)}`),
     "",
     "## 数据对象建议",
-    ...(result.dataObjects || []).map((item) => `- ${item.name}：字段 ${formatMarkdownValue(item.fields)}；关联模块 ${formatMarkdownValue(item.relatedModules)}`),
+    ...(result.dataObjects || []).map((item) => `- ${formatMarkdownValue(item)}`),
     "",
     "## 权限与角色分析",
     ...(result.permissionAnalysis || []).map((item) => `- ${formatMarkdownValue(item)}`),
     "",
     "## 风险与待确认问题",
-    ...(result.risks || []).map((item) => `- ${item.description}；影响：${item.impact}；建议：${item.suggestion || item.supplement}`),
+    ...(result.risks || []).map((item) => `- ${formatMarkdownValue(item)}`),
     ...(result.openQuestions || []).map((item) => `- 待确认：${formatMarkdownValue(item)}`),
     "",
     "## 需求追踪矩阵",
-    ...(result.traceabilityMatrix || []).map((item) => `- ${item.requirementSource} -> ${item.functionName} -> ${item.useCaseName} -> ${item.moduleName}（${item.sourceDocument}）`),
+    ...(result.traceabilityMatrix || []).map((item) => `- ${formatMarkdownValue(item.requirementSource)} -> ${formatMarkdownValue(item.functionName)} -> ${formatMarkdownValue(item.useCaseName)} -> ${formatMarkdownValue(item.moduleName)}（${formatMarkdownValue(item.sourceDocument)}）`),
     "",
     "## 后续动作建议",
-    ...(result.nextActions || []).map((item) => `- ${item.action}（${item.priority}，负责人：${item.owner}）`),
+    ...(result.nextActions || []).map((item) => `- ${formatMarkdownValue(item.action || item)}（${formatMarkdownValue(item.priority || "中")}，负责人：${formatMarkdownValue(item.owner || "待确认")}）`),
     "",
     "## 引用证据",
-    ...(result.citations || []).map((item) => `- ${item.documentTitle}：${item.snippet}`),
+    ...(result.citations || []).map((item) => `- ${formatMarkdownValue(item.documentTitle || "知识库片段")}：${cleanDisplayText(item.snippet || "", { maxLength: 260 })}`),
     "",
     "## Mermaid 图示",
     "```mermaid",
@@ -3054,7 +3666,7 @@ function formatMarkdownValue(value) {
     return value.map(formatMarkdownValue).join("；");
   }
   if (value && typeof value === "object") {
-    return Object.entries(value).map(([key, item]) => `${key}: ${formatMarkdownValue(item)}`).join("；");
+    return formatHumanReadableItem(value, { compact: true });
   }
   return cleanPresentationText(value || "待补充");
 }
@@ -3367,9 +3979,9 @@ function renderKnowledgeGapExamples(items = []) {
       (example) => `
         <article class="gap-example-card">
           <div>
-            <span>${escapeHtml(example.gapType || "知识缺口")} · ${escapeHtml(formatSceneMode(example.scene === "general" ? "chat" : example.scene || "chat"))}</span>
-            <strong>${escapeHtml(example.description || "待补充缺口描述")}</strong>
-            <p>${escapeHtml(example.artifactTitle || "历史产物")} · ${escapeHtml(formatShortTime(example.createdAt) || "未记录时间")}</p>
+            <span>${escapeHtml(formatHumanReadableItem(example.gapType || "知识缺口", { maxLength: 60 }))} · ${escapeHtml(formatSceneMode(example.scene === "general" ? "chat" : example.scene || "chat"))}</span>
+            <strong>${escapeHtml(formatHumanReadableItem(example.description || example, { maxLength: 120 }))}</strong>
+            <p>${escapeHtml(formatHumanReadableItem(example.artifactTitle || "历史产物", { maxLength: 80 }))} · ${escapeHtml(formatShortTime(example.createdAt) || "未记录时间")}</p>
           </div>
           ${renderGapSeverityBadge(example.severity)}
         </article>
@@ -3454,6 +4066,7 @@ function renderHistoryItem(record) {
             <div class="history-record-meta">
               ${renderSceneBadge(record.sceneMode)}
               ${renderReviewStatusBadge(record.reviewStatus)}
+              ${record.manualEdited ? '<span class="quality-score-badge quality-score-partial">已人工修订</span>' : ""}
               <span>${escapeHtml(record.project)}</span>
               <span>${escapeHtml(record.creator)}</span>
               <time>${escapeHtml(formatShortTime(record.createdAt))}</time>
@@ -3461,7 +4074,7 @@ function renderHistoryItem(record) {
           </div>
           <span class="citation-count">${escapeHtml(record.citationCount)} 份引用</span>
         </div>
-        <p>${escapeHtml(record.summary)}</p>
+        <p class="history-record-summary">${escapeHtml(cleanDisplayText(record.summary || "当前产物暂无摘要。", { maxLength: 180 }))}</p>
       </div>
       <div class="history-actions">
         <button type="button" data-history-action="view" data-history-id="${escapeHtml(record.id)}">查看</button>
@@ -3597,9 +4210,12 @@ function renderHistoryArtifactSummaryCard(detail = {}) {
         ${renderStructuredCountCard("场景", formatSceneMode(detail.sceneMode))}
         ${renderStructuredCountCard("引用文档", groupCitationsByDocument(detail.citations || []).length)}
         ${renderStructuredCountCard("质量评分", score ? `${Math.round(score * 100)}%` : "待评估")}
+        ${renderStructuredCountCard("修订状态", detail.manualEdited ? "已人工修订" : "AI 初稿")}
       </div>
       <div class="artifact-summary-status">
         ${renderReviewStatusBadge(detail.reviewStatus)}
+        ${detail.manualEdited ? '<span class="quality-score-badge quality-score-partial">已人工修订</span>' : ""}
+        ${detail.modifiedAt ? `<span class="quality-score-badge quality-score-partial">修订：${escapeHtml(formatShortTime(detail.modifiedAt) || detail.modifiedAt)}</span>` : ""}
         <span class="quality-score-badge quality-score-${canReview ? "ready" : "partial"}">${escapeHtml(canReview ? "建议进入评审" : "建议人工复核")}</span>
       </div>
     </section>
@@ -3688,7 +4304,7 @@ function renderHistorySummaryBlock(title, content, emptyText = "暂无数据。"
 }
 
 function renderRawSummaryDetails(summary) {
-  const text = String(summary || "").trim();
+  const text = cleanDisplayText(summary || "").trim();
   if (!text || text.length < 120) {
     return "";
   }
@@ -3748,12 +4364,27 @@ function renderHistoryStructuredOutput(detail) {
   if (detail.sceneMode === "handover") {
     return renderHistoryHandoverOutput(output);
   }
+  const entries = Object.entries(output).filter(([, value]) => value !== null && value !== undefined && formatHumanReadableItem(value).trim() !== "");
   return `
-    <details class="history-json-preview" open>
-      <summary>查看结构化 JSON</summary>
-      <pre>${escapeHtml(JSON.stringify(output, null, 2).slice(0, 6000))}</pre>
-    </details>
+    <div class="history-structured-blocks">
+      ${
+        entries.length
+          ? entries.slice(0, 8).map(([key, value]) => renderHistoryMiniList(formatHistoryFieldLabel(key), [value], formatMarkdownValue)).join("")
+          : renderEmptyState("暂无可展示的结构化字段。", "该记录可能来自旧版演示数据。")
+      }
+    </div>
   `;
+}
+
+function formatHistoryFieldLabel(key) {
+  const labels = {
+    conclusion: "结论",
+    evidence: "依据",
+    suggestion: "建议",
+    uncertainty: "不确定性",
+    followUpItems: "建议追问",
+  };
+  return labels[key] || key;
 }
 
 function renderHistoryDesignOutput(output = {}) {
@@ -3909,26 +4540,26 @@ function buildHistoryMarkdown(detail) {
     `创建人：${detail.creator}`,
     `创建时间：${detail.createdAt}`,
     `复核状态：${detail.reviewStatus || "草稿"}`,
+    `是否人工修订：${detail.manualEdited ? "是" : "否"}`,
+    `修订时间：${detail.modifiedAt || "未修订"}`,
     "",
     "## 原始问题",
-    detail.originalQuestion || "暂无原始问题",
+    cleanDisplayText(detail.originalQuestion || "暂无原始问题"),
     "",
     "## 输出摘要",
-    detail.outputSummary || "暂无输出摘要",
+    cleanDisplayText(detail.outputSummary || "暂无输出摘要"),
     "",
     "## 人工复核备注",
-    detail.humanNotes || "暂无复核备注",
+    cleanDisplayText(detail.humanNotes || "暂无复核备注"),
     "",
     "## 质量评估",
     formatMarkdownValue(detail.qualityAssessment || {}),
     "",
     "## 结构化产物",
-    "```json",
-    JSON.stringify(detail.structuredOutput || {}, null, 2),
-    "```",
+    formatMarkdownValue(detail.structuredOutput || {}),
     "",
     "## 引用证据",
-    ...(detail.citations || []).map((item) => `- ${item.documentTitle || "知识库片段"}：${item.snippet || ""}`),
+    ...(detail.citations || []).map((item) => `- ${formatMarkdownValue(item.documentTitle || "知识库片段")}：${cleanDisplayText(item.snippet || "", { maxLength: 260 })}`),
     "",
     "## 版本记录",
     ...(detail.versionRecords || []).map((item) => `- ${item.version || "v?"} · ${item.time || ""} · ${item.operator || ""}：${item.change || ""}`),
@@ -4158,7 +4789,7 @@ function renderScenarioCitation(citation) {
         <strong>${escapeHtml(title)}</strong>
         <span>${score ? score.toFixed(2) : "0.00"}</span>
       </div>
-      <p>${escapeHtml(formatEvidenceDisplayText(citation.snippet || citation.content || "暂无片段摘要。"))}</p>
+      ${renderExpandableText(citation.snippet || citation.content || "暂无片段摘要。", { threshold: 160, className: "citation-snippet" })}
       <div class="citation-meta">
         <span>页码/段落：${escapeHtml(citation.page || citation.segmentId || citation.id || "未标注")}</span>
         <button

@@ -116,6 +116,8 @@
       summary: raw.summary || raw.outputSummary || raw.output_summary || "",
       citationCount: Number(raw.citationCount ?? raw.citation_count ?? raw.citations?.length ?? 0),
       reviewStatus: raw.reviewStatus || raw.review_status || "草稿",
+      manualEdited: Boolean(raw.manualEdited || raw.manual_edited || raw.structuredOutput?.manualEdited || raw.structured_output?.manualEdited),
+      modifiedAt: raw.modifiedAt || raw.modified_at || raw.structuredOutput?.modifiedAt || raw.structured_output?.modifiedAt || "",
     };
   }
 
@@ -134,6 +136,8 @@
       qualityAssessment: raw.qualityAssessment || raw.quality_assessment || {},
       reviewStatus: raw.reviewStatus || raw.review_status || "草稿",
       humanNotes: raw.humanNotes || raw.human_notes || "",
+      manualEdited: Boolean(raw.manualEdited || raw.manual_edited || raw.structuredOutput?.manualEdited || raw.structured_output?.manualEdited),
+      modifiedAt: raw.modifiedAt || raw.modified_at || raw.structuredOutput?.modifiedAt || raw.structured_output?.modifiedAt || "",
       updatedAt: raw.updatedAt || raw.updated_at || raw.createdAt || raw.created_at || "",
       versionRecords: window.SuperRagBackend?.normalizeVersionRecords?.(raw.versionRecords || raw.version_records || []) || [],
     };
