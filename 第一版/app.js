@@ -2,14 +2,14 @@ const routes = {
   "/login": "登录",
   "/dashboard": "首页 / 控制台",
   "/demo-center": "答辩演示中心",
-  "/documents": "文档管理",
+  "/documents": "文档知识库",
   "/chat": "智能问答",
-  "/training": "培训模式",
-  "/handover": "交接模式",
-  "/design-assistant": "设计辅助",
+  "/training": "新人培训",
+  "/handover": "项目交接",
+  "/design-assistant": "需求设计辅助",
   "/knowledge-gaps": "知识缺口与证据",
   "/history": "历史产物",
-  "/settings": "后台配置",
+  "/settings": "系统状态",
 };
 
 const legacyRouteMap = {
@@ -17,7 +17,7 @@ const legacyRouteMap = {
   "/design": "/design-assistant",
 };
 
-const defaultRoute = "/dashboard";
+const defaultRoute = "/login";
 let dashboardLoaded = false;
 const documentState = {
   loaded: false,
@@ -183,8 +183,8 @@ function bindLoginActions() {
   if (loginForm) {
     loginForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      toast("登录成功，已进入 SuperRAG 工作台。");
-      window.location.hash = "#/dashboard";
+      toast("登录成功，已进入 SuperRAG 演示中心。");
+      window.location.hash = "#/demo-center";
     });
   }
 
@@ -1057,6 +1057,22 @@ function renderTrainingResult(result) {
     return;
   }
 
+  if (isEvidenceInsufficientTrainingResult(result)) {
+    container.innerHTML = renderEvidenceInsufficientState({
+      title: "当前知识库证据不足",
+      description: "系统没有检索到足够的项目文档证据，因此不能生成正式新人培训计划。",
+      impact: "该结果不能作为正式培训材料使用，建议先补充需求文档、接口文档、部署说明或新人培训资料。",
+      suggestions: [
+        "优先上传 CRM 演示文档或真实项目需求说明。",
+        "补充接口说明、部署文档和测试用例，提升新人上手路径完整度。",
+        "上传后重新生成新人 7 天上手计划。",
+      ],
+      primaryAction: { label: "去文档知识库上传资料", href: "#/documents" },
+      secondaryAction: { label: "查看演示中心", href: "#/demo-center" },
+    });
+    return;
+  }
+
   container.innerHTML = `
     <section class="scenario-summary-card">
       <div>
@@ -1226,6 +1242,65 @@ function renderHandoverResult(result) {
     <section class="scenario-section">
       <h3>引用证据</h3>
       <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : '<div class="empty-inline">暂无引用证据。</div>'}</div>
+    </section>
+  `;
+}
+
+function isEvidenceInsufficientTrainingResult(result = {}) {
+  if (result.evidenceInsufficient) {
+    return true;
+  }
+  const text = [
+    result.summary,
+    result.background,
+    ...(result.terms || []).map((item) => item.explanation || item.term || ""),
+    ...(result.learningPath || []).map((item) => item.description || item.title || ""),
+  ].join(" ");
+  return isEvidenceInsufficientText(text) || (!(result.citations || []).length && isEvidenceInsufficientText(result.summary || result.background));
+}
+
+function isEvidenceInsufficientText(value) {
+  const text = String(value || "").toLowerCase();
+  return [
+    "i could not find grounded project evidence",
+    "no evidence was found",
+    "current knowledge base",
+    "grounded evidence",
+    "当前知识库没有检索到",
+    "证据不足",
+    "没有找到足够",
+  ].some((pattern) => text.includes(pattern));
+}
+
+function renderEvidenceInsufficientState({
+  title,
+  description,
+  impact,
+  suggestions = [],
+  primaryAction,
+  secondaryAction,
+}) {
+  return `
+    <section class="evidence-empty-state">
+      <div class="evidence-empty-icon" aria-hidden="true">!</div>
+      <div class="evidence-empty-main">
+        <p class="eyebrow">Evidence Required</p>
+        <h3>${escapeHtml(title || "当前文档证据不足")}</h3>
+        <p>${escapeHtml(description || "当前知识库没有检索到足够相关片段。")}</p>
+        <div class="evidence-impact-card">
+          <strong>影响说明</strong>
+          <span>${escapeHtml(impact || "该内容不能作为正式结论，需要补充文档或人工复核。")}</span>
+        </div>
+        ${
+          suggestions.length
+            ? `<ul class="evidence-suggestion-list">${suggestions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+            : ""
+        }
+        <div class="evidence-action-row">
+          ${primaryAction ? `<a class="primary-button" href="${escapeHtml(primaryAction.href)}">${escapeHtml(primaryAction.label)}</a>` : ""}
+          ${secondaryAction ? `<a class="secondary-button" href="${escapeHtml(secondaryAction.href)}">${escapeHtml(secondaryAction.label)}</a>` : ""}
+        </div>
+      </div>
     </section>
   `;
 }
@@ -2674,7 +2749,7 @@ function renderKnowledgeGapSummary(summary = {}) {
     ${renderGapSummaryCard("缺口类型", summary.gapTypeCount || 0, "按缺口描述合并后的问题类别")}
     ${renderGapSummaryCard("缺口出现", summary.totalGapOccurrences || 0, "历史产物中累计出现的缺口次数")}
     ${renderGapSummaryCard("高风险缺口", summary.highSeverityCount || 0, "建议优先补充文档或人工复核")}
-    ${renderGapSummaryCard("设计缺口", sceneCounts.design || 0, "来自设计辅助产物")}
+    ${renderGapSummaryCard("设计缺口", sceneCounts.design || 0, "来自需求设计辅助产物")}
     ${renderGapSummaryCard("交接缺口", sceneCounts.handover || 0, "来自项目交接产物")}
   `;
 }
@@ -2913,7 +2988,7 @@ function renderHistoryDetail(detail) {
     </section>
     <section class="detail-section">
       <h3>输出内容摘要</h3>
-      <p>${escapeHtml(detail.outputSummary)}</p>
+      ${renderHistoryOutputSummary(detail)}
     </section>
     <section class="detail-grid">
       ${renderDetailItem("所属场景", renderSceneBadge(detail.sceneMode), true)}
@@ -2936,6 +3011,100 @@ function renderHistoryDetail(detail) {
       <h3>版本记录</h3>
       ${renderArtifactVersionTimeline(detail.versionRecords)}
     </section>
+  `;
+}
+
+function renderHistoryOutputSummary(detail = {}) {
+  const output = detail.structuredOutput || {};
+  if (detail.sceneMode === "design") {
+    const risks = Array.isArray(output.risks) ? output.risks : [];
+    const openQuestions = Array.isArray(output.openQuestions) ? output.openQuestions : [];
+    return `
+      <div class="history-summary-panel">
+        <div class="history-summary-metrics">
+          ${renderStructuredCountCard("功能点", output.functionList?.length || 0)}
+          ${renderStructuredCountCard("文本用例", output.useCases?.length || 0)}
+          ${renderStructuredCountCard("模块建议", output.moduleSuggestions?.length || 0)}
+          ${renderStructuredCountCard("风险项", risks.length)}
+          ${renderStructuredCountCard("待确认", openQuestions.length)}
+        </div>
+        ${renderHistorySummaryBlock("核心结论", detail.outputSummary || "已生成需求设计辅助产物。")}
+        ${renderHistorySummaryBlock("待复核事项", [...risks, ...openQuestions].slice(0, 5), "当前产物暂无明显待复核事项。")}
+        ${renderRawSummaryDetails(detail.outputSummary)}
+      </div>
+    `;
+  }
+
+  if (detail.sceneMode === "handover") {
+    const todoList = output.todoList?.length ? output.todoList : output.todos || [];
+    const risks = output.riskRegister?.length ? output.riskRegister : output.risks || [];
+    return `
+      <div class="history-summary-panel">
+        <div class="history-summary-metrics">
+          ${renderStructuredCountCard("已完成", output.completedItems?.length || output.completedFeatures?.length || 0)}
+          ${renderStructuredCountCard("未完成", output.unfinishedItems?.length || 0)}
+          ${renderStructuredCountCard("风险", risks.length)}
+          ${renderStructuredCountCard("待办", todoList.length)}
+          ${renderStructuredCountCard("信息缺口", output.informationGaps?.length || 0)}
+        </div>
+        ${renderHistorySummaryBlock("当前进度", output.currentProgress || detail.outputSummary || "暂无当前进度摘要。")}
+        ${renderHistorySummaryBlock("接手者优先待办", todoList.slice(0, 5), "暂无待办清单。")}
+        ${renderRawSummaryDetails(detail.outputSummary)}
+      </div>
+    `;
+  }
+
+  if (detail.sceneMode === "training") {
+    return `
+      <div class="history-summary-panel">
+        <div class="history-summary-metrics">
+          ${renderStructuredCountCard("术语", output.terms?.length || 0)}
+          ${renderStructuredCountCard("学习步骤", output.learningPath?.length || 0)}
+          ${renderStructuredCountCard("推荐资料", output.recommendedDocs?.length || 0)}
+          ${renderStructuredCountCard("引用证据", detail.citations?.length || 0)}
+        </div>
+        ${renderHistorySummaryBlock("培训主题", output.topic || detail.originalQuestion || "新人培训")}
+        ${renderHistorySummaryBlock("学习路径摘要", output.learningPath || [], "暂无学习路径。")}
+        ${renderRawSummaryDetails(detail.outputSummary)}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="history-summary-panel">
+      ${renderHistorySummaryBlock("核心结论", detail.outputSummary || "暂无输出摘要。")}
+      ${renderHistorySummaryBlock("证据情况", detail.citations?.length ? `已绑定 ${detail.citations.length} 条引用证据。` : "暂无引用证据，建议人工复核。")}
+      ${renderRawSummaryDetails(detail.outputSummary)}
+    </div>
+  `;
+}
+
+function renderHistorySummaryBlock(title, content, emptyText = "暂无数据。") {
+  const list = Array.isArray(content) ? content.filter(Boolean) : [];
+  return `
+    <article class="history-summary-block">
+      <h4>${escapeHtml(title)}</h4>
+      ${
+        Array.isArray(content)
+          ? list.length
+            ? `<ul>${list.map((item) => `<li>${escapeHtml(stripMarkdownDecorators(formatMarkdownValue(item)))}</li>`).join("")}</ul>`
+            : `<p>${escapeHtml(emptyText)}</p>`
+          : renderRichTextBlock(content || emptyText, "compact-rich-answer")
+      }
+    </article>
+  `;
+}
+
+function renderRawSummaryDetails(summary) {
+  const text = String(summary || "").trim();
+  if (!text || text.length < 120) {
+    return "";
+  }
+  return `
+    <details class="raw-summary-details">
+      <summary>查看原始输出文本</summary>
+      ${renderRichTextBlock(text, "compact-rich-answer")}
+    </details>
   `;
 }
 
@@ -3835,7 +4004,7 @@ function renderDemoArtifactSummary(summary = {}) {
       ${renderStructuredCountCard("智能问答", sceneCounts.general || 0)}
       ${renderStructuredCountCard("新人培训", sceneCounts.training || 0)}
       ${renderStructuredCountCard("项目交接", sceneCounts.handover || 0)}
-      ${renderStructuredCountCard("设计辅助", sceneCounts.design || 0)}
+      ${renderStructuredCountCard("需求设计", sceneCounts.design || 0)}
     </div>
     <div class="demo-review-row">
       ${Object.entries(reviewCounts)
@@ -3856,7 +4025,7 @@ function renderDemoArtifactSummary(summary = {}) {
                 `,
               )
               .join("")
-          : '<div class="empty-inline">暂无历史产物，建议先运行设计辅助或交接模式。</div>'
+          : '<div class="empty-inline">暂无历史产物，建议先运行需求设计辅助或项目交接。</div>'
       }
     </div>
   `;
@@ -4364,7 +4533,7 @@ function renderReferenceStats(referenceStats = {}, fallbackTotal = 0) {
       ${renderReferenceStat("通用问答", stats.general || 0)}
       ${renderReferenceStat("新人培训", stats.training || 0)}
       ${renderReferenceStat("项目交接", stats.handover || 0)}
-      ${renderReferenceStat("设计辅助", stats.design || 0)}
+      ${renderReferenceStat("需求设计", stats.design || 0)}
     </div>
     <p>${escapeHtml(stats.note || (total ? "已记录引用统计。" : "暂无引用记录，后续可从历史产物 citations 中扩展统计。"))}</p>
   `;
@@ -4583,9 +4752,9 @@ function getSceneRoute(sceneMode) {
 function formatSceneMode(sceneMode) {
   const labels = {
     chat: "智能问答",
-    training: "培训模式",
-    handover: "交接模式",
-    design: "设计辅助",
+    training: "新人培训",
+    handover: "项目交接",
+    design: "需求设计辅助",
   };
   return labels[sceneMode] || sceneMode;
 }
@@ -4712,7 +4881,6 @@ function renderDesignResult(result) {
     return;
   }
 
-  const debugPanel = renderDesignDebugPanel(result);
   const intermediateDocumentBlock = renderDesignIntermediateDocument(result);
 
   container.innerHTML = `
@@ -4728,109 +4896,10 @@ function renderDesignResult(result) {
         ${renderEvidenceLevelBadge(result.evidenceLevel)}
       </div>
     </section>
-    ${debugPanel}
     ${intermediateDocumentBlock}
     ${renderDesignTabContent(result)}
   `;
   scheduleDesignDiagramRender(result);
-}
-
-function renderDesignDebugPanel(result) {
-  const queryDesigner = result?.queryDesigner || {};
-  const evidenceCollector = result?.evidenceCollector || {};
-  const answerGenerator = result?.answerGenerator || {};
-  const validator = result?.validator || {};
-  const pipelineSteps = Array.isArray(result?.pipelineSteps) ? result.pipelineSteps.filter(Boolean) : [];
-  const designedQueries = Array.isArray(queryDesigner.queries) ? queryDesigner.queries.filter(Boolean) : [];
-  const evidenceItems = Array.isArray(evidenceCollector.evidence) ? evidenceCollector.evidence.filter(Boolean) : [];
-  const missingInformation = Array.isArray(result?.missingInformation) ? result.missingInformation.filter(Boolean) : [];
-  const uncertainPoints = Array.isArray(result?.uncertainPoints) ? result.uncertainPoints.filter(Boolean) : [];
-  const unsupportedClaims = Array.isArray(validator.unsupported_claims) ? validator.unsupported_claims.filter(Boolean) : [];
-  const claimMappings = Array.isArray(answerGenerator.evidence_mapping) ? answerGenerator.evidence_mapping.filter(Boolean) : [];
-  const citations = Array.isArray(result?.citations) ? result.citations.filter(Boolean) : [];
-  const structuredSource = String(result?.structuredSource || "unknown");
-  const isFallback = structuredSource.toLowerCase().includes("fallback");
-  const answerText = String(answerGenerator.answer || result?.summary || "");
-  const evidenceLengthItems = evidenceItems.map((item, index) => {
-    const source = item?.source || `evidence-${index + 1}`;
-    const section = item?.section || "chunk";
-    const contentLength = getTextLength(item?.content);
-    const relevanceLength = getTextLength(item?.relevance);
-    return `
-      <li>
-        <strong>${escapeHtml(`${source}#${section}`)}</strong>
-        <span>content=${contentLength} chars</span>
-        <span>relevance=${relevanceLength} chars</span>
-      </li>
-    `;
-  });
-
-  return `
-    <section class="scenario-section">
-      <h3>设计调试信息</h3>
-      <div class="design-summary-meta">
-        <span>${escapeHtml(`structuredSource: ${structuredSource}`)}</span>
-        <span>${escapeHtml(`fallback: ${isFallback ? "yes" : "no"}`)}</span>
-        <span>${escapeHtml(`evidence: ${evidenceItems.length}`)}</span>
-        <span>${escapeHtml(`citations: ${citations.length}`)}</span>
-        <span>${escapeHtml(`useCases: ${(result?.useCases || []).length}`)}</span>
-        <span>${escapeHtml(`functions: ${(result?.functionList || []).length}`)}</span>
-        <span>${escapeHtml(`modules: ${(result?.moduleSuggestions || []).length}`)}</span>
-      </div>
-      <dl class="design-dl compact">
-        <div>
-          <dt>Pipeline</dt>
-          <dd>${escapeHtml(result?.pipelineVersion || "unknown")}</dd>
-        </div>
-        <div>
-          <dt>Steps</dt>
-          <dd>${escapeHtml(pipelineSteps.join(" -> ") || "unknown")}</dd>
-        </div>
-        <div>
-          <dt>Answer Length</dt>
-          <dd>${escapeHtml(`${getTextLength(answerText)} chars`)}</dd>
-        </div>
-      </dl>
-      <dl class="design-dl">
-        <div>
-          <dt>Designed Queries</dt>
-          <dd>${renderDebugList(designedQueries, "No designed queries.")}</dd>
-        </div>
-        <div>
-          <dt>Evidence Lengths</dt>
-          <dd>${evidenceLengthItems.length ? `<ul class="scenario-bullet-list">${evidenceLengthItems.join("")}</ul>` : '<div class="empty-inline">No evidence items.</div>'}</dd>
-        </div>
-        <div>
-          <dt>Missing Information</dt>
-          <dd>${renderDebugList(missingInformation, "No missing-information items.")}</dd>
-        </div>
-        <div>
-          <dt>Uncertain Points</dt>
-          <dd>${renderDebugList(uncertainPoints, "No uncertain points.")}</dd>
-        </div>
-        <div>
-          <dt>Unsupported Claims</dt>
-          <dd>${renderDebugList(unsupportedClaims, "No unsupported claims.")}</dd>
-        </div>
-        <div>
-          <dt>Claim Mappings</dt>
-          <dd>${escapeHtml(`${claimMappings.length}`)}</dd>
-        </div>
-      </dl>
-    </section>
-  `;
-}
-
-function renderDebugList(items, emptyText) {
-  const list = Array.isArray(items) ? items.filter((item) => String(item || "").trim()) : [];
-  if (!list.length) {
-    return `<div class="empty-inline">${escapeHtml(emptyText)}</div>`;
-  }
-  return `<ul class="scenario-bullet-list">${list.map((item) => `<li>${renderRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</li>`).join("")}</ul>`;
-}
-
-function getTextLength(value) {
-  return String(value || "").trim().length;
 }
 
 function renderDesignIntermediateDocument(result) {

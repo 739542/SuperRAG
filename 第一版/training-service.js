@@ -91,6 +91,22 @@
     const evidence = raw.evidence || [];
     const actions = raw.nextActions || [];
     const summary = raw.summary || "";
+    if (isEvidenceInsufficientText(summary) || (!citations.length && evidence.some(isEvidenceInsufficientText))) {
+      return {
+        id: raw.id || `training-${Date.now()}`,
+        title: "新人培训计划生成受限",
+        query: payload.query || "",
+        topic: payload.topic || "项目背景",
+        project: raw.collection?.name || payload.project || "",
+        summary: "当前知识库证据不足，无法生成正式新人培训计划。",
+        background: "系统没有检索到足够的项目文档证据。请先补充需求文档、接口文档、部署说明或新人培训资料。",
+        terms: [],
+        learningPath: [],
+        recommendedDocs: [],
+        citations,
+        evidenceInsufficient: true,
+      };
+    }
     return {
       id: raw.id || `training-${Date.now()}`,
       title: raw.title || "培训材料",
@@ -116,6 +132,19 @@
       })),
       citations,
     };
+  }
+
+  function isEvidenceInsufficientText(value) {
+    const text = String(value || "").toLowerCase();
+    return [
+      "i could not find grounded project evidence",
+      "no evidence was found",
+      "current knowledge base",
+      "grounded evidence",
+      "当前知识库没有检索到",
+      "证据不足",
+      "没有找到足够",
+    ].some((pattern) => text.includes(pattern));
   }
 
   function mapCitationToEvidence(raw = {}) {

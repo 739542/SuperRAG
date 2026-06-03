@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuperRAG | 企业软件工程知识助手</title>
+  <title>SuperRAG | 软件研发知识交接与需求设计辅助系统</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -11,8 +11,8 @@
     <div class="login-brand-panel">
       <div class="login-brand-mark" aria-hidden="true">SR</div>
       <p class="eyebrow">SuperRAG</p>
-      <h1>SuperRAG 企业软件工程知识助手</h1>
-      <p>基于企业私有知识库的培训、交接与设计辅助平台。</p>
+      <h1>SuperRAG</h1>
+      <p>面向软件研发团队的知识交接与需求设计辅助系统。</p>
       <div class="login-flow" aria-label="核心业务闭环">
         <span>文档上传入库</span>
         <span>知识库检索问答</span>
@@ -30,7 +30,7 @@
         <div>
           <p class="eyebrow">Account Login</p>
           <h2>登录系统</h2>
-          <p>进入企业私有知识治理、RAG 问答和软件工程设计辅助工作台。</p>
+          <p>进入课程演示环境，查看文档入库、RAG 检索、结构化产物与证据追踪闭环。</p>
         </div>
         <form class="login-form" id="login-form">
           <label>
@@ -52,7 +52,7 @@
         </form>
         <div class="login-demo-note">
           <strong>演示账号</strong>
-          <span>当前为前端 mock 登录，点击登录后进入首页 / 控制台。</span>
+          <span>当前使用课程演示账号，登录后进入答辩演示中心。</span>
         </div>
       </div>
     </div>
@@ -64,7 +64,7 @@
         <div class="brand-mark" aria-hidden="true">SR</div>
         <div class="brand-text">
           <strong>SuperRAG</strong>
-          <span>企业软件工程知识助手</span>
+          <span>研发知识交接与设计辅助</span>
         </div>
       </div>
 
@@ -79,7 +79,7 @@
         </a>
         <a class="nav-link" href="#/documents" data-route="/documents">
           <span class="nav-icon" aria-hidden="true">D</span>
-          <span>文档管理</span>
+          <span>文档知识库</span>
         </a>
         <a class="nav-link" href="#/chat" data-route="/chat">
           <span class="nav-icon" aria-hidden="true">Q</span>
@@ -87,15 +87,15 @@
         </a>
         <a class="nav-link" href="#/training" data-route="/training">
           <span class="nav-icon" aria-hidden="true">T</span>
-          <span>培训模式</span>
+          <span>新人培训</span>
         </a>
         <a class="nav-link" href="#/handover" data-route="/handover">
           <span class="nav-icon" aria-hidden="true">J</span>
-          <span>交接模式</span>
+          <span>项目交接</span>
         </a>
         <a class="nav-link" href="#/design-assistant" data-route="/design-assistant">
           <span class="nav-icon" aria-hidden="true">A</span>
-          <span>设计辅助</span>
+          <span>需求设计辅助</span>
         </a>
         <a class="nav-link" href="#/knowledge-gaps" data-route="/knowledge-gaps">
           <span class="nav-icon" aria-hidden="true">G</span>
@@ -104,10 +104,6 @@
         <a class="nav-link" href="#/history" data-route="/history">
           <span class="nav-icon" aria-hidden="true">R</span>
           <span>历史产物</span>
-        </a>
-        <a class="nav-link" href="#/settings" data-route="/settings">
-          <span class="nav-icon" aria-hidden="true">S</span>
-          <span>后台配置</span>
         </a>
       </nav>
 
@@ -155,7 +151,7 @@
             <section class="welcome-card">
               <div>
                 <p class="eyebrow">SuperRAG Workspace</p>
-                <h2>欢迎使用 SuperRAG 企业软件工程知识助手</h2>
+                <h2>欢迎使用 SuperRAG 研发知识交接与需求设计辅助系统</h2>
                 <p>基于企业私有知识库，辅助完成新人培训、项目交接、需求设计与证据追溯。</p>
               </div>
               <div class="workflow-line" aria-label="核心业务闭环">
@@ -176,21 +172,21 @@
             <section class="mode-grid" aria-label="核心模式入口">
               <article class="mode-card">
                 <div class="mode-icon" aria-hidden="true">T</div>
-                <h3>培训模式</h3>
+                <h3>新人培训</h3>
                 <p>帮助新人理解项目背景、核心术语、模块职责和学习路径。</p>
-                <a class="secondary-button" href="#/training">进入培训模式</a>
+                <a class="secondary-button" href="#/training">进入新人培训</a>
               </article>
               <article class="mode-card">
                 <div class="mode-icon" aria-hidden="true">J</div>
-                <h3>交接模式</h3>
+                <h3>项目交接</h3>
                 <p>汇总项目背景、当前进度、风险点和待办事项。</p>
-                <a class="secondary-button" href="#/handover">进入交接模式</a>
+                <a class="secondary-button" href="#/handover">进入项目交接</a>
               </article>
               <article class="mode-card mode-card-featured">
                 <div class="mode-icon" aria-hidden="true">A</div>
-                <h3>设计辅助</h3>
+                <h3>需求设计辅助</h3>
                 <p>基于企业文档生成功能清单、详细文本用例和模块划分建议。</p>
-                <a class="primary-button" href="#/design-assistant">进入设计辅助</a>
+                <a class="primary-button" href="#/design-assistant">进入需求设计辅助</a>
               </article>
             </section>
 
@@ -582,16 +578,16 @@
         <section class="page-panel" data-page="/training">
           <div class="page-header">
             <p class="eyebrow">Training</p>
-            <h1>培训模式</h1>
-            <p>基于企业私有知识库，为新人生成术语解释、背景梳理、学习路径和推荐资料。</p>
+            <h1>新人培训</h1>
+            <p>基于企业私有知识库，为新加入研发成员生成术语解释、背景梳理、学习路径和推荐资料。</p>
           </div>
 
           <div class="scenario-page training-page">
             <section class="scenario-hero dashboard-card">
               <div>
                 <p class="eyebrow">Onboarding Guide</p>
-                <h2>培训模式</h2>
-                <p>把分散的需求、接口、交接和培训资料整理成新人能直接学习的结构化说明。</p>
+                <h2>新人 7 天上手计划</h2>
+                <p>把分散的需求、接口、交接和培训资料整理成新人能直接学习的结构化说明和自测任务。</p>
               </div>
               <div class="scenario-hero-metrics" aria-label="培训产出结构">
                 <span>背景</span>
@@ -615,14 +611,14 @@
                   关联项目
                   <select id="training-project"></select>
                 </label>
-                <button class="primary-button" type="button" id="training-generate">生成培训说明</button>
+                <button class="primary-button" type="button" id="training-generate">生成上手计划</button>
               </aside>
 
               <section class="scenario-output dashboard-card">
                 <div class="card-title-row">
                   <div>
                     <p class="eyebrow">Training Output</p>
-                    <h2>结构化培训结果</h2>
+                    <h2>新人上手计划</h2>
                   </div>
                 </div>
                 <div class="training-result" id="training-result"></div>
@@ -650,7 +646,7 @@
         <section class="page-panel" data-page="/handover">
           <div class="page-header">
             <p class="eyebrow">Handover</p>
-            <h1>交接模式</h1>
+            <h1>项目交接</h1>
             <p>从企业文档和历史产物中汇总项目背景、当前进度、风险点和待办事项。</p>
           </div>
 
@@ -658,7 +654,7 @@
             <section class="scenario-hero dashboard-card">
               <div>
                 <p class="eyebrow">Project Transfer</p>
-                <h2>交接模式</h2>
+                <h2>项目交接清单生成器</h2>
                 <p>围绕任务交接收敛背景、进度、风险、待办、责任角色和依赖文档。</p>
               </div>
               <div class="scenario-hero-metrics" aria-label="交接闭环">
@@ -683,7 +679,7 @@
                   交接范围
                   <select id="handover-scope"></select>
                 </label>
-                <button class="primary-button" type="button" id="handover-generate">生成交接摘要</button>
+                <button class="primary-button" type="button" id="handover-generate">生成交接清单</button>
               </aside>
 
               <section class="scenario-output dashboard-card">
@@ -722,8 +718,8 @@
         <section class="page-panel" data-page="/design-assistant">
           <div class="page-header">
             <p class="eyebrow">Design Assistant</p>
-            <h1>设计辅助</h1>
-            <p>基于企业私有文档生成软件工程设计产物初稿，并通过引用证据支持人工复核。</p>
+            <h1>需求设计辅助</h1>
+            <p>基于企业私有文档生成软件工程需求设计产物初稿，并通过引用证据支持人工复核。</p>
           </div>
 
           <div class="design-page">
@@ -940,9 +936,9 @@
 
         <section class="page-panel" data-page="/settings">
           <div class="page-header">
-            <p class="eyebrow">Settings</p>
-            <h1>后台配置</h1>
-            <p>配置 Workflow 映射、检索参数、模型参数和运行日志。</p>
+            <p class="eyebrow">System Status</p>
+            <h1>系统状态</h1>
+            <p>面向管理员查看 Workflow 映射、检索参数、模型参数和运行日志；普通用户无需配置。</p>
           </div>
 
           <div class="settings-page">
@@ -958,7 +954,7 @@
               <div class="card-title-row">
                 <div>
                   <p class="eyebrow">Workflow Mapping</p>
-                  <h2>Workflow 映射配置</h2>
+                  <h2>Workflow 映射状态</h2>
                 </div>
               </div>
               <div class="table-wrap">
@@ -986,8 +982,8 @@
               <article class="dashboard-card settings-section">
                 <div class="card-title-row">
                   <div>
-                    <p class="eyebrow">Retrieval</p>
-                    <h2>检索参数配置</h2>
+                    <p class="eyebrow">Retrieval Snapshot</p>
+                    <h2>检索参数快照</h2>
                   </div>
                 </div>
                 <div class="settings-form">
@@ -1021,8 +1017,8 @@
               <article class="dashboard-card settings-section">
                 <div class="card-title-row">
                   <div>
-                    <p class="eyebrow">Model</p>
-                    <h2>模型参数配置</h2>
+                    <p class="eyebrow">Model Snapshot</p>
+                    <h2>模型参数快照</h2>
                   </div>
                 </div>
                 <div class="settings-form">
@@ -1042,7 +1038,7 @@
                     <span>是否流式输出</span>
                     <input id="settings-stream" type="checkbox">
                   </label>
-                  <button class="primary-button settings-save-button" type="button" id="settings-save">保存配置</button>
+                  <button class="secondary-button settings-save-button" type="button" id="settings-save" disabled>仅管理员可调整</button>
                 </div>
               </article>
             </section>
