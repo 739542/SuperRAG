@@ -297,10 +297,61 @@ class ChatService:
         queries = [item.strip() for item in payload.get("queries", []) if isinstance(item, str) and item.strip()]
         if query not in queries:
             queries.insert(0, query)
+        queries = self._merge_heuristic_queries(
+            query=query,
+            scene=scene,
+            queries=queries,
+            context=context,
+        )
         return {
-            "queries": queries[:3] or [query],
+            "queries": queries[:4] or [query],
             "reason": str(payload.get("reason") or fallback["reason"]).strip() or fallback["reason"],
         }
+
+    def _merge_heuristic_queries(
+        self,
+        *,
+        query: str,
+        scene: str,
+        queries: list[str],
+        context: dict[str, Any] | None,
+    ) -> list[str]:
+        merged: list[str] = []
+        seen: set[str] = set()
+        for item in queries + self._heuristic_scene_queries(query=query, scene=scene, context=context):
+            normalized = str(item or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append(normalized)
+        return merged[:4]
+
+    def _heuristic_scene_queries(
+        self,
+        *,
+        query: str,
+        scene: str,
+        context: dict[str, Any] | None,
+    ) -> list[str]:
+        if scene != "general":
+            return []
+
+        project = str((context or {}).get("project") or "").strip()
+        prefix = f"{project} " if project else ""
+        lowered = query.lower()
+        queries: list[str] = []
+        if self._is_rule_or_permission_question(query):
+            if re.search(r"金额|开票金额|合同金额", query) and re.search(r"编辑|修改|权限|条件", query):
+                queries.append(f"{prefix}合同金额 开票金额 编辑 权限 条件 规则")
+                queries.append(f"{prefix}合同 发票 金额 超过 合同金额 校验 同步")
+            if re.search(r"负责人|团队成员|权限|可见范围|协作|公海", query):
+                queries.append(f"{prefix}负责人 团队成员 权限 划分 可见范围 协作")
+                queries.append(f"{prefix}客户 商机 合同 团队成员 负责人 转移 公海 权限")
+            if re.search(r"关系|联动|上下游|约束", query):
+                queries.append(f"{prefix}合同 回款 发票 商机 客户 联动 约束")
+        if "crm" in lowered and not queries:
+            queries.append(f"{prefix}CRM 权限 规则 流程")
+        return queries
 
     def _collect_evidence(
         self,
@@ -602,27 +653,237 @@ class ChatService:
                 "key_claims": ["当前问题缺少知识库证据，不能作为正式结论。"],
             }
 
-        summary_lines = [
-            f"{item['source']}：{item['content'][:100]}{'...' if len(item['content']) > 100 else ''}"
-            for item in evidence[:3]
-        ]
-        evidence_mapping = [
-            {
-                "claim": f"证据 {index + 1} 与用户问题相关。",
-                "evidence": [f"{item['source']}#{item['section']}"],
-            }
-            for index, item in enumerate(evidence[:3])
-        ]
+        answer, key_claims, evidence_mapping = self._build_question_focused_fallback_answer(
+            query=query,
+            evidence=evidence,
+        )
         return {
-            "answer": "根据当前知识库检索结果，相关证据主要包括：\n- " + "\n- ".join(summary_lines),
+            "answer": answer,
             "implementation_suggestions": [
                 "优先核对引用文档原文，再将回答作为正式结论。",
                 "未绑定证据的实现想法只能作为待复核建议。",
             ],
             "evidence_mapping": evidence_mapping,
             "uncertain_points": evidence_bundle.get("missing_information", []),
-            "key_claims": [item["claim"] for item in evidence_mapping],
+            "key_claims": key_claims,
         }
+
+    def _build_question_focused_fallback_answer(
+        self,
+        *,
+        query: str,
+        evidence: list[dict[str, Any]],
+    ) -> tuple[str, list[str], list[dict[str, Any]]]:
+        if self._is_rule_or_permission_question(query) and not self._is_content_inventory_question(query):
+            specialized = self._build_rule_or_permission_fallback_answer(query=query, evidence=evidence)
+            if specialized:
+                return specialized
+
+        grouped = self._group_evidence_by_source(evidence)
+        primary_source, primary_items = grouped[0]
+        primary_topic = self._source_topic(primary_source)
+        aspects = self._extract_evidence_aspects(primary_items)
+        supporting_topics = []
+        for source, _items in grouped[1:4]:
+            topic = self._source_topic(source)
+            if topic and topic != primary_topic and topic not in supporting_topics:
+                supporting_topics.append(topic)
+
+        evidence_refs = [f"{item['source']}#{item['section']}" for item in primary_items[:2]]
+        fallback_ref = [f"{primary_source}#{primary_items[0]['section']}"] if primary_items else [primary_source]
+
+        if self._is_content_inventory_question(query):
+            if aspects:
+                lines = [f"围绕《{primary_source}》，当前命中的文档内容主要包括："]
+                lines.extend(f"{index + 1}. {aspect}" for index, aspect in enumerate(aspects))
+                key_claims = aspects[:]
+            else:
+                snippet_summary = self._build_primary_snippet_summary(primary_items)
+                lines = [f"围绕《{primary_source}》，当前命中的片段主要说明了：{snippet_summary}"]
+                key_claims = [f"{primary_topic}的主要内容基于《{primary_source}》整理。"]
+
+            if supporting_topics:
+                lines.append("其他命中文档主要用于补充与该主题相关的上下游关系：" + "、".join(supporting_topics) + "。")
+
+            evidence_mapping = [
+                {
+                    "claim": claim,
+                    "evidence": evidence_refs or fallback_ref,
+                }
+                for claim in key_claims[:4]
+            ]
+            return "\n".join(lines), key_claims[:5], evidence_mapping
+
+        snippet_summary = self._build_primary_snippet_summary(primary_items)
+        lines = [f"针对“{query}”，当前命中的文档表明：{snippet_summary}"]
+        if aspects:
+            lines.append("这些证据主要围绕：" + "、".join(aspects[:4]) + "。")
+        if supporting_topics:
+            lines.append("同时，" + "、".join(supporting_topics) + " 等文档可用于补充相关的上下游流程或约束信息。")
+
+        key_claims = aspects[:4] or [snippet_summary]
+        evidence_mapping = [
+            {
+                "claim": claim,
+                "evidence": evidence_refs or fallback_ref,
+            }
+            for claim in key_claims[:4]
+        ]
+        return "\n".join(lines), key_claims[:5], evidence_mapping
+
+    def _build_rule_or_permission_fallback_answer(
+        self,
+        *,
+        query: str,
+        evidence: list[dict[str, Any]],
+    ) -> tuple[str, list[str], list[dict[str, Any]]] | None:
+        theme_sections = self._collect_rule_or_permission_sections(query=query, evidence=evidence)
+        if not theme_sections:
+            return None
+
+        lines = [f"围绕“{query}”，当前命中的文档可支撑以下几点："]
+        key_claims: list[str] = []
+        evidence_mapping: list[dict[str, Any]] = []
+        for index, section in enumerate(theme_sections, start=1):
+            lines.append(f"{index}. {section['title']}：{section['summary']}")
+            key_claims.append(section["claim"])
+            evidence_mapping.append(
+                {
+                    "claim": section["claim"],
+                    "evidence": section["evidence"],
+                }
+            )
+
+        missing_sections = [
+            title
+            for title in [
+                "金额字段在什么条件下可编辑",
+                "负责人 / 团队成员权限如何划分",
+                "涉及哪些模块联动与约束",
+            ]
+            if title not in {section["title"] for section in theme_sections}
+        ]
+        if missing_sections:
+            lines.append("当前证据暂未完整覆盖：" + "、".join(missing_sections) + "。")
+
+        return "\n".join(lines), key_claims[:5], evidence_mapping[:5]
+
+    def _collect_rule_or_permission_sections(
+        self,
+        *,
+        query: str,
+        evidence: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        themes = [
+            (
+                "金额字段在什么条件下可编辑",
+                [r"金额", r"合同金额", r"开票金额", r"编辑", r"修改", r"默认", r"同步", r"超过", r"校验"],
+            ),
+            (
+                "负责人 / 团队成员权限如何划分",
+                [r"负责人", r"团队成员", r"权限", r"可见", r"转移", r"协作", r"公海"],
+            ),
+            (
+                "涉及哪些模块联动与约束",
+                [r"合同", r"发票", r"回款", r"商机", r"客户", r"联动", r"同步", r"上游", r"下游"],
+            ),
+        ]
+        sections: list[dict[str, Any]] = []
+        for title, markers in themes:
+            matched = [
+                item
+                for item in evidence
+                if any(re.search(marker, str(item.get("content") or "")) for marker in markers)
+            ]
+            if not matched:
+                continue
+            summary = self._summarize_rule_or_permission_items(matched)
+            if not summary:
+                continue
+            evidence_refs = [f"{item['source']}#{item['section']}" for item in matched[:2]]
+            sections.append(
+                {
+                    "title": title,
+                    "summary": summary,
+                    "claim": f"{title}：{summary}",
+                    "evidence": evidence_refs,
+                }
+            )
+        return sections
+
+    def _summarize_rule_or_permission_items(self, items: list[dict[str, Any]]) -> str:
+        snippets: list[str] = []
+        for item in items[:3]:
+            cleaned = self._clean_fallback_text(str(item.get("content") or ""))
+            for sentence in re.split(r"(?<=[。！？；])\s+|(?<=\.)\s+", cleaned):
+                sentence = sentence.strip(" -:：;；，,")
+                if len(sentence) < 14:
+                    continue
+                if sentence not in snippets:
+                    snippets.append(sentence)
+                if len(snippets) >= 2:
+                    return "；".join(snippets)
+        return "；".join(snippets[:2])
+
+    def _group_evidence_by_source(self, evidence: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        order: list[str] = []
+        for item in evidence:
+            source = str(item.get("source") or "Knowledge Base").strip() or "Knowledge Base"
+            if source not in groups:
+                groups[source] = []
+                order.append(source)
+            groups[source].append(item)
+        return [(source, groups[source]) for source in order] or [("Knowledge Base", evidence)]
+
+    def _is_content_inventory_question(self, query: str) -> bool:
+        return bool(re.search(r"包含|哪些内容|都包含了|主要内容|文档内容|介绍|说明", query))
+
+    def _is_rule_or_permission_question(self, query: str) -> bool:
+        return bool(re.search(r"权限|负责人|团队成员|编辑|修改|规则|条件|可见|约束|联动|划分", query))
+
+    def _extract_evidence_aspects(self, items: list[dict[str, Any]]) -> list[str]:
+        text = " ".join(str(item.get("content") or "") for item in items)
+        patterns = [
+            ("模块定位与业务作用", [r"模块定位", r"用于处理", r"用于记录", r"用于管理"]),
+            ("核心业务对象与关联数据", [r"核心业务对象", r"发票申请", r"客户", r"合同", r"回款", r"商机"]),
+            ("主要功能操作与处理环节", [r"新建", r"创建", r"编辑", r"提交", r"审核", r"作废", r"查看", r"记录"]),
+            ("上下游流程联动与状态流转", [r"联动", r"同步", r"流程", r"状态", r"进度"]),
+            ("关键业务规则与校验约束", [r"规则", r"唯一", r"必填", r"不得", r"超过", r"校验", r"阻止"]),
+        ]
+        aspects: list[str] = []
+        for label, markers in patterns:
+            if any(re.search(marker, text) for marker in markers):
+                aspects.append(label)
+        return aspects[:5]
+
+    def _build_primary_snippet_summary(self, items: list[dict[str, Any]]) -> str:
+        sentences: list[str] = []
+        for item in items[:3]:
+            cleaned = self._clean_fallback_text(str(item.get("content") or ""))
+            for sentence in re.split(r"(?<=[。！？；])\s+|(?<=\.)\s+", cleaned):
+                sentence = sentence.strip(" -:：;；，,")
+                if len(sentence) < 12:
+                    continue
+                if sentence not in sentences:
+                    sentences.append(sentence)
+                if len(sentences) >= 2:
+                    return "；".join(sentences)
+        return "；".join(sentences[:2]) if sentences else "当前命中的片段主要是该主题的相关业务说明和规则摘要。"
+
+    def _clean_fallback_text(self, text: str) -> str:
+        cleaned = re.sub(r"https?://\S+", "", text)
+        cleaned = re.sub(r"[>#*_`]+", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
+
+    def _source_topic(self, source: str) -> str:
+        topic = re.sub(r"\.[a-z0-9]+$", "", source, flags=re.IGNORECASE)
+        topic = re.sub(r"^\d+[_-]*", "", topic)
+        topic = re.sub(r"CRM|SuperRAG|演示整理版", "", topic, flags=re.IGNORECASE)
+        topic = re.sub(r"模块说明|说明|文档", "", topic)
+        topic = re.sub(r"[_\-\s]+", "", topic)
+        return topic.strip() or source
 
     def _mock_task_answer(self, *, query: str, evidence_bundle: dict[str, Any]) -> str:
         evidence = evidence_bundle.get("evidence", [])

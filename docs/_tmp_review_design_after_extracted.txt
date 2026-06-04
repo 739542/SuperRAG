@@ -1,0 +1,559 @@
+0001: SuperRAG / dify-lite 本地知识库问答系统系统设计说明提交版
+0002: 系统名称：本地部署企业知识库问答 / SuperRAG / dify-lite 联调项目 主入口：http://127.0.0.1:8088/ 项目根目录：E:\Dify 文档版本：V1.1
+0003: 签署页
+0004: 表 1 签署页
+0005: [[TABLE]]
+0006: 角色 | 姓名/单位 | 签署意见 | 签署日期
+0007: 编制 |  |  | 
+0008: 审核 |  |  | 
+0009: 批准 |  |  | 
+0010: 说明：本签署页用于项目组内部评审、课程提交或交接归档时补充签署信息。
+0011: 文件修改记录
+0012: 表 2 文件修改记录
+0013: [[TABLE]]
+0014: 版本 | 日期 | 修改说明 | 修改人 | 备注
+0015: V1.1 | 2026-06-02 | 依据本地最新前后端代码修订接口清单、设计辅助分层、设计输出字段和文档删除状态描述。 |  | 已按当前项目源码复核
+0016: 目录
+0017: 1 文档总说明
+0018: 1.1 文档目的
+0019: 1.2 适用范围
+0020: 1.3 系统组成
+0021: 1.4 文档组织结构
+0022: 1.5 引用文档
+0023: 1.6 术语、缩略语与约定
+0024: 2 SuperRAG / dify-lite 系统设计
+0025: 2.1 设计对象与范围
+0026: 2.2 设计决策
+0027: 2.3 体系结构设计
+0028: 2.4 需求追踪
+0029: 3 注释与附录
+0030: 3.1 术语表
+0031: 3.2 项目解析报告
+0032: 3.3 图片与生成提示词清单
+0033: 3.4 待补充项汇总
+0034: 注：如在 Word 中需要自动页码目录，可使用“引用—目录—更新目录”功能生成正式页码。
+0035: 1 文档总说明
+0036: 1.1 文档目的
+0037: 本文档用于说明 SuperRAG / dify-lite 本地知识库问答系统当前版本的软件设计、运行结构、接口契约、数据组织、部署方式与工程边界。文档目标是帮助新接手开发人员、课程评审人员或项目组成员理解当前项目已经打通的主链路、仍存在的风险点以及后续开发需要重点核验的内容。
+0038: 本文档不是通用 RAG 系统模板说明，而是围绕当前项目的真实目录、文件职责、接口链路、启动方式和联调状态整理。本文已结合 E:\Dify 本地最新前后端代码进行逐项复核；仍未完全展开的部分，会在相应章节以“待补充项”或“需继续核验”形式标识。
+0039: 1.2 适用范围
+0040: 本文档适用于 E:\Dify 项目下的本地部署企业知识库问答 / SuperRAG / Dify-lite 联调系统，重点覆盖当前实际使用的 8088 页面入口、第一版前端、dify-lite 后端、SQLite 本地数据存储、上传原文目录、检索问答链路、引用原文查看链路以及可选 Dify Docker 基础设施关系。
+0041: 本文档不将完整 Dify Docker Web 控制台作为当前第一版主页面的直接业务后端；不将前端兼容层或 mock/fallback 数据误判为后端完整闭环；不将 Mermaid 图示能力描述为专业 UML 图片生成平台。
+0042: 1.3 系统组成
+0043: 表 3 系统组成说明
+0044: [[TABLE]]
+0045: 组成部分 | 路径/入口 | 当前职责 | 状态说明
+0046: 第一版前端 | E:\Dify\第一版 | 提供当前实际访问页面，包含 index.html、app.js、styles.css 以及多个 service 层。 | 部分主链路已真实接入后端，部分页面仍存在 fallback/mock。
+0047: dify-lite 后端 | E:\Dify\dify-lite | 托管前端页面，提供文档导入、解析切片、检索、模型调用、场景输出、引用证据、原文查看等接口。 | 当前 SuperRAG 主链路核心后端。
+0048: 本地数据目录 | E:\Dify\dify-lite\data | 保存 SQLite 数据库和上传原文。 | 当前主要持久化位置。
+0049: 完整 Dify Docker 栈 | E:\Dify\dify\docker | 提供完整 Dify 控制台及 Weaviate、sandbox、plugin daemon、db、redis 等基础依赖。 | 外围基础设施和可选依赖，不是 8088 页面直接业务后端。
+0050: 启动脚本 | E:\Dify\deploy*.cmd / deploy*.ps1 | 提供轻量启动、全栈启动和停止脚本。 | deploy.cmd 只启动 dify-lite + 当前前端；deploy-all.cmd 启动 Docker 全栈 + dify-lite。
+0051: 1.4 文档组织结构
+0052: 本文档第 1 章说明文档目的、范围、组成、引用资料和术语约定；第 2 章给出系统设计，包括设计对象、设计决策、体系结构、运行视图、部署视图、接口设计、数据组织和需求追踪；第 3 章给出术语表、项目解析报告、图片生成提示词清单和待补充项汇总。
+0053: 1.5 引用文档
+0054: 表 4 引用文档
+0055: [[TABLE]]
+0056: 序号 | 文档名称 | 版本/日期 | 来源 | 用途 | 备注
+0057: 1 | 系统设计书编写 Prompt | 2026-06-01 | 项目提交材料 | 规定本文档章节结构、表格样式、图片占位与交付要求。 | 作为本文档格式与内容约束。
+0058: 2 | SuperRAG / dify-lite 项目事实说明 | 2026-06-01 | 项目提交材料 | 提供项目路径、前后端关系、启动方式、接口链路、已完成能力与风险边界。 | 作为本文档主要事实依据。
+0059: 3 | E:\Dify\第一版 前端工程文件 | 当前版本 | 项目目录 | 用于前端实现、服务层和页面能力说明。 | 需在后续交接时随源码进一步核验。
+0060: 4 | E:\Dify\dify-lite 后端工程文件 | 当前版本 | 项目目录 | 用于后端路由、服务、检索、入库、存储和配置说明。 | 需在后续交接时随源码进一步核验。
+0061: 5 | E:\Dify\dify\docker Docker 配置 | 当前版本 | 项目目录 | 用于说明完整 Dify 栈与可选依赖。 | 不是当前 8088 主链路直接业务后端。
+0062: 1.6 术语、缩略语与约定
+0063: 表 5 术语、缩略语与约定
+0064: [[TABLE]]
+0065: 术语 | 说明
+0066: SuperRAG | 当前本地部署企业知识库问答系统的项目名称或业务名称。
+0067: dify-lite | 当前真正服务第一版前端主链路的轻量后端工程。
+0068: 第一版前端 | 路径为 E:\Dify\第一版 的纯 HTML、CSS、原生 JavaScript 前端页面。
+0069: 完整 Dify Docker 栈 | 路径为 E:\Dify\dify\docker 的 Dify 原生基础栈和依赖服务。
+0070: RAG | 检索增强生成，即先从知识库检索相关内容，再将证据交给模型生成回答。
+0071: Citation | 回答中返回的引用证据，当前已包含 chunkId、documentId、sourceName 等追溯字段。
+0072: Mermaid | 一种文本图示语言，当前设计辅助场景用于输出和浏览器端渲染第一版图示。
+0073: 2 SuperRAG / dify-lite 系统设计
+0074: 2.1 设计对象与范围
+0075: 2.1.1 软件标识
+0076: 表 6 软件标识
+0077: [[TABLE]]
+0078: 项目 | 内容
+0079: 软件名称 | SuperRAG / dify-lite 本地知识库问答系统
+0080: 软件简称 | SuperRAG
+0081: 项目根目录 | E:\Dify
+0082: 当前主访问入口 | http://127.0.0.1:8088/
+0083: 当前主前端 | E:\Dify\第一版
+0084: 当前主后端 | E:\Dify\dify-lite
+0085: 主要数据库 | E:\Dify\dify-lite\data\dify_lite.db
+0086: 上传原文目录 | E:\Dify\dify-lite\data\uploads
+0087: 外部模型配置 | E:\Dify\dify-lite\.env 中 DIFY_LITE_MODEL_BASE_URL、DIFY_LITE_MODEL_API_KEY、DIFY_LITE_MODEL_NAME
+0088: 2.1.2 系统概述
+0089: SuperRAG 是一个面向本地部署场景的企业知识库问答与场景化输出系统。当前版本采用“第一版前端 + dify-lite 后端”的轻量联调形态：浏览器访问 8088 端口，由 dify-lite 根路由托管第一版前端页面，前端再通过同源 /api 调用后端接口完成文档导入、检索问答、引用证据展示、原文查看以及培训、交接、设计辅助等场景化输出。
+0090: 系统当前不是完整 Dify 页面改造版，8088 主入口也不是 Docker 中 Dify Web 的 3000 端口。完整 Dify Docker 栈主要作为外围基础设施和可选依赖存在，可提供 Weaviate、sandbox、plugin daemon、db、redis 等服务，但当前 SuperRAG 主页面的业务链路由 dify-lite 直接支撑。
+0091: 2.1.3 项目结构概括
+0092: 表 7 项目结构概括
+0093: [[TABLE]]
+0094: 目录/文件 | 类别 | 主要职责 | 设计说明
+0095: E:\Dify\第一版\index.html | 前端页面 | 页面主体结构与入口 DOM。 | 由 dify-lite 根路由托管。
+0096: E:\Dify\第一版\app.js | 前端主逻辑 | 页面交互、状态组织、模式切换和服务调用。 | 与多个 service 层配合完成业务渲染。
+0097: E:\Dify\第一版\api-config.js / api.js | 前端接口封装 | 统一接口地址、请求封装、兼容映射与部分 fallback。 | 需区分真实后端调用与本地兜底逻辑。
+0098: E:\Dify\第一版\document-service.js | 前端服务 | 文档上传、删除、列表及原文查看相关请求。 | 主链路已接入后端。
+0099: E:\Dify\第一版\chat-service.js | 前端服务 | 通用问答与场景接口调用。 | 主链路已接入后端。
+0100: E:\Dify\第一版\design-service.js | 前端服务 | 设计辅助结构化输出和 Mermaid 图示渲染相关逻辑。 | 包含真实接口接入与 fallback。
+0101: E:\Dify\第一版\training-service.js / handover-service.js | 前端服务 | 培训模式、交接模式场景化输出封装。 | 需继续核验真实后端闭环比例。
+0102: E:\Dify\第一版\history-service.js / dashboard-service.js / settings-service.js | 前端服务 | 历史记录、看板、设置页数据组织。 | 存在前端兼容层或本地 fallback 风险。
+0103: E:\Dify\dify-lite\app\api\routes.py | 后端路由 | 根路由页面托管与 API 路由入口。 | 当前第一版页面由该路由直接托管。
+0104: E:\Dify\dify-lite\app\services\frontend_service.py | 后端服务 | 场景接口协调、前端适配、原文查看、设计 JSON 解析等。 | 主链路关键协调服务。
+0105: E:\Dify\dify-lite\app\services\ingestion_service.py | 后端服务 | 文档导入、解析、切片和入库流程调度。 | 与 document_loader、repository、Weaviate 支持配合。
+0106: E:\Dify\dify-lite\app\services\retrieval_service.py | 后端服务 | 检索流程，含本地词法检索和向量检索支持。 | 中文 CJK n-gram 优化影响召回质量。
+0107: E:\Dify\dify-lite\app\services\chat_service.py | 后端服务 | 模型调用、上下文拼接、回答生成。 | 依赖 .env 中模型服务配置。
+0108: E:\Dify\dify-lite\app\storage\repository.py / db.py | 后端存储 | SQLite 数据读写与数据库连接。 | 主要结构化数据持久化层。
+0109: E:\Dify\dify-lite\app\core\document_loader.py | 文档解析 | txt、md、csv、json、html、docx、pptx 文件解析。 | 不支持旧版 doc / ppt。
+0110: E:\Dify\dify-lite\app\core\text_utils.py | 文本处理 | 切片、清洗、中文词法检索增强。 | 近期已补 CJK n-gram 逻辑。
+0111: E:\Dify\dify-lite\app\core\weaviate_store.py | 向量库支持 | Weaviate 写入或检索支持。 | 异常时可能退回词法检索。
+0112: E:\Dify\dify-lite\.env | 配置文件 | 模型服务地址、Key、模型名称等配置。 | 模型可用性依赖该配置。
+0113: E:\Dify\deploy.cmd / deploy.ps1 | 启动脚本 | 轻量启动 dify-lite + 当前前端。 | 常用主链路启动方式。
+0114: E:\Dify\deploy-all.cmd / deploy-all.ps1 | 启动脚本 | 启动完整 Dify Docker 栈 + dify-lite + 当前前端。 | PowerShell Host 变量冲突已修为 HostName。
+0115: 2.1.4 文档说明
+0116: 当前设计说明以 E:\Dify 本地最新项目代码、目录结构和联调状态为依据，已对前端 service、dify-lite 路由与服务层、Docker 配置和部署脚本做逐项核对。对于仍未完全闭环或尚未形成正式规范的接口、字段和持久化行为，本文继续采用谨慎描述，并在 3.4 节集中列出需要后续补充确认的内容。
+0117: 2.2 设计决策
+0118: 2.2.1 输入/输出设计
+0119: 2.2.1.1 输入/输出数据流图
+0120: 图 1 SuperRAG 输入/输出数据流图
+0121: 图 1 展示了当前系统从用户、业务文档、配置项和可选基础设施进入第一版前端与 dify-lite 后端，再输出问答结果、引用证据、原文追溯、培训/交接/设计辅助结果的主要数据流。
+0122: 2.2.1.2 输入/输出说明
+0123: 表 8 输入/输出说明
+0124: [[TABLE]]
+0125: 序号 | 输入输出名称 | 输入/输出信息 | 输入/输出方法 | 备注
+0126: 1 | 用户访问请求 | 浏览器访问 http://127.0.0.1:8088/。 | HTTP GET / | 由 dify-lite routes.py 根路由托管第一版前端。
+0127: 2 | 业务文档上传 | txt、md、csv、json、html、docx、pptx。 | POST /api/documents/import | 不支持旧版 doc / ppt。
+0128: 3 | 模型服务配置 | DIFY_LITE_MODEL_BASE_URL、DIFY_LITE_MODEL_API_KEY、DIFY_LITE_MODEL_NAME。 | E:\Dify\dify-lite\.env | 模型不可用时场景接口会失败或降级。
+0129: 4 | 检索问答输入 | 用户问题、场景类型、知识库上下文。 | POST /api/scenes/general 等场景接口 | 由 frontend_service.run_scene 协调。
+0130: 5 | 设计辅助输入 | 需求、模块、业务对象等设计问题。 | POST /api/scenes/design | 后端构建 design prompt，输出结构化 JSON。
+0131: 6 | 问答输出 | summary、evidence、risks、nextActions、citations。 | JSON 响应 | 前端清洗和渲染。
+0132: 7 | 引用原文输出 | 上传原文内容、chunk 信息、sourceName。 | GET /api/documents/source | 依赖 chunkId / documentId / sourceName。
+0133: 8 | 运行持久化输出 | 文档元数据、chunk、上传文件、可选向量索引。 | SQLite / uploads / Weaviate | Weaviate 删除同步需继续核验。
+0134: 2.2.2 行为设计
+0135: 表 9 行为设计
+0136: [[TABLE]]
+0137: 输入/条件 | 系统动作 | 响应时间 | 输出 | 对不允许输入或条件的处理 | 其它描述
+0138: 访问 8088 根路径 | dify-lite 返回第一版 index.html 及静态资源。 | 交互级 | 前端主页面。 | 资源缺失时返回错误或无法加载页面。 | 当前主入口不是 Dify Web 3000。
+0139: 上传支持格式文档 | 保存原文、解析文本、切片、写入 SQLite，可选写入 Weaviate。 | 与文件大小和模型/索引状态相关 | 文档元数据与索引结果。 | 格式不支持或解析失败时返回导入失败信息。 | 中文 Word 文件名后缀丢失问题已修复。
+0140: 发起通用问答 | 检索相关 chunk，构造上下文，调用模型生成回答。 | 依赖检索与模型服务 | 回答、证据、引用、风险和建议动作。 | 模型配置无效时失败或降级。 | 检索含中文 CJK n-gram 词法优化。
+0141: 点击引用查看原文 | 根据 chunkId、documentId、sourceName 反查原文和相关 chunk。 | 交互级 | 原文弹窗和上下文片段。 | 字段缺失或文档已删除时返回错误或空结果。 | 前端已合并引用原文弹窗与字段映射。
+0142: 发起设计辅助 | 调用 /api/scenes/design，解析 functionList、useCases、moduleSuggestions、risks、nextActions、diagram。 | 依赖模型服务 | 结构化设计结果和 Mermaid 图示。 | JSON 解析失败时采用前后端 fallback。 | 属于第一版设计图示增强，不是专业 UML 引擎。
+0143: 使用培训/交接模式 | 调用相应场景服务或前端兼容逻辑生成结构化内容。 | 依赖具体接入状态 | 培训材料或交接材料。 | 后端接口不完整时走前端 fallback。 | 需继续核验真实持久化和闭环。
+0144: 2.2.3 数据显示设计
+0145: 表 10 数据显示设计
+0146: [[TABLE]]
+0147: 序号 | 数据类型 | 文字 | 表格 | 编辑框 | 图像/图形 | 日志/报表 | 其它
+0148: 1 | 问答内容 | 支持段落、小标题和列表化展示。 | 可渲染证据列表。 | 聊天输入框。 | 无。 | 可记录历史但持久化需核验。 | 前端近期做过富文本输出清洗。
+0149: 2 | 引用证据 | 显示 sourceName、引用片段、相关度等。 | 可列表化展示 citations。 | 无。 | 原文弹窗。 | 无。 | 点击后调用 /api/documents/source。
+0150: 3 | 文档管理 | 显示文档名称、状态、导入结果。 | 文档列表。 | 上传入口。 | 无。 | 无。 | 删除后向量库同步需核验。
+0151: 4 | 设计辅助结果 | 显示功能清单、用例、模块建议、风险、下一步。 | 可 tab 分区展示。 | 需求输入区。 | Mermaid 图示输出 tab。 | 无。 | 渲染失败保留源码查看和复制。
+0152: 5 | Dashboard / 设置 | 显示统计和配置项。 | 看板卡片或表格。 | 设置项输入。 | 可能有可视化卡片。 | 运行日志接口待核验。 | 部分能力可能为前端兼容层。
+0153: 2.2.4 可靠性设计
+0154: 表 11 可靠性设计
+0155: [[TABLE]]
+0156: 序号 | 需求 | 采取的措施
+0157: 1 | 页面可本地访问 | 由 dify-lite 直接托管第一版前端，减少前后端跨域和独立静态服务配置复杂度。
+0158: 2 | 文档入库可追踪 | 上传原文保存到 data/uploads，结构化信息写入 SQLite。
+0159: 3 | 检索服务异常可降级 | 检索层包含本地库和 Weaviate 支持，Weaviate 异常时可能退回词法检索。
+0160: 4 | 引用证据可追溯 | citation 返回 chunkId、documentId、sourceName，前端可调用原文查看接口。
+0161: 5 | 设计辅助输出稳定性 | 后端优先解析模型返回的结构化 JSON 和 diagram 字段，缺失时存在 fallback Mermaid 构造逻辑。
+0162: 6 | 全栈依赖隔离 | Docker sandbox 不稳定不一定影响 8088 主链路，降低外围容器状态对主页面的影响。
+0163: 2.2.5 可维护性设计
+0164: 表 12 可维护性设计
+0165: [[TABLE]]
+0166: 序号 | 需求 | 采取的措施
+0167: 1 | 前端服务分层 | 第一版前端将文档、聊天、培训、交接、设计、历史、看板、设置拆分到不同 service 文件中。
+0168: 2 | 后端业务分层 | dify-lite 后端按 routes、services、core、storage、config 分层组织。
+0169: 3 | 配置集中管理 | 模型服务关键配置集中在 E:\Dify\dify-lite\.env。
+0170: 4 | 启动脚本区分场景 | deploy.cmd 面向轻量主链路，deploy-all.cmd 面向完整依赖环境，便于排障和演示。
+0171: 5 | 本地化问题显式修复 | 中文文件名上传和中文检索优化已作为工程问题处理，便于后续维护中文知识库场景。
+0172: 2.2.6 安全性设计
+0173: 表 13 安全性设计
+0174: [[TABLE]]
+0175: 序号 | 需求 | 采取的措施
+0176: 1 | 模型凭据配置 | API Key 不写入前端页面，模型服务配置位于后端 .env。
+0177: 2 | 本地数据存放 | SQLite 与 uploads 位于 dify-lite data 目录，适合本地演示和受控环境。
+0178: 3 | 文件上传格式控制 | 当前支持指定文档格式，不支持旧版 doc / ppt。
+0179: 4 | 原文查看控制 | 通过 chunkId、documentId、sourceName 反查，不直接暴露任意文件路径。
+0180: 5 | 待完善权限 | 当前资料未明确提供用户认证、权限隔离、审计日志和敏感字段脱敏机制，需后续补充。
+0181: 2.2.7 保密性与私密性设计
+0182: 当前系统定位为本地部署知识库问答项目，文件原文和 SQLite 数据默认保存在本地 dify-lite data 目录，有利于课程演示、内网部署和原文留存。但如果模型服务为外部远程服务，检索上下文会随请求发送到模型服务侧。因此后续正式使用前，应明确模型服务部署位置、数据脱敏策略、上传文件访问权限和日志保留策略。
+0183: 2.2.8 构造选择与其他设计决策
+0184: 表 14 构造选择与设计取舍
+0185: [[TABLE]]
+0186: 设计选择 | 采用原因 | 工程取舍
+0187: dify-lite 直接托管前端 | 降低本地联调复杂度，浏览器访问 8088 即可使用。 | 牺牲完整 Dify Web 控制台的一体化体验，需明确 8088 与 3000 的职责差异。
+0188: 纯 HTML/CSS/原生 JS 前端 | 便于快速联调和课程项目交付，不依赖复杂前端构建链。 | 大型状态管理、组件复用和工程化构建能力较弱。
+0189: SQLite 本地持久化 | 部署轻量、易迁移，适合本地知识库和演示环境。 | 多用户并发、高可用、复杂权限和大规模数据能力有限。
+0190: 本地词法检索 + 可选 Weaviate | Weaviate 可增强向量检索，本地词法可提供降级路径。 | 删除同步、向量库状态和召回质量需要持续核验。
+0191: Mermaid 图示输出 | 用文本图示增强设计辅助表达，前端浏览器可渲染。 | 当前是第一版图示能力，不等同于专业 UML 图形平台。
+0192: 2.3 体系结构设计
+0193: 2.3.1 总体架构
+0194: 2.3.1.1 系统架构设计
+0195: 系统总体采用本地轻量 Web 架构。浏览器作为用户交互入口，dify-lite 后端同时承担静态页面托管与 API 服务职责，后端内部再连接文档解析、文本切片、检索、模型调用、SQLite、uploads 和可选 Weaviate。完整 Dify Docker 栈作为外围基础设施，在需要完整 Dify 控制台、Weaviate 或 sandbox 等能力时通过 deploy-all 启动。
+0196: 2.3.1.2 系统体系结构
+0197: 图 2 SuperRAG 系统体系结构图
+0198: 2.3.2 软件体系结构
+0199: 表 15 软件体系结构分层
+0200: [[TABLE]]
+0201: 层次 | 主要构件 | 职责 | 说明
+0202: 用户交互层 | 浏览器、第一版页面 | 提供文档上传、问答、引用查看、培训、交接、设计辅助、设置和看板入口。 | 当前访问入口为 8088。
+0203: 前端服务层 | api.js、document-service.js、chat-service.js、design-service.js 等 | 封装接口调用、字段映射、fallback、前端渲染和兼容处理。 | 需区分真实接口和本地 mock/fallback。
+0204: API 路由层 | routes.py | 托管根路由和 API 路由。 | 第一版页面由该路由直接托管。
+0205: 业务服务层 | frontend_service.py、ingestion_service.py、retrieval_service.py、chat_service.py | 协调场景接口、文档入库、检索、模型调用和原文查看。 | RAG 主链路核心。
+0206: 核心处理层 | document_loader.py、text_utils.py、weaviate_store.py | 文档解析、切片、中文检索优化、向量库支持。 | CJK n-gram 优化是中文知识库亮点。
+0207: 数据持久层 | repository.py、db.py、SQLite、uploads | 结构化数据、本地原文和文档索引结果。 | 删除同步到向量库需继续核验。
+0208: 运行支撑层 | deploy 脚本、Docker compose、.env | 启动、停止、依赖服务和模型配置。 | sandbox 状态不一定影响 8088 主链路。
+0209: 2.3.3 部件逻辑组成
+0210: 表 16 部件标识表
+0211: [[TABLE]]
+0212: 序号 | 部件名称 | 标识符 | 用途 | 是否关键单元
+0213: 1 | 前端页面部件 | UI-01 | 提供当前 SuperRAG 页面、交互与渲染。 | 是
+0214: 2 | 前端接口服务部件 | UI-02 | 封装 /api 调用、兼容映射和部分 fallback。 | 是
+0215: 3 | 后端路由部件 | SVC-01 | 托管页面与 API 路由。 | 是
+0216: 4 | 文档入库部件 | SVC-02 | 上传、解析、切片、入库。 | 是
+0217: 5 | 检索部件 | SVC-03 | 本地检索、中文词法检索、可选向量检索。 | 是
+0218: 6 | 模型问答部件 | SVC-04 | 构造上下文并调用模型服务。 | 是
+0219: 7 | 引用原文部件 | SVC-05 | 根据 citation 字段反查上传原文和 chunk。 | 是
+0220: 8 | 设计辅助部件 | SVC-06 | 输出结构化设计 JSON 和 Mermaid diagram。 | 否
+0221: 9 | 数据存储部件 | DATA-01 | SQLite、uploads 与可选 Weaviate。 | 是
+0222: 10 | 部署支撑部件 | DEP-01 | 轻量启动、全栈启动和停止脚本。 | 是
+0223: 表 17 部件职责与实现依据表
+0224: [[TABLE]]
+0225: 标识符 | 开发状态/类型 | 实现构件 | 分配的设计决策 | 使用资源 | 说明
+0226: UI-01 | 已接入/前端静态资源 | index.html、app.js、styles.css | 8088 页面访问、模式切换、结果渲染。 | 浏览器、静态资源。 | 当前主页面。
+0227: UI-02 | 部分真实接入 + fallback | api.js、api-config.js、document/chat/design/training/handover/history/dashboard/settings service | 接口封装、字段映射、原文弹窗、多模式结果适配、Mermaid 渲染。 | /api 接口、本地兼容逻辑。 | 需避免将 fallback 写成后端闭环；其中 design-service 已适配更完整的结构化字段。
+0228: SVC-01 | 已接入/后端路由 | routes.py | 根路由托管、API 路由入口。 | dify-lite 服务进程。 | 8088 主入口。
+0229: SVC-02 | 已接入/后端服务 | frontend_service.py、ingestion_service.py、document_loader.py、text_utils.py | 文档导入、解析、切片、入库。 | uploads、SQLite、Weaviate。 | 支持 docx/pptx，不支持 doc/ppt。
+0230: SVC-03 | 已接入/检索服务 | retrieval_service.py、text_utils.py、weaviate_store.py | 相关 chunk 召回。 | SQLite、本地词法、Weaviate。 | CJK n-gram 优化。
+0231: SVC-04 | 已接入/模型服务 | chat_service.py | 回答生成和场景输出。 | .env 模型配置。 | 依赖外部模型服务状态。
+0232: SVC-05 | 已接入/后端接口 | frontend_service.get_document_source、GET /api/documents/source | 原文查看和 citation 追溯。 | chunkId、documentId、sourceName、uploads。 | 近期增强重点。
+0233: SVC-06 | 可用但有风险/场景服务 | POST /api/scenes/design、design_pipeline.py、output_validator.py、design-service.js | 设计辅助分步生成、JSON 修复、schema 校验、质量评估和 Mermaid 图示输出。 | 模型服务、前端 Mermaid、schema 归一逻辑。 | 当前已不是单一 prompt + 简单解析链路，而是第一版 pipeline 化实现。
+0234: DATA-01 | 已接入/存储 | repository.py、db.py、data/dify_lite.db、data/uploads | 本地持久化。 | SQLite 文件、本地目录。 | 删除与 Weaviate 同步需核验。
+0235: DEP-01 | 已接入/脚本 | deploy.cmd、deploy.ps1、deploy-all.cmd、deploy-all.ps1、stop-all.* | 启动和停止。 | Windows Shell、PowerShell、Docker。 | deploy-all.ps1 Host 变量冲突已修。
+0236: 2.3.4 软件组成
+0237: 2.3.4.1 软件概述
+0238: 当前软件由前端静态页面、前端服务封装、dify-lite 后端服务、文本处理核心、存储层、可选向量库支持、模型服务配置和部署脚本组成。系统以轻量本地部署为主要设计取向，重点保证文档入库、检索问答和引用追溯链路可运行。
+0239: 2.3.4.2 软件架构
+0240: 软件架构采用“页面托管 + 同源 API + 后端服务分层 + 本地存储”的组织方式。前端不直接访问模型服务或数据库；后端集中处理文档解析、检索、模型调用和原文查看。模型服务参数由后端 .env 控制，降低前端泄露 API Key 的风险。
+0241: 2.3.4.3 软件组成
+0242: 表 18 构件说明表
+0243: [[TABLE]]
+0244: 构件名称 | 真实文件/目录 | 功能用途 | 构件类别 | 备注
+0245: 前端页面构件 | E:\Dify\第一版\index.html / app.js / styles.css | 页面结构、交互逻辑、样式。 | 前端静态资源 | 当前由后端直接托管。
+0246: 前端配置构件 | api-config.js / api.js | 接口地址、请求封装、兼容映射。 | 前端服务 | 包含 fallback 风险。
+0247: 文档服务构件 | document-service.js | 文档上传、删除、原文查看调用。 | 前端服务 | 已接入主链路。
+0248: 聊天服务构件 | chat-service.js | 通用问答和场景调用。 | 前端服务 | 已接入主链路。
+0249: 设计服务构件 | design-service.js | 设计辅助结构化结果、多字段映射和 Mermaid 图示渲染。 | 前端服务 | 已适配业务分析、数据与权限、需求追踪等扩展字段，仍保留 fallback。
+0250: 场景服务构件 | training-service.js / handover-service.js | 培训模式、交接模式输出。 | 前端服务 | training 走真实场景接口并保留前端 fallback；handover 已接入 handover_pipeline，失败时可回退。
+0251: 管理服务构件 | history-service.js / dashboard-service.js / settings-service.js | 历史、看板、设置。 | 前端服务 | 持久化需核验。
+0252: 路由服务构件 | routes.py | 根路由和 API 路由。 | 后端路由 | 页面托管核心。
+0253: 场景协调构件 | frontend_service.py | run_scene、get_document_source、legacy runner 与 scene pipeline 协调。 | 后端服务 | 前后端契约核心；design/handover 会优先进入 pipeline。
+0254: 入库服务构件 | ingestion_service.py | 导入、解析、切片、写入。 | 后端服务 | 入库主链路。
+0255: 检索服务构件 | retrieval_service.py | 检索与召回。 | 后端服务 | 含本地库与可选 Weaviate。
+0256: 模型调用构件 | chat_service.py | 调用模型服务并生成回答。 | 后端服务 | 依赖 .env。
+0257: 存储构件 | repository.py / db.py | SQLite 连接与读写。 | 后端存储 | 本地数据库。
+0258: 文档解析构件 | document_loader.py | 多格式文档加载。 | 后端核心 | 支持 docx/pptx。
+0259: 文本处理构件 | text_utils.py | 文本清洗、切片、CJK n-gram。 | 后端核心 | 中文检索亮点。
+0260: 向量库构件 | weaviate_store.py | Weaviate 支持。 | 后端核心 | 可选依赖。
+0261: 2.3.4.4 构件视图
+0262: 图 3 SuperRAG 构件视图
+0263: 2.3.4.5 进程/运行视图
+0264: 图 4 SuperRAG 主要处理流程图
+0265: 表 19 运行/进程说明表
+0266: [[TABLE]]
+0267: 进程/任务名称 | 启动来源 | 功能描述 | 所属部件 | 调用关系 | 日志输出
+0268: dify-lite 服务 | deploy.cmd / deploy.ps1 / run.py | 启动后端服务并托管第一版前端。 | SVC-01 | 浏览器访问 8088，前端同源调用 /api。 | 后端运行日志，具体路径需核验。
+0269: 文档导入任务 | 前端上传操作 | 保存上传文件，解析、切片、写库、可选写向量库。 | SVC-02 / DATA-01 | document-service.js -> POST /api/documents/import。 | 导入结果和异常信息。
+0270: 检索问答任务 | 聊天或场景页操作 | 检索知识片段，调用模型生成场景化输出。 | SVC-03 / SVC-04 | chat-service.js -> /api/scenes/*。 | 场景接口返回与异常日志。
+0271: 原文查看任务 | 前端点击 citation | 根据 citation 反查文档原文和 chunk。 | SVC-05 | GET /api/documents/source。 | 接口返回或错误信息。
+0272: 完整 Dify Docker 服务组 | deploy-all.cmd / deploy-all.ps1 | 启动 Dify 原生控制台和基础依赖。 | DEP-01 | 与 dify-lite 主链路为可选依赖关系。 | Docker 容器日志。
+0273: 2.3.4.6 部署/安装视图
+0274: 图 5 SuperRAG 部署/安装视图
+0275: 表 20 部署说明表
+0276: [[TABLE]]
+0277: 部署节点 | 节点用途 | 包含构件 | 硬件/软件环境 | 备注
+0278: 用户工作站 | 浏览器访问和本地演示。 | 浏览器、E:\Dify 项目目录。 | Windows 本地环境。 | 当前常用访问入口为 8088。
+0279: dify-lite 后端节点 | 提供页面托管和 API 服务。 | run.py、routes.py、services、core、storage、.env。 | Python 运行环境，具体版本需从项目 README 或环境配置核验。 | deploy.cmd 启动。
+0280: 本地数据节点 | 保存数据库、上传原文和索引数据。 | data/dify_lite.db、data/uploads。 | 本地磁盘。 | 需注意备份与清理策略。
+0281: Docker 依赖节点 | 提供完整 Dify 栈和可选基础设施。 | docker-compose.yaml、.env、sandbox conf、Weaviate、Redis、DB 等。 | Docker Desktop 或等价 Docker 环境。 | deploy-all.cmd 启动；sandbox unhealthy 不一定影响 8088 主链路。
+0282: 外部模型服务 | 为 RAG 和场景输出提供模型能力。 | DIFY_LITE_MODEL_* 配置指向的服务。 | 外部或内网模型 API。 | 不可用时场景接口可能失败或降级。
+0283: 2.3.4.7 执行概念
+0284: 轻量运行：执行 deploy.cmd 或 deploy.ps1，仅启动 dify-lite 与当前第一版前端，浏览器访问 http://127.0.0.1:8088/。
+0285: 全栈运行：执行 deploy-all.cmd 或 deploy-all.ps1，启动完整 Dify Docker 栈、dify-lite 与当前第一版前端，用于需要 Weaviate 或完整 Dify 依赖时的场景。
+0286: 停止运行：执行 stop-all.cmd 或 stop-all.ps1 停止相关服务。
+0287: 模型配置：通过 E:\Dify\dify-lite\.env 中的 DIFY_LITE_MODEL_BASE_URL、DIFY_LITE_MODEL_API_KEY、DIFY_LITE_MODEL_NAME 控制模型服务。
+0288: 数据持久化：结构化数据写入 SQLite，上传原文写入 uploads，可选向量索引由 Weaviate 支持。
+0289: 2.3.4.8 人机界面设计
+0290: 当前第一版前端为纯 HTML + CSS + 原生 JavaScript 页面，包含文档导入、问答、场景化输出、设计辅助、引用原文弹窗、Dashboard、设置页等入口。近期已合并新版设计中的引用原文弹窗、字段映射、证据等级阈值调整、富文本输出清洗和设计辅助图示输出 tab。
+0291: 表 21 人机界面元素说明
+0292: [[TABLE]]
+0293: 界面/区域 | 主要元素 | 真实接入状态 | 说明
+0294: 主页面 | 页面布局、导航、聊天区域、文档区域。 | 已接入 | 由 index.html、app.js、styles.css 组织。
+0295: 文档管理区 | 上传表单、文档列表、删除操作。 | 基本可用 | 删除与向量库同步需核验。
+0296: 问答区域 | 问题输入、回答展示、证据展示。 | 基本可用 | 依赖检索和模型服务。
+0297: 引用原文弹窗 | sourceName、chunk、原文内容。 | 已增强 | 调用 GET /api/documents/source。
+0298: 设计辅助区域 | 业务分析、功能清单、用例、模块、数据与权限、需求追踪、风险、后续动作、图示 tab。 | 可用但有风险 | Mermaid 渲染失败时保留源码；字段数量和质量受模型输出与证据覆盖影响。
+0299: 培训/交接区域 | 结构化输出卡片或文本。 | 需继续核验 | 前端 service 中可能有 fallback/mock。
+0300: Dashboard / 设置页 | 统计卡片、配置项、状态信息。 | 尚未完全闭环 | 持久化和运行日志接口需核验。
+0301: 2.3.5 执行方案
+0302: 2.3.5.1 系统部署
+0303: 系统部署以 E:\Dify 为根目录。常规演示和开发联调优先使用 deploy.cmd，该脚本只启动 dify-lite 和当前第一版前端，完成 8088 主链路。需要完整 Dify 控制台、Weaviate 或其他 Docker 依赖时使用 deploy-all.cmd；该脚本会启动完整 Dify Docker 栈和 dify-lite。
+0304: 2.3.5.2 主要处理流程
+0305: 表 22 主要处理流程
+0306: [[TABLE]]
+0307: 流程编号 | 流程名称 | 处理步骤 | 关键文件/接口 | 输出
+0308: P-01 | 页面访问流程 | 浏览器访问 8088；dify-lite 根路由返回第一版前端；前端加载 app.js 和各 service。 | routes.py、index.html、app.js | SuperRAG 页面。
+0309: P-02 | 文档上传流程 | 前端提交文件；后端保存原文；document_loader 解析；text_utils 切片；repository 写 SQLite；可选写 Weaviate。 | POST /api/documents/import、ingestion_service.py、document_loader.py、text_utils.py、repository.py | 文档元数据和索引结果。
+0310: P-03 | RAG 问答流程 | 前端提交问题；后端检索；chat_service 调用模型；返回 summary、evidence、risks、nextActions、citations。 | /api/scenes/general、retrieval_service.py、chat_service.py | 带引用的回答。
+0311: P-04 | 原文查看流程 | 前端点击引用；携带 chunkId/documentId/sourceName；后端反查上传原文和 chunk。 | GET /api/documents/source、frontend_service.get_document_source | 原文弹窗内容。
+0312: P-05 | 设计辅助流程 | 前端提交设计问题；后端检索证据；design_pipeline 分步生成 JSON；output_validator 与 schema 做修复和归一；前端按多个 tab 渲染并执行 Mermaid 图示渲染。 | POST /api/scenes/design、design_pipeline.py、output_validator.py、design-service.js、app.js | 结构化设计结果、质量评估和 Mermaid 图示。
+0313: 2.3.5.3 信息流程
+0314: 信息流程遵循“前端采集输入—后端统一处理—本地存储和可选检索基础设施—模型生成—前端产品化展示”的方向。文档原文与知识片段被保存后，问答和场景输出通过 citations 保留证据链，再通过原文查看接口实现从回答回到原始文档的追溯。
+0315: 2.3.5.4 流程和信息交换设计
+0316: 前后端主要通过 JSON 接口交换信息。文档上传使用 multipart/form-data；场景接口返回结构化 JSON；引用原文接口通过 query 参数传递 chunkId、documentId、sourceName。设计辅助场景当前采用“后端分步生成 + schema 校验/修复 + 前端 tab 化渲染 + Mermaid 图示渲染”的组织方式，前端会根据结构化字段呈现业务分析、功能清单、用例、模块、数据与权限、追踪关系、风险、后续动作和图示结果。
+0317: 2.3.6 接口设计
+0318: 2.3.6.1 外部接口设计
+0319: 图 6 SuperRAG 接口调用关系图
+0320: 表 23 外部接口标识表
+0321: [[TABLE]]
+0322: 接口组 | 标识符 | 接口类型 | 优先级 | 发送方 | 接收方
+0323: 页面与静态资源接口 | I-EXT-01 | HTTP 页面接口 | 高 | 浏览器 | dify-lite routes.py
+0324: 系统与集合配置接口 | I-EXT-02 | HTTP API | 高 | 第一版前端 / 运维检查 | dify-lite health/config/collections
+0325: 文档管理接口 | I-EXT-03 | HTTP API | 高 | 第一版前端 document-service.js | dify-lite documents/source/import/delete
+0326: 场景与检索接口 | I-EXT-04 | HTTP API | 高 | 第一版前端 chat/design/training/handover service | dify-lite scenes/retrieval/chat
+0327: 模型服务接口 | I-EXT-05 | HTTP API | 高 | dify-lite chat_service.py | 外部模型服务
+0328: Docker 依赖接口 | I-EXT-06 | 容器/服务接口 | 中 | dify-lite / 运维脚本 | Dify Docker 栈 / Weaviate
+0329: 表 24 外部接口说明表
+0330: [[TABLE]]
+0331: 标识符 | 接口定义 | 通信方法 | 协议 | 需求描述 | 备注
+0332: I-EXT-01 | GET /、GET /<asset_path> | 同步请求 | HTTP | 返回第一版前端页面及静态资源。 | 主入口为 8088。
+0333: I-EXT-02 | GET /api/health、GET /api/config、GET/POST /api/collections | 同步请求 | HTTP JSON | 提供健康检查、公开配置和知识库集合管理。 | 当前真实 routes.py 已实现。
+0334: I-EXT-03 | GET /api/documents、POST /api/documents/import、DELETE /api/documents/<document_id>、GET /api/documents/source | 同步请求 | HTTP / multipart/form-data | 提供文档列表、导入、删除和原文追溯。 | 删除接口已存在，但 Weaviate 同步删除仍未实现。
+0335: I-EXT-04 | POST /api/scenes/general|training|handover|design、POST /api/retrieval/query、POST /api/chat/completions | 同步请求 | HTTP JSON | 执行场景化问答、检索测试和模型回答。 | training/handover/design 都有真实后端入口，但部分前端仍保留 fallback。
+0336: I-EXT-05 | 由 .env 中模型服务配置决定 | 后端调用 | HTTP 或兼容模型 API 协议 | 调用模型生成回答、结构化设计结果或交接结果。 | Base URL / API Key / Model Name 必须有效。
+0337: I-EXT-06 | docker-compose.yaml 中服务接口 | 容器服务调用 | Docker 网络/HTTP | 提供 Weaviate、sandbox、plugin daemon、db、redis 等基础设施。 | 不是 8088 主页面直接业务后端。
+0338: 2.3.6.2 内部接口设计
+0339: 表 25 内部接口标识表
+0340: [[TABLE]]
+0341: 接口名称 | 标识符 | 发送方 | 接收方 | 接口类型 | 优先级
+0342: 前端服务调用接口 | I-INT-01 | app.js | document/chat/design/training/handover/history/dashboard/settings service | JavaScript 函数调用 | 高
+0343: 场景协调接口 | I-INT-02 | routes.py | frontend_service.py | Python 函数调用 | 高
+0344: 文档入库接口 | I-INT-03 | frontend_service.py | ingestion_service.py | Python 函数调用 | 高
+0345: 解析切片接口 | I-INT-04 | ingestion_service.py | document_loader.py / text_utils.py | Python 函数调用 | 高
+0346: 检索接口 | I-INT-05 | frontend_service.py | retrieval_service.py | Python 函数调用 | 高
+0347: 模型回答接口 | I-INT-06 | frontend_service.py | chat_service.py | Python 函数调用 | 高
+0348: 存储访问接口 | I-INT-07 | services/core | repository.py / db.py | Python 函数调用 / SQLite | 高
+0349: 向量库访问接口 | I-INT-08 | retrieval/ingestion service | weaviate_store.py | Python 函数调用 | 中
+0350: 表 26 内部接口说明表
+0351: [[TABLE]]
+0352: 标识符 | 通信方法 | 协议 | 数据传送特性 | 说明
+0353: I-INT-01 | 前端模块函数调用 | JavaScript | 对象、Promise、JSON。 | 封装接口请求、字段映射与前端 fallback。
+0354: I-INT-02 | Python 函数调用 | 进程内调用 | 请求参数与响应对象。 | 路由层将 HTTP 请求分发到业务服务。
+0355: I-INT-03 | Python 函数调用 | 进程内调用 | 上传文件、文件元数据。 | 导入服务负责解析和入库流程。
+0356: I-INT-04 | Python 函数调用 | 进程内调用 | 文本、chunk、元数据。 | document_loader 支持多格式，text_utils 完成切片和中文检索处理。
+0357: I-INT-05 | Python 函数调用 | 进程内调用 / 可选向量库调用 | query、chunk、score、metadata。 | 检索服务输出证据候选。
+0358: I-INT-06 | Python 函数调用 + 外部 HTTP | 模型服务协议 | prompt、上下文、模型响应。 | chat_service 调用模型并返回回答。
+0359: I-INT-07 | SQLite 读写 | SQL / Python DB 接口 | 文档、chunk、元数据。 | repository 封装本地数据访问。
+0360: I-INT-08 | Python 调用 Weaviate | Weaviate 客户端/HTTP | 向量索引与检索结果。 | Weaviate 异常影响向量检索质量。
+0361: 2.3.7 数据组织设计
+0362: 表 27 数据组织设计
+0363: [[TABLE]]
+0364: 数据类别 | 载体 | 读写模块 | 用途 | 是否持久化
+0365: 文档元数据 | SQLite：data/dify_lite.db | repository.py、ingestion_service.py、frontend_service.py | 记录文档名称、类型、导入状态、索引结果等。 | 是
+0366: 上传原文 | data/uploads | frontend_service.py、ingestion_service.py、document_loader.py | 保存原始上传文件，支持后续原文查看。 | 是
+0367: 文本切片 / chunk | SQLite / 可选 Weaviate | text_utils.py、repository.py、weaviate_store.py | 检索和引用证据基础。 | 是
+0368: 引用证据 | 接口响应 JSON | retrieval_service.py、chat_service.py、frontend_service.py | 回答证据链和原文追溯。 | 否，是否写历史需核验
+0369: 问答历史 | 前端 service / 后端接口待核验 | history-service.js 等 | 历史记录展示。 | 待核验
+0370: 设置项 | 前端 service / 后端配置待核验 | settings-service.js、.env | 页面设置和模型服务配置。 | .env 持久化；页面设置待核验
+0371: 设计辅助结果 | 接口响应 JSON / 前端渲染状态 | design-service.js、design_pipeline.py、output_validator.py、frontend_service.py | 业务分析、功能清单、用例、模块、数据与权限、追踪矩阵、图示与质量评估。 | 待核验
+0372: 表 28 数据对象定义表
+0373: [[TABLE]]
+0374: 数据对象编号 | 数据对象名称 | 主要字段/内容 | 关联模块 | 说明
+0375: D-01 | Document | documentId、sourceName、文件名、文件类型、上传路径、导入状态。 | document-service.js、repository.py、ingestion_service.py | 具体字段以 SQLite 表结构为准。
+0376: D-02 | Chunk | chunkId、documentId、content、metadata、score。 | text_utils.py、retrieval_service.py、repository.py | 用于检索和 citation。
+0377: D-03 | Citation | chunkId、documentId、sourceName、片段内容、相关度。 | retrieval_service.py、chat_service.py、frontend_service.py | 近期已增强追溯字段。
+0378: D-04 | SceneResult | summary、evidence、risks、nextActions、citations。 | frontend_service.run_scene、chat-service.js | 通用问答和多场景输出响应。
+0379: D-05 | DesignResult | businessObjects、businessRules、functionList、useCases、moduleSuggestions、dataObjects、permissionAnalysis、exceptionScenarios、risks、openQuestions、traceabilityMatrix、evidenceCoverage、nextActions、diagram、qualityAssessment。 | POST /api/scenes/design、design-service.js、design_pipeline.py | 设计辅助结构化输出，当前已明显超出旧版简化字段模型。
+0380: D-06 | ModelConfig | DIFY_LITE_MODEL_BASE_URL、DIFY_LITE_MODEL_API_KEY、DIFY_LITE_MODEL_NAME。 | .env、chat_service.py | 模型服务配置。
+0381: D-07 | UploadFile | 文件原文、扩展名、保存路径。 | document_loader.py、uploads | 支持 txt/md/csv/json/html/docx/pptx。
+0382: 表 29 配置项说明表
+0383: [[TABLE]]
+0384: 配置项编号 | 配置项名称 | 来源文件 | 用途 | 备注
+0385: C-01 | DIFY_LITE_MODEL_BASE_URL | E:\Dify\dify-lite\.env | 指定模型服务基础地址。 | 模型调用关键配置。
+0386: C-02 | DIFY_LITE_MODEL_API_KEY | E:\Dify\dify-lite\.env | 指定模型服务认证 Key。 | 不得写入前端。
+0387: C-03 | DIFY_LITE_MODEL_NAME | E:\Dify\dify-lite\.env | 指定模型名称。 | 需与模型服务兼容。
+0388: C-04 | 前端 API 配置 | E:\Dify\第一版\api-config.js | 统一前端接口地址和兼容设置。 | 需避免指向错误端口。
+0389: C-05 | Docker Compose 配置 | E:\Dify\dify\docker\docker-compose.yaml | 完整 Dify 栈容器编排。 | 外围依赖。
+0390: C-06 | Docker 环境配置 | E:\Dify\dify\docker\.env | 完整 Dify 栈环境变量。 | 不等同于 dify-lite .env。
+0391: C-07 | sandbox 配置 | E:\Dify\dify\docker\volumes\sandbox\conf\config.yaml | sandbox 容器配置。 | sandbox unhealthy 不一定影响 8088 主链路。
+0392: 2.3.8 多场景输出能力
+0393: 表 30 多场景能力说明
+0394: [[TABLE]]
+0395: 场景 | 前端入口/服务 | 后端接口/服务 | 当前状态 | 说明
+0396: 通用问答 | chat-service.js | /api/scenes/general、frontend_service.run_scene、retrieval_service、chat_service | 已基本可用 | RAG 主链路。
+0397: 培训模式 | training-service.js | POST /api/scenes/training、frontend_service.run_scene、retrieval_service、chat_service | 可用但有风险 | 有真实后端场景接口，失败时前端会 fallback 到 mock。
+0398: 交接模式 | handover-service.js | POST /api/scenes/handover、frontend_service.py、handover_pipeline.py、output_validator.py | 可用但有风险 | 已接入后端 pipeline；生成失败时可能回退到 legacy runner 或前端 fallback。
+0399: 设计辅助 | design-service.js | POST /api/scenes/design、frontend_service.py、design_pipeline.py、output_validator.py | 可用但有风险 | 多字段结构化 JSON + Mermaid diagram；模型非规范输出时会做修复、校验和回退。
+0400: 引用原文查看 | document-service.js / 引用弹窗 | GET /api/documents/source | 已基本可用 | 当前证据链增强重点。
+0401: Dashboard | dashboard-service.js | 后端闭环需核验 | 尚未完全闭环 | 可视化入口存在，但数据持久化和真实统计需确认。
+0402: 设置页 | settings-service.js | 后端闭环需核验 | 尚未完全闭环 | 页面设置持久化需确认，模型配置以 .env 为准。
+0403: 2.3.9 设计辅助与 Mermaid 图示输出说明
+0404: 设计辅助当前定位为“结构化设计输出 + 浏览器端图示渲染”。后端 design_pipeline 会结合检索证据分步生成业务分析、功能清单、详细文本用例、模块建议、数据对象、权限分析、异常场景、风险、待确认问题、追踪矩阵、证据覆盖、后续动作与 diagram；随后通过 output_validator 和 app/schemas 对 JSON 做修复、schema 归一和质量评估。前端 design-service.js 与 app.js 会把这些字段映射为业务分析、功能清单、详细文本用例、模块划分建议、数据与权限、需求追踪、图示输出、风险与待确认问题、后续动作建议等 tab；其中 diagram 使用 Mermaid 文本图示方案，渲染失败时保留源码查看和复制能力。
+0405: 该能力适合表达流程关系、模块关系和设计草图，是设计辅助场景的重要增强探索。但当前不能描述为自动生成专业 UML 图片，也不能描述为已完整支持所有标准 UML 图或已集成 PlantUML 引擎。
+0406: 2.3.10 当前完成能力、风险与边界
+0407: 表 31 当前完成能力分级
+0408: [[TABLE]]
+0409: 能力项 | 状态分级 | 实现依据 | 风险/边界
+0410: 前端页面访问 | 已基本可用 | dify-lite routes.py 根路由托管第一版前端，访问 8088。 | 不是 Docker Dify Web 3000。
+0411: 文档上传 | 已基本可用 | document-service.js -> POST /api/documents/import -> ingestion_service。 | 大文件、复杂格式解析需继续测试。
+0412: 文档删除 | 可用但有风险 | DELETE /api/documents/<document_id> 已删除 SQLite 记录和 uploads 原文。 | Weaviate 向量索引未同步删除，可能出现已删文档仍被召回的风险。
+0413: 检索问答 | 已基本可用 | retrieval_service.retrieve -> chat_service.answer。 | 依赖模型服务和检索质量。
+0414: 模型调用 | 已基本可用 | .env 中 DIFY_LITE_MODEL_* 配置。 | 外部模型服务不可用会影响输出。
+0415: 引用原文查看 | 已基本可用 | GET /api/documents/source，citation 字段增强。 | 文档删除或字段缺失会影响追溯。
+0416: Word / PPTX 解析 | 已基本可用 | document_loader.py 支持 docx、pptx。 | 不支持旧版 doc / ppt。
+0417: 中文文件名上传修复 | 已完成增强 | secure_filename 导致后缀丢失问题已修。 | 仍需更多本地化文件名回归测试。
+0418: 中文检索增强 | 已完成增强 | text_utils.py 中补 CJK n-gram 词法检索。 | 向量检索异常时仍会影响整体召回质量。
+0419: 设计辅助结构化输出 | 可用但有风险 | POST /api/scenes/design、design_pipeline.py、output_validator.py、design-service.js。 | 模型返回不规范时会依赖 JSON 修复、schema 归一和 fallback；前端已适配多 tab 和 Mermaid 图示。
+0420: 培训模式 | 可用但有风险 | training-service.js 调用 POST /api/scenes/training，后端走 retrieval_service + chat_service。 | 真实接口已存在，但前端仍保留 mock/fallback 路径。
+0421: 交接模式 | 可用但有风险 | handover-service.js、POST /api/scenes/handover、handover_pipeline.py、output_validator.py。 | 真实 pipeline 已存在，但仍需继续核验结果质量与边界情况。
+0422: 历史记录 | 尚未完全闭环 | history-service.js。 | 历史持久化接口需核验。
+0423: 设置页 | 尚未完全闭环 | settings-service.js 与 .env。 | 页面设置持久化需核验，模型配置以后端 .env 为准。
+0424: Dashboard | 尚未完全闭环 | dashboard-service.js。 | 真实统计来源和后端接口需核验。
+0425: 表 32 当前风险与限制
+0426: [[TABLE]]
+0427: 序号 | 风险/限制 | 影响范围 | 当前处理方式 | 后续建议
+0428: 1 | 前端仍存在 mock / fallback。 | 培训、交接、设计、历史、设置、Dashboard 等页面。 | 前端通过 service 层兼容展示。 | 逐项核验真实后端接口和持久化。
+0429: 2 | 部分后端接口不完整或未确认。 | 文档详情、标签更新、reindex、历史持久化、设置持久化、日志接口。 | 当前主链路优先保证问答和文档导入。 | 补充接口清单和自动化测试。
+0430: 3 | 文档删除可能未同步向量库。 | 检索结果可能命中已删除文档。 | 当前资料未明确同步删除逻辑。 | 检查 weaviate_store.py 和删除接口，增加一致性清理。
+0431: 4 | 模型服务依赖外部配置。 | 问答和场景输出。 | .env 维护模型地址、Key、模型名。 | 增加模型健康检查和错误提示。
+0432: 5 | Weaviate 状态影响向量检索质量。 | 知识召回和答案相关性。 | 异常时可能退回词法检索。 | 增加向量库状态展示和召回质量评估。
+0433: 6 | sandbox 容器状态不稳定。 | 完整 Dify 的代码执行能力。 | 不作为 8088 主链路硬依赖。 | 全栈演示前单独检查 Docker 容器状态。
+0434: 7 | 本地 SQLite 适合轻量部署但不适合复杂多用户。 | 并发、权限、审计和数据隔离。 | 当前用于本地项目和课程交付。 | 正式部署前评估数据库迁移和权限设计。
+0435: 表 33 近期真实改动与工程亮点
+0436: [[TABLE]]
+0437: 亮点 | 具体内容 | 工程价值 | 边界说明
+0438: 引用证据链增强 | citation 已补 chunkId、documentId、sourceName；前端查看原文接入 GET /api/documents/source。 | 回答可从引用追溯到原文与文档，增强可信度。 | 依赖上传原文保留和字段完整。
+0439: 中文检索增强 | text_utils.py 中补 CJK n-gram 词法检索逻辑。 | 提升中文知识库词法召回能力。 | 仍需结合向量检索和测试集评估。
+0440: 中文文件名上传修复 | 修复 secure_filename 导致中文 Word 文件名后缀丢失的问题。 | 处理真实本地化使用坑点。 | 需继续覆盖更多特殊字符文件名。
+0441: 证据等级判断优化 | 前端 evidenceLevel 阈值根据实际相关度分布修正。 | 避免有 citations 但前端误判“证据不足”。 | 属于联调层优化，不等于后端评分模型变化。
+0442: 富文本输出清洗优化 | 前端统一清理 #、* 等 Markdown 痕迹，规整段落、列表和小标题。 | 从模型原始输出展示走向产品级可读呈现。 | 复杂 Markdown 仍需兼容测试。
+0443: Mermaid 图示输出 | 设计辅助支持 diagram 字段、前端图示 tab、动态 Mermaid 渲染、失败源码保留。 | 让系统从问答走向设计辅助工具。 | 第一版图示能力，不是专业 UML 平台。
+0444: 2.4 需求追踪
+0445: 由于当前材料未提供正式需求编号，本文采用内部功能项编号 F-01 至 F-15 进行追踪。后续如项目组提供正式需求规格说明书，可将内部编号映射到正式需求编号。
+0446: 2.4.1 追踪对象总览
+0447: 表 34 追踪对象总览
+0448: [[TABLE]]
+0449: 功能项编号 | 功能项名称 | 对应模块 | 关键接口 | 关键数据对象 | 关键配置项 | 主要设计章节
+0450: F-01 | 页面访问 | UI-01 / SVC-01 | GET / | 静态资源 | 无 | 2.3.4、2.3.5
+0451: F-02 | 文档上传入库 | UI-02 / SVC-02 / DATA-01 | POST /api/documents/import | Document、Chunk、UploadFile | 无 | 2.2.1、2.3.7
+0452: F-03 | 文档删除 | UI-02 / DATA-01 | DELETE /api/documents/<document_id> | Document、Chunk | 无 | 2.3.10
+0453: F-04 | 检索问答 | SVC-03 / SVC-04 | /api/scenes/general | SceneResult、Citation | DIFY_LITE_MODEL_* | 2.3.5、2.3.6
+0454: F-05 | 引用证据追溯 | SVC-05 | GET /api/documents/source | Citation、UploadFile、Chunk | 无 | 2.3.6、2.3.10
+0455: F-06 | Word/PPTX 解析 | SVC-02 | POST /api/documents/import | UploadFile、Document | 无 | 2.3.7
+0456: F-07 | 中文检索优化 | SVC-03 | 检索内部接口 | Chunk | 无 | 2.3.7、2.3.10
+0457: F-08 | 设计辅助 | SVC-06 / UI-02 | POST /api/scenes/design | DesignResult | DIFY_LITE_MODEL_* | 2.3.9
+0458: F-09 | 培训模式 | UI-02 / SVC-04 | POST /api/scenes/training | SceneResult | DIFY_LITE_MODEL_* | 2.3.8
+0459: F-10 | 交接模式 | UI-02 / handover pipeline | POST /api/scenes/handover | HandoverOutput/SceneResult | DIFY_LITE_MODEL_* | 2.3.8
+0460: F-11 | 历史记录 | UI-02 / 后端待核验 | 历史接口待核验 | History | 待核验 | 2.3.10
+0461: F-12 | 设置页 | UI-02 / 后端待核验 | 设置接口待核验 | Settings | .env | 2.3.10
+0462: F-13 | Dashboard | UI-02 / 后端待核验 | 看板接口待核验 | DashboardData | 待核验 | 2.3.10
+0463: F-14 | 轻量部署 | DEP-01 | deploy.cmd | 运行配置 | .env | 2.3.4.6
+0464: F-15 | 全栈依赖启动 | DEP-01 | deploy-all.cmd | Docker 服务 | docker .env | 2.3.4.6
+0465: 2.4.2 正向追踪表
+0466: 表 35 正向追踪表
+0467: [[TABLE]]
+0468: 设计说明章节 | 设计内容 | 对应功能项 | 追踪到模块 | 追踪到接口/数据/配置 | 说明
+0469: 2.3.4 | 页面托管、软件组成、人机界面。 | F-01 | UI-01、SVC-01 | GET /、index.html、app.js | 说明当前主入口为 8088。
+0470: 2.3.5 | 文档上传、RAG 问答、原文查看和设计辅助流程。 | F-02、F-04、F-05、F-08 | SVC-02、SVC-03、SVC-04、SVC-05、SVC-06 | /api/documents/import、/api/scenes/*、/api/documents/source | 覆盖主链路。
+0471: 2.3.6 | 外部接口和内部接口设计。 | F-01 至 F-10 | UI-02、SVC-01 至 SVC-06 | HTTP API、内部 Python 函数调用 | 部分接口需核验。
+0472: 2.3.7 | 数据组织、数据对象、配置项。 | F-02、F-04、F-05、F-06、F-07 | DATA-01、SVC-02、SVC-03 | SQLite、uploads、.env、Weaviate | 说明持久化边界。
+0473: 2.3.8 | 多场景输出能力。 | F-04、F-08、F-09、F-10 | chat/design/training/handover service | /api/scenes/* | 区分真实接入和 fallback。
+0474: 2.3.10 | 完成能力、风险与边界。 | F-03、F-11、F-12、F-13 | history/settings/dashboard service | 待核验接口 | 集中说明尚未完全闭环能力。
+0475: 2.3.4.6 | 部署/安装视图。 | F-14、F-15 | DEP-01 | deploy.cmd、deploy-all.cmd、docker-compose.yaml | 区分轻量部署与全栈部署。
+0476: 2.4.3 逆向追踪表
+0477: 表 36 逆向追踪表
+0478: [[TABLE]]
+0479: 功能项编号 | 功能目标 | 对应设计章节 | 对应模块 | 接口/数据/配置 | 说明
+0480: F-01 | 用户可访问当前主页面。 | 2.1、2.3.4、2.3.5 | UI-01、SVC-01 | GET /、8088 | 已基本可用。
+0481: F-02 | 用户可上传支持格式文档并入库。 | 2.2.1、2.3.5、2.3.7 | SVC-02、DATA-01 | /api/documents/import、Document、Chunk | 已基本可用。
+0482: F-03 | 用户可删除文档。 | 2.3.10、3.4 | UI-02、DATA-01 | 删除接口待核验 | 可用但有向量库同步风险。
+0483: F-04 | 用户可基于知识库问答。 | 2.3.5、2.3.6 | SVC-03、SVC-04 | /api/scenes/general、DIFY_LITE_MODEL_* | 依赖模型服务。
+0484: F-05 | 用户可查看引用原文。 | 2.3.5、2.3.6、2.3.10 | SVC-05 | /api/documents/source、Citation | 近期增强。
+0485: F-06 | 系统可解析 Word/PPTX。 | 2.3.7、2.3.10 | SVC-02 | document_loader.py | 旧版 doc/ppt 不支持。
+0486: F-07 | 系统增强中文检索。 | 2.3.7、2.3.10 | SVC-03 | text_utils.py | CJK n-gram。
+0487: F-08 | 系统提供设计辅助和图示输出。 | 2.3.8、2.3.9 | SVC-06、UI-02 | /api/scenes/design、DesignResult | Mermaid 第一版能力。
+0488: F-09 | 系统提供培训模式。 | 2.3.8、2.3.10 | UI-02、后端待核验 | training-service.js | 可用但有风险。
+0489: F-10 | 系统提供交接模式。 | 2.3.8、2.3.10 | UI-02、后端待核验 | handover-service.js | 可用但有风险。
+0490: F-11 | 系统提供历史记录。 | 2.3.10、3.4 | UI-02、后端待核验 | history-service.js | 尚未完全闭环。
+0491: F-12 | 系统提供设置页。 | 2.3.10、3.4 | UI-02、后端待核验 | settings-service.js、.env | 页面设置持久化需核验。
+0492: F-13 | 系统提供 Dashboard。 | 2.3.10、3.4 | UI-02、后端待核验 | dashboard-service.js | 尚未完全闭环。
+0493: F-14 | 系统可轻量启动。 | 2.3.4.6 | DEP-01 | deploy.cmd | 主推荐启动方式。
+0494: F-15 | 系统可全栈启动。 | 2.3.4.6 | DEP-01 | deploy-all.cmd、docker-compose.yaml | 用于完整依赖场景。
+0495: 2.4.4 追踪缺口
+0496: 表 37 追踪缺口
+0497: [[TABLE]]
+0498: 缺口项 | 影响范围 | 当前处理方式 | 后续处理建议
+0499: 设计辅助 pipeline 的详细时序图与 schema 展开仍不充分 | 设计辅助最新实现理解。 | 正文已补充 pipeline、validator 和 schema 总体说明。 | 后续补充 design_pipeline.py、output_validator.py、app/schemas 的详细时序图与字段对照表。
+0500: 缺少正式需求规格说明编号 | 需求追踪只能使用内部 F 编号。 | 本文使用 F-01 至 F-15。 | 后续映射到正式需求编号。
+0501: 文档删除与 Weaviate 同步未确认 | 检索一致性。 | 作为风险列出。 | 核验删除接口和 weaviate_store.py。
+0502: 历史、设置、Dashboard 后端闭环未确认 | 管理功能完整性。 | 作为尚未完全闭环能力列出。 | 补充接口、数据库表和测试说明。
+0503: 权限、安全审计未明确 | 正式部署安全性。 | 仅说明本地部署和 .env 配置。 | 补充认证、权限、审计、脱敏和备份策略。
+0504: 3 注释与附录
+0505: 3.1 术语表
+0506: 表 38 术语表
+0507: [[TABLE]]
+0508: 术语 | 定义
+0509: 8088 主入口 | 当前 SuperRAG 页面常用访问地址 http://127.0.0.1:8088/。
+0510: 3000 Dify Web | 完整 Dify Docker 栈中的原生 Web 控制台端口，不是当前第一版主页面入口。
+0511: 词法检索 | 基于文本 token 或 n-gram 的关键词召回方式。
+0512: 向量检索 | 将文本向量化后在向量库中进行相似度召回。
+0513: fallback | 真实接口不可用或返回不完整时，前端或后端用于兜底展示的兼容逻辑。
+0514: sourceName | citation 中表示来源文档名称或来源标识的字段。
+0515: chunkId | citation 中表示文本切片唯一标识的字段。
+0516: documentId | citation 中表示文档唯一标识的字段。
+0517: 3.2 项目解析报告
+0518: 本节汇总当前项目静态解析结论。内容已结合 E:\Dify 本地最新源码进行核对；仍需二次确认或尚未形成正式规范的项目，在 3.4 节列出。
+0519: 表 39 项目解析报告
+0520: [[TABLE]]
+0521: 解析类别 | 解析结果
+0522: 项目基本信息 | 系统名称为 SuperRAG / dify-lite 本地知识库问答系统，项目根目录 E:\Dify，当前主入口 http://127.0.0.1:8088/。
+0523: 技术栈 | 前端为纯 HTML + CSS + 原生 JavaScript；后端为 dify-lite Python 服务；本地数据使用 SQLite；可选向量库为 Weaviate；完整 Dify Docker 栈作为外围基础设施。
+0524: 目录结构 | 前端位于 E:\Dify\第一版；后端位于 E:\Dify\dify-lite；Docker 栈位于 E:\Dify\dify\docker；数据位于 E:\Dify\dify-lite\data。
+0525: 模块清单 | UI-01 前端页面、UI-02 前端接口服务、SVC-01 路由、SVC-02 文档入库、SVC-03 检索、SVC-04 模型问答、SVC-05 原文追溯、SVC-06 设计辅助、DATA-01 存储、DEP-01 部署。
+0526: 构件清单 | index.html、app.js、styles.css、api-config.js、api.js、各前端 service、routes.py、frontend_service.py、chat_service.py、retrieval_service.py、ingestion_service.py、design_pipeline.py、handover_pipeline.py、output_validator.py、app/schemas、repository.py、db.py、document_loader.py、text_utils.py、weaviate_store.py、config.py、run.py、.env、deploy 脚本、docker-compose.yaml。
+0527: 接口清单 | GET /、GET /<asset_path>、GET /api/health、GET /api/config、GET/POST /api/collections、GET /api/documents、POST /api/documents/import、DELETE /api/documents/<document_id>、GET /api/documents/source、POST /api/scenes/*、POST /api/retrieval/query、POST /api/chat/completions；文档详情、标签更新、reindex、历史、设置、日志等接口仍需继续核验。
+0528: 数据对象清单 | Document、Chunk、Citation、SceneResult、DesignResult、ModelConfig、UploadFile。具体 SQLite 表结构需以 repository.py / db.py 为准。
+0529: 配置项清单 | dify-lite .env 中 DIFY_LITE_MODEL_BASE_URL、DIFY_LITE_MODEL_API_KEY、DIFY_LITE_MODEL_NAME；第一版 api-config.js；Docker .env；sandbox config.yaml。
+0530: 部署/运行信息 | deploy.cmd 只启动 dify-lite + 当前前端；deploy-all.cmd 启动完整 Dify Docker 栈 + dify-lite + 当前前端；stop-all 脚本用于停止。
+0531: 未确认项 | SQLite 表结构细节、历史/设置/Dashboard 持久化、文档删除向量库同步、运行日志路径、认证权限设计、生产部署要求。
+0532: 3.3 图片与生成提示词清单
+0533: 表 40 图片与生成提示词清单
+0534: [[TABLE]]
+0535: 图号 | 图片名称 | 所在章节 | 是否已生成 | 图片生成提示词
+0536: 图 1 | SuperRAG 输入/输出数据流图 | 2.2.1.1 | 已生成 | 生成白底蓝白工程风输入/输出数据流图，左侧为用户、业务文档、配置文件、可选 Docker 依赖，中间为第一版前端、dify-lite API、文档解析/检索、模型输出，右侧为问答结果、引用原文、场景输出、日志和数据。
+0537: 图 2 | SuperRAG 系统体系结构图 | 2.3.1.2 | 已生成 | 生成分层体系结构图，从用户交互层、前端服务层、后端服务层、数据与检索层、运行支撑层展示模块关系。
+0538: 图 3 | SuperRAG 构件视图 | 2.3.4.4 | 已生成 | 生成构件视图，展示 E:\Dify\第一版、E:\Dify\dify-lite、services/core/storage、deploy 脚本、SQLite、uploads、Weaviate、模型服务的关系。
+0539: 图 4 | SuperRAG 主要处理流程图 | 2.3.4.5 | 已生成 | 生成从用户访问、页面加载、上传/问答、后端解析检索、模型生成、返回引用、原文查看、日志持久化的流程图，并包含异常分支。
+0540: 图 5 | SuperRAG 部署/安装视图 | 2.3.4.6 | 已生成 | 生成部署图，展示用户工作站、dify-lite 8088、第一版前端、data 目录、deploy.cmd、完整 Dify Docker 栈、外部模型服务和 deploy-all.cmd。
+0541: 图 6 | SuperRAG 接口调用关系图 | 2.3.6 | 已生成 | 生成接口调用图，展示前端页面、上传表单、聊天/场景页、设计辅助页面与 GET /、POST /api/documents/import、POST /api/scenes/*、GET /api/documents/source 及后端服务关系。
+0542: 3.4 待补充项汇总
+0543: 表 41 待补充项汇总
+0544: [[TABLE]]
+0545: 序号 | 待补充项 | 所在章节 | 影响程度 | 建议补充来源
+0546: 1 | 设计辅助 pipeline 的详细时序图与字段 schema 对照。 | 2.3.9 | 中 | design_pipeline.py、output_validator.py、app/schemas、前端 design-service.js。
+0547: 2 | SQLite 数据库表结构、字段和索引。 | 2.3.7 | 高 | repository.py、db.py、data/dify_lite.db、数据库初始化脚本。
+0548: 3 | 接口自动化测试结果与状态码样例。 | 2.3.6 | 中 | routes.py、前端 service 调用点、接口联调测试记录。
+0549: 4 | 文档删除是否同步删除 Weaviate 向量索引。 | 2.3.10 | 高 | 文档删除接口、weaviate_store.py、repository.py。
+0550: 5 | GET /api/documents/{id}、标签更新、reindex、运行日志接口是否存在。 | 2.3.6、2.3.10 | 中 | routes.py、前端 document/history/dashboard/settings service。
+0551: 6 | 历史记录、设置页、Dashboard 的后端持久化闭环。 | 2.3.8、2.3.10 | 中 | history-service.js、settings-service.js、dashboard-service.js、后端 routes。
+0552: 7 | 用户认证、权限、日志审计和数据脱敏策略。 | 2.2.6、2.2.7 | 高 | 安全设计文档、后端认证模块、部署说明。
+0553: 8 | 运行日志文件路径、错误码和异常处理规范。 | 2.3.4.5 | 中 | run.py、日志配置、README、部署说明。
+0554: 9 | Weaviate 健康检查、召回质量评估和降级策略细节。 | 2.3.7、2.3.10 | 中 | weaviate_store.py、retrieval_service.py、docker-compose.yaml。
+0555: 10 | 前端 mock/fallback 清单和正式接口替换计划。 | 2.3.10 | 中 | training-service.js、handover-service.js、design-service.js、api.js、history-service.js、settings-service.js、dashboard-service.js。
+0556: 11 | 正式测试说明、验收用例和功能覆盖报告。 | 2.4 | 中 | 测试文档、课程验收说明、接口测试结果。
+0557: 12 | 生产部署环境和并发容量要求。 | 2.2.4、2.3.4.6 | 中 | 部署说明、运维文档、性能测试结果。
+0558: 3.5 提交前自检说明
+0559: 本文档已按正式系统设计说明书结构组织，包含封面、签署页、修改记录、目录、文档总说明、系统设计、接口设计、数据组织设计、需求追踪、项目解析报告、图片清单和待补充项。文档内容已结合当前本地最新 SuperRAG / dify-lite 代码复核，未将完整 Dify Docker 栈误写为 8088 主页面直接业务后端，未将前端 fallback/mock 误写为真实后端闭环，并已补充设计辅助 pipeline 与真实接口清单的最新状态。

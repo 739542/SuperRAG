@@ -316,6 +316,8 @@ class FrontendService:
                 or ""
             ).strip(),
         )
+        if scene == "training":
+            return self._run_training_scene(payload=payload, collection=collection, query=query)
         if scene in {"design", "handover"}:
             try:
                 if scene == "design":
@@ -389,6 +391,136 @@ class FrontendService:
             structured_design = self._parse_design_json(answer["answer"])
             if structured_design:
                 result.update(structured_design)
+        return result
+
+    def _run_training_scene(
+        self,
+        *,
+        payload: dict[str, Any],
+        collection: dict[str, Any],
+        query: str,
+    ) -> dict[str, Any]:
+        evidence_context = self._retrieve_scene_evidence(
+            scene="training",
+            collection_id=collection["id"],
+            query=query,
+            payload=payload,
+        )
+        task_prompt = self._build_training_prompt(payload)
+        generation = self._chat_service.generate_json_with_task_prompt(
+            task_prompt=task_prompt,
+            user_payload={
+                "question": query,
+                "scene": "training",
+                "requestContext": self._build_scene_context("training", payload),
+                "retrievalContext": self._build_model_retrieval_context(evidence_context),
+            },
+            max_tokens=2200,
+            timeout_seconds=self._scene_model_timeout_seconds(),
+        )
+
+        fallback = self._build_training_fallback(
+            query=query,
+            payload=payload,
+            evidence_context=evidence_context,
+        )
+        fallback_used = not isinstance(generation.get("parsed"), dict)
+        structured = self._normalize_training_payload(
+            generation.get("parsed") if not fallback_used else fallback,
+            fallback=fallback,
+        )
+        summary = self._summarize_training_result(structured)
+        citations = self._build_citations(evidence_context["raw_hits"])
+        warnings = [
+            item
+            for item in [self._friendly_generation_warning(generation, fallback_used=fallback_used)]
+            if item
+        ]
+        evidence_level = self._infer_scene_evidence_level(citations, structured)
+        source = "retrieval-fallback" if fallback_used else generation.get("provider", "openai-compatible")
+        result = {
+            "scene": "training",
+            "source": source,
+            "title": structured.get("title") or "培训模式结果",
+            "summary": summary,
+            "query": query,
+            "topic": structured.get("topic") or self._payload_text(payload, "focus", "项目背景"),
+            "background": structured.get("background", ""),
+            "keyConcepts": structured.get("keyConcepts", []),
+            "terms": structured.get("keyConcepts", []),
+            "learningPath": structured.get("learningPath", []),
+            "phaseSummaries": structured.get("phaseSummaries", []),
+            "recommendedDocs": structured.get("recommendedDocs", []),
+            "selfTestQuestions": structured.get("selfTestQuestions", []),
+            "uncertainty": structured.get("uncertainty", []),
+            "evidenceInsufficient": bool(structured.get("evidenceInsufficient")),
+            "citations": citations,
+            "evidence": self._build_evidence(evidence_context["raw_hits"]),
+            "evidenceLevel": evidence_level,
+            "structuredAnswer": structured,
+            "structuredOutput": structured,
+            "artifacts": self._build_training_artifacts(structured),
+            "retriever": {
+                "queries": [item["query"] for item in evidence_context["queries"]],
+                "groups": evidence_context["groups"],
+                "hit_count": len(evidence_context["hits"]),
+                "warning": evidence_context.get("warning", ""),
+            },
+            "pipelineVersion": "aucmr-training-generator-v1",
+            "pipelineSteps": [
+                "multi_query_retrieval",
+                "training_curriculum_generation",
+                "evidence_coverage_check",
+            ],
+            "pipeline": {
+                "version": "aucmr-training-generator-v1",
+                "steps": [
+                    {
+                        "name": "multi_query_retrieval",
+                        "status": "completed",
+                        "output": {
+                            "queries": [item["query"] for item in evidence_context["queries"]],
+                            "hit_count": len(evidence_context["hits"]),
+                        },
+                    },
+                    {
+                        "name": "training_curriculum_generation",
+                        "status": "completed" if not fallback_used else "fallback",
+                        "output": {
+                            "provider": source,
+                            "warning": generation.get("warning", ""),
+                        },
+                    },
+                ],
+            },
+            "queryDesigner": {
+                "queries": [item["query"] for item in evidence_context["queries"]],
+                "reason": "培训模式围绕背景、术语、学习路径、规则与自测进行多查询检索。",
+            },
+            "answerGenerator": {
+                "provider": source,
+                "raw_answer": generation.get("answer", ""),
+                "fallback_used": fallback_used,
+            },
+            "validator": {
+                "valid_claims": [item.get("title", "") for item in structured.get("learningPath", []) if isinstance(item, dict)],
+                "unsupported_claims": structured.get("uncertainty", []) if structured.get("evidenceInsufficient") else [],
+                "uncertain_claims": structured.get("uncertainty", []),
+                "final_revision_advice": "培训路径建议结合引用证据人工复核后再作为正式培训材料使用。",
+            },
+            "missingInformation": structured.get("uncertainty", []),
+            "uncertainPoints": structured.get("uncertainty", []),
+            "nextActions": [
+                "按学习路径逐日完成阅读与整理。",
+                "结合推荐资料补充背景、规则和异常场景理解。",
+            ],
+            "collection": {
+                "id": collection["id"],
+                "name": collection["name"],
+            },
+        }
+        if warnings:
+            result["warning"] = "；".join(warnings)
         return result
 
     def _run_engineering_scene(
@@ -2006,6 +2138,27 @@ class FrontendService:
             f"交接范围：{focus or '当前项目'}。接手角色：{role or '项目成员'}。"
         )
 
+    def _build_training_prompt(self, payload: dict[str, Any]) -> str:
+        focus = self._payload_text(payload, "focus") or "项目背景"
+        project = self._payload_text(payload, "project") or "当前项目"
+        return (
+            "你是软件研发团队的新手培训教练。请基于 retrievalContext 中的检索证据生成结构化培训输出，而不是普通摘要。"
+            "必须遵守："
+            "1. 只根据检索证据作答，不允许编造项目背景、权限规则或流程。"
+            "2. 输出要适合新人阅读，先讲背景，再讲关键概念，再给出逐日学习路径。"
+            "3. 学习路径必须按 Day 1 到 Day N 组织，每天包含 title、goal、tasks、deliverable、relatedDocuments。"
+            "4. 还要输出 phaseSummaries、recommendedDocs、selfTestQuestions、uncertainty。"
+            "5. 如果证据不足，要明确写入 uncertainty，并把 evidenceInsufficient 设为 true。"
+            "6. 输出必须是严格 JSON，不要 Markdown，不要解释文字。"
+            "JSON 顶层字段必须包含：title、topic、background、keyConcepts、learningPath、phaseSummaries、recommendedDocs、selfTestQuestions、uncertainty、evidenceInsufficient。"
+            "keyConcepts 每项必须包含 name、explanation、relatedDocuments。"
+            "learningPath 每项必须包含 day、title、goal、tasks、deliverable、relatedDocuments。"
+            "phaseSummaries 每项必须包含 phase、focus、days、expectedOutcome。"
+            "recommendedDocs 每项必须包含 title、reason、priority、estimatedReadTime。"
+            "selfTestQuestions 为面向新人的具体问题数组。"
+            f"培训主题：{focus}。项目范围：{project}。"
+        )
+
     def _parse_design_json(self, value: str) -> dict[str, Any] | None:
         text = value.strip()
         if not text:
@@ -2080,6 +2233,15 @@ class FrontendService:
                 ("exceptions_limits", "异常情况和限制条件"),
                 ("cross_module_consistency", "跨模块关联和数据一致性"),
             ]
+        elif scene == "training":
+            topics = [
+                ("original", query),
+                ("background_goal", "项目背景 业务目标 模块职责"),
+                ("concepts_terms", "核心概念 关键术语 业务对象"),
+                ("main_flow", "主流程 业务链路 上下游关系"),
+                ("rules_permissions", "关键规则 权限边界 异常约束"),
+                ("recommended_docs", "适合新人入门的文档和模块"),
+            ]
         else:
             topics = [
                 ("original", query),
@@ -2100,6 +2262,138 @@ class FrontendService:
             seen.add(text)
             queries.append({"name": name, "query": text})
         return queries
+
+    def _build_training_fallback(
+        self,
+        *,
+        query: str,
+        payload: dict[str, Any],
+        evidence_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        hits = self._top_scene_hits(evidence_context, limit=8)
+        citations = self._build_citations(evidence_context.get("raw_hits", []))
+        warning = str(evidence_context.get("warning") or "").strip()
+        topic = self._payload_text(payload, "focus", "项目背景")
+        if not hits:
+            return {
+                "title": "新人培训计划生成受限",
+                "topic": topic,
+                "background": "当前知识库没有检索到足够的培训相关证据，暂时无法形成正式培训计划。",
+                "keyConcepts": [],
+                "learningPath": [],
+                "phaseSummaries": [],
+                "recommendedDocs": [],
+                "selfTestQuestions": [],
+                "uncertainty": [
+                    "请先补充需求文档、业务说明、接口文档、部署说明或新人培训资料。",
+                ],
+                "evidenceInsufficient": True,
+            }
+
+        source_docs = []
+        seen_titles: set[str] = set()
+        for hit in hits:
+            title = str(hit.get("sourceDocument") or "").strip()
+            if not title or title in seen_titles:
+                continue
+            seen_titles.add(title)
+            source_docs.append(title)
+
+        concepts = []
+        for hit in hits[:5]:
+            title = str(hit.get("sourceDocument") or "知识库片段").strip()
+            concept_name = self._training_topic_from_title(title)
+            explanation = self._training_snippet_summary([hit])
+            if not concept_name or not explanation:
+                continue
+            concepts.append(
+                {
+                    "name": concept_name,
+                    "explanation": explanation,
+                    "relatedDocuments": [title],
+                }
+            )
+        concepts = self._dedupe_training_concepts(concepts)[:5]
+
+        learning_path = []
+        for index, title in enumerate(source_docs[:5], start=1):
+            related_hits = [hit for hit in hits if hit.get("sourceDocument") == title][:2]
+            summary = self._training_snippet_summary(related_hits) or "阅读该模块文档并整理业务职责、规则和关键流程。"
+            learning_path.append(
+                {
+                    "day": f"Day {index}",
+                    "title": f"理解{self._training_topic_from_title(title)}",
+                    "goal": summary,
+                    "tasks": [
+                        f"阅读《{title}》的核心片段并标出关键业务对象。",
+                        "整理模块职责、字段规则、流程节点和权限边界。",
+                    ],
+                    "deliverable": f"输出一页《{self._training_topic_from_title(title)}》学习笔记。",
+                    "relatedDocuments": [title],
+                    "description": summary,
+                }
+            )
+
+        if len(learning_path) >= 2:
+            learning_path.append(
+                {
+                    "day": f"Day {len(learning_path) + 1}",
+                    "title": "串讲上下游业务链路",
+                    "goal": "把客户、商机、合同、回款、发票等模块串成完整业务链路，理解上游输入与下游约束。",
+                    "tasks": [
+                        "对照多份文档梳理主流程与跨模块联动关系。",
+                        "标记金额、权限、状态和异常处理等高风险规则。",
+                    ],
+                    "deliverable": "输出一张业务链路图或流程笔记。",
+                    "relatedDocuments": source_docs[:4],
+                    "description": "将核心模块串联理解，形成整体业务视角。",
+                }
+            )
+        learning_path.append(
+            {
+                "day": f"Day {len(learning_path) + 1}",
+                "title": "自测与复盘",
+                "goal": "通过问题自测和复盘，确认是否真正理解关键概念、流程和规则边界。",
+                "tasks": [
+                    "使用自测问题进行复盘。",
+                    "记录当前仍不确定的规则、权限或异常场景。",
+                ],
+                "deliverable": "输出一份《新人培训自测与问题清单》。",
+                "relatedDocuments": source_docs[:4],
+                "description": "完成一轮培训复盘，暴露仍需补证据或继续阅读的点。",
+            }
+        )
+
+        recommended_docs = [
+            {
+                "title": citation.get("documentTitle") or "知识库片段",
+                "reason": self._training_snippet_summary(
+                    [{"snippet": citation.get("snippet", ""), "sourceDocument": citation.get("documentTitle", "")}]
+                ),
+                "priority": "high" if index < 2 else "medium",
+                "estimatedReadTime": "10-15 min",
+            }
+            for index, citation in enumerate(citations[:5])
+        ]
+
+        uncertainty = []
+        if warning:
+            uncertainty.append(warning)
+        if len(source_docs) < 3:
+            uncertainty.append("当前培训证据覆盖的模块较少，建议继续补充更多业务说明和新人上手资料。")
+
+        return {
+            "title": "新人培训计划",
+            "topic": topic,
+            "background": self._training_snippet_summary(hits[:2]) or "请先从项目背景和核心模块职责入手理解当前系统。",
+            "keyConcepts": concepts,
+            "learningPath": learning_path[:7],
+            "phaseSummaries": self._default_training_phase_summaries(learning_path[:7]),
+            "recommendedDocs": recommended_docs,
+            "selfTestQuestions": self._default_training_self_test_questions(query=query, source_docs=source_docs),
+            "uncertainty": uncertainty,
+            "evidenceInsufficient": False,
+        }
 
     def _group_hits_by_query(
         self,
@@ -3483,6 +3777,270 @@ class FrontendService:
         if not result.get("diagram"):
             result["diagram"] = self._build_design_diagram(result)
         return result
+
+    def _normalize_training_payload(self, payload: dict[str, Any], *, fallback: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict) or not payload:
+            result = dict(fallback)
+            result["warning"] = "结构化解析失败，已使用培训检索兜底结果。"
+            return self._finalize_training_payload(result)
+
+        result = dict(fallback)
+        for key in [
+            "title",
+            "topic",
+            "background",
+            "keyConcepts",
+            "learningPath",
+            "phaseSummaries",
+            "recommendedDocs",
+            "selfTestQuestions",
+            "uncertainty",
+            "evidenceInsufficient",
+        ]:
+            value = payload.get(key) or payload.get(self._camel_to_snake(key))
+            if value not in (None, "", []):
+                result[key] = value
+        return self._finalize_training_payload(result)
+
+    def _finalize_training_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        concepts = []
+        for item in self._as_list(payload.get("keyConcepts")):
+            if isinstance(item, str):
+                item = {"name": item, "explanation": item}
+            if not isinstance(item, dict):
+                continue
+            concepts.append(
+                {
+                    "name": str(item.get("name") or item.get("term") or "关键概念"),
+                    "term": str(item.get("name") or item.get("term") or "关键概念"),
+                    "explanation": str(item.get("explanation") or item.get("description") or ""),
+                    "relatedDocuments": self._as_list(item.get("relatedDocuments") or item.get("documents")),
+                }
+            )
+
+        learning_path = []
+        for index, item in enumerate(self._as_list(payload.get("learningPath")), start=1):
+            if isinstance(item, str):
+                item = {"title": item, "goal": item}
+            if not isinstance(item, dict):
+                continue
+            goal = str(item.get("goal") or item.get("description") or item.get("title") or "").strip()
+            tasks = [str(task).strip() for task in self._as_list(item.get("tasks")) if str(task).strip()]
+            related_documents = [str(doc).strip() for doc in self._as_list(item.get("relatedDocuments")) if str(doc).strip()]
+            learning_path.append(
+                {
+                    "day": str(item.get("day") or f"Day {index}"),
+                    "title": str(item.get("title") or f"学习任务 {index}"),
+                    "goal": goal,
+                    "tasks": tasks or ([goal] if goal else []),
+                    "deliverable": str(item.get("deliverable") or "输出当日学习笔记。"),
+                    "relatedDocuments": related_documents,
+                    "description": str(item.get("description") or goal),
+                }
+            )
+
+        phase_summaries = []
+        for item in self._as_list(payload.get("phaseSummaries")):
+            if isinstance(item, str):
+                item = {"phase": item, "focus": item}
+            if not isinstance(item, dict):
+                continue
+            phase_summaries.append(
+                {
+                    "phase": str(item.get("phase") or "学习阶段"),
+                    "focus": str(item.get("focus") or item.get("summary") or ""),
+                    "days": [str(day).strip() for day in self._as_list(item.get("days")) if str(day).strip()],
+                    "expectedOutcome": str(item.get("expectedOutcome") or item.get("outcome") or ""),
+                }
+            )
+        if not phase_summaries and learning_path:
+            phase_summaries = self._default_training_phase_summaries(learning_path)
+
+        recommended_docs = []
+        for item in self._as_list(payload.get("recommendedDocs")):
+            if isinstance(item, str):
+                item = {"title": item, "reason": item}
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or item.get("documentTitle") or "").strip()
+            if not title:
+                continue
+            recommended_docs.append(
+                {
+                    "title": title,
+                    "reason": str(item.get("reason") or item.get("summary") or ""),
+                    "priority": str(item.get("priority") or "medium"),
+                    "estimatedReadTime": str(item.get("estimatedReadTime") or item.get("estimated_read_time") or "10-15 min"),
+                }
+            )
+
+        self_test_questions = [
+            str(item).strip()
+            for item in self._as_list(payload.get("selfTestQuestions"))
+            if str(item).strip()
+        ]
+        uncertainty = [
+            str(item).strip()
+            for item in self._as_list(payload.get("uncertainty"))
+            if str(item).strip()
+        ]
+        return {
+            "title": str(payload.get("title") or "新人培训计划"),
+            "topic": str(payload.get("topic") or "项目背景"),
+            "background": str(payload.get("background") or ""),
+            "keyConcepts": concepts,
+            "learningPath": learning_path[:7],
+            "phaseSummaries": phase_summaries[:4],
+            "recommendedDocs": recommended_docs[:6],
+            "selfTestQuestions": self_test_questions[:8],
+            "uncertainty": uncertainty[:5],
+            "evidenceInsufficient": bool(payload.get("evidenceInsufficient")),
+        }
+
+    def _training_topic_from_title(self, title: str) -> str:
+        text = Path(str(title or "")).stem
+        text = re.sub(r"^\d+[_\-\.\s]*", "", text)
+        text = re.sub(
+            r"(?i)SuperRAG|CRM|V\d+(?:\.\d+)*|final|demo|sample|演示|整理版|最终版",
+            "",
+            text,
+        )
+        text = re.sub(r"(模块|管理|说明|文档|设计|规格|手册|记录|资料|流程)+", "", text)
+        text = re.sub(r"[_\-\s（）()]+", "", text).strip("，。；、")
+        return text[:18] or "相关模块"
+
+    def _training_snippet_summary(self, hits: list[dict[str, Any]]) -> str:
+        sentences: list[str] = []
+        for hit in hits[:3]:
+            snippet = str(hit.get("snippet") or hit.get("content") or "").strip()
+            snippet = re.sub(r"\s+", " ", snippet)
+            for part in re.split(r"[。！？；\n]", snippet):
+                cleaned = part.strip(" -:：，,")
+                if len(cleaned) < 10:
+                    continue
+                if cleaned not in sentences:
+                    sentences.append(cleaned)
+                if len(sentences) >= 2:
+                    break
+            if len(sentences) >= 2:
+                break
+        return "；".join(sentences[:2])
+
+    def _dedupe_training_concepts(self, concepts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in concepts:
+            name = str(item.get("name") or item.get("term") or "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            deduped.append(item)
+        return deduped
+
+    def _default_training_phase_summaries(self, learning_path: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        items = self._as_list(learning_path)
+        day_labels = [str(item.get("day") or "").strip() for item in items if isinstance(item, dict)]
+        docs: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for doc in self._as_list(item.get("relatedDocuments")):
+                text = str(doc).strip()
+                if text and text not in docs:
+                    docs.append(text)
+        return [
+            {
+                "phase": "理解业务对象",
+                "focus": "先识别系统核心业务对象、模块职责和基础术语，建立整体认知框架。",
+                "days": day_labels[:2],
+                "expectedOutcome": f"能够说明 {'、'.join(docs[:2]) or '核心模块'} 的主要职责与关联对象。",
+            },
+            {
+                "phase": "走通主链路",
+                "focus": "把客户、业务模块、关键状态和上下游联动串成完整主流程。",
+                "days": day_labels[2:4] or day_labels[:1],
+                "expectedOutcome": "能够复述主业务链路，并指出关键输入、输出和状态变化。",
+            },
+            {
+                "phase": "掌握规则与异常",
+                "focus": "重点核对权限、金额、状态、校验和异常处理等高风险规则。",
+                "days": day_labels[4:6] or day_labels[-2:],
+                "expectedOutcome": "能够区分正常流程、异常流程与需要人工确认的规则边界。",
+            },
+            {
+                "phase": "自测与复盘",
+                "focus": "通过问答自测和证据复盘，梳理仍需补文档或请教团队的知识缺口。",
+                "days": day_labels[-1:] or ["Day 1"],
+                "expectedOutcome": "形成一份新人自测清单和后续补证据问题清单。",
+            },
+        ]
+
+    def _default_training_self_test_questions(self, *, query: str, source_docs: list[str]) -> list[str]:
+        topics = [self._training_topic_from_title(title) for title in source_docs[:4]]
+        topic_text = "、".join(item for item in topics if item) or "当前项目模块"
+        questions = [
+            f"请用自己的话说明 {topic_text} 分别承担什么业务职责？",
+            "主流程从哪个对象开始，经过哪些关键状态或审批节点，最后产出什么结果？",
+            "哪些字段、金额、权限或状态规则最容易出错？需要额外核对哪些证据？",
+            "如果让你向下一位新人讲解当前系统，你会先讲哪三份文档，为什么？",
+        ]
+        if query:
+            questions.insert(0, f"围绕“{query[:36]}”，当前知识库已经明确了哪些结论？")
+        return questions[:6]
+
+    def _summarize_training_result(self, structured: dict[str, Any]) -> str:
+        background = str(structured.get("background") or "").strip()
+        learning_path = self._as_list(structured.get("learningPath"))
+        phase_summaries = self._as_list(structured.get("phaseSummaries"))
+        concepts = self._as_list(structured.get("keyConcepts"))
+        if structured.get("evidenceInsufficient"):
+            uncertainty = self._as_list(structured.get("uncertainty"))
+            return uncertainty[0] if uncertainty else "当前知识库证据不足，无法生成正式培训计划。"
+
+        parts: list[str] = []
+        if background:
+            parts.append(background[:140])
+        concept_names = [
+            str(item.get("name") or item.get("term") or "").strip()
+            for item in concepts[:4]
+            if isinstance(item, dict)
+        ]
+        if concept_names:
+            parts.append(f"核心概念优先覆盖：{'、'.join(item for item in concept_names if item)}。")
+        if learning_path:
+            parts.append(f"建议按 {len(learning_path)} 个学习日推进，每天围绕文档阅读、规则整理和阶段产出展开。")
+        if phase_summaries:
+            first_phase = phase_summaries[0]
+            if isinstance(first_phase, dict) and first_phase.get("phase"):
+                parts.append(f"阶段上先从“{first_phase['phase']}”开始，再逐步进入主链路、规则与自测复盘。")
+        return " ".join(part for part in parts if part).strip() or "已根据当前知识库生成结构化新人培训计划。"
+
+    def _build_training_artifacts(self, structured: dict[str, Any]) -> list[dict[str, Any]]:
+        learning_path = self._as_list(structured.get("learningPath"))
+        phase_summaries = self._as_list(structured.get("phaseSummaries"))
+        self_test = self._as_list(structured.get("selfTestQuestions"))
+        return [
+            {
+                "type": "training_plan",
+                "title": structured.get("title") or "新人培训计划",
+                "summary": self._summarize_training_result(structured),
+            },
+            {
+                "type": "phase_summary",
+                "title": "阶段总结",
+                "summary": f"共 {len(phase_summaries)} 个阶段，覆盖理解业务对象、主链路、规则异常与复盘自测。",
+            },
+            {
+                "type": "self_test",
+                "title": "新人自测清单",
+                "summary": f"共 {len(self_test)} 道自测问题，辅助检查培训吸收情况。",
+            },
+            {
+                "type": "learning_path",
+                "title": "按天学习路径",
+                "summary": f"当前学习路径包含 {len(learning_path)} 个学习日。",
+            },
+        ]
 
     def _normalize_handover_payload(self, payload: dict[str, Any], *, fallback: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict) or not payload:

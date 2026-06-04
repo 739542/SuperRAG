@@ -973,10 +973,9 @@ select {
 }
 
 .record-main strong {
-  overflow: hidden;
   color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .record-main small,
@@ -1785,6 +1784,13 @@ select {
   padding-right: 2px;
 }
 
+.chat-session-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .chat-session-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1813,15 +1819,29 @@ select {
 }
 
 .chat-session-item strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .chat-session-item small,
 .chat-session-item time {
   color: var(--muted);
   font-size: 12px;
+}
+
+.chat-session-delete {
+  align-self: stretch;
+  min-width: 42px;
+  border-color: var(--line-soft);
+  color: var(--muted);
+  background: #fbfdff;
+}
+
+.chat-session-delete:hover {
+  border-color: #f0b7b7;
+  color: var(--danger, #cb4b4b);
+  background: #fff5f5;
 }
 
 .chat-main {
@@ -2333,13 +2353,17 @@ select {
 
 .quick-question-row button {
   min-height: 30px;
-  padding: 0 10px;
+  padding: 6px 10px;
   color: var(--primary-dark);
   background: #ffffff;
   border: 1px solid #b7d4ff;
-  border-radius: 999px;
+  border-radius: 14px;
   font-size: 12px;
   font-weight: 700;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  text-align: left;
 }
 
 .quick-question-row button:hover {
@@ -3005,6 +3029,7 @@ select {
 .timeline-step strong {
   display: block;
   margin-bottom: 5px;
+  line-height: 1.5;
 }
 
 .timeline-step p {
@@ -3018,10 +3043,62 @@ select {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .recommended-doc-card small {
   color: var(--muted);
+}
+
+.training-doc-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.training-step-main {
+  display: grid;
+  gap: 8px;
+}
+
+.training-step-goal,
+.training-step-deliverable {
+  display: grid;
+  gap: 4px;
+}
+
+.training-step-deliverable label {
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.training-task-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.training-doc-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.training-doc-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border: 1px solid #cfe0ff;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
 }
 
 .priority-badge {
@@ -4646,10 +4723,8 @@ select {
 }
 
 .history-record-summary {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .citation-count {

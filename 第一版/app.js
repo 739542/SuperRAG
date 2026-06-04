@@ -276,6 +276,12 @@ function bindChatActions() {
   });
 
   document.addEventListener("click", async (event) => {
+    const deleteButton = event.target.closest("[data-chat-delete-session-id]");
+    if (deleteButton) {
+      await removeChatSession(deleteButton.dataset.chatDeleteSessionId);
+      return;
+    }
+
     const sessionButton = event.target.closest("[data-chat-session-id]");
     if (sessionButton) {
       chatState.activeSessionId = sessionButton.dataset.chatSessionId;
@@ -486,13 +492,22 @@ function renderChatSessions() {
   container.innerHTML = sessions
     .map(
       (session) => `
-        <button class="chat-session-item ${session.id === chatState.activeSessionId ? "active" : ""}" type="button" data-chat-session-id="${escapeHtml(session.id)}">
-          <span>
-            <strong>${escapeHtml(session.title)}</strong>
-            <small>${escapeHtml(formatSceneMode(session.sceneMode))}</small>
-          </span>
-          <time>${escapeHtml(formatShortTime(session.updatedAt))}</time>
-        </button>
+        <div class="chat-session-row">
+          <button class="chat-session-item ${session.id === chatState.activeSessionId ? "active" : ""}" type="button" data-chat-session-id="${escapeHtml(session.id)}">
+            <span>
+              <strong>${escapeHtml(session.title)}</strong>
+              <small>${escapeHtml(formatSceneMode(session.sceneMode))}</small>
+            </span>
+            <time>${escapeHtml(formatShortTime(session.updatedAt))}</time>
+          </button>
+          <button
+            class="ghost-icon-button chat-session-delete"
+            type="button"
+            data-chat-delete-session-id="${escapeHtml(session.id)}"
+            aria-label="删除会话：${escapeHtml(session.title)}"
+            title="删除会话"
+          >×</button>
+        </div>
       `,
     )
     .join("");
@@ -525,6 +540,52 @@ function createNewChatSession() {
   chatState.activeSessionId = session.id;
   chatState.citations = [];
   chatState.evidenceLevel = "medium";
+}
+
+async function removeChatSession(sessionId) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!normalizedSessionId) {
+    return;
+  }
+
+  const targetSession = chatState.sessions.find((session) => session.id === normalizedSessionId);
+  if (!targetSession) {
+    return;
+  }
+
+  const confirmed = window.confirm(`确认删除会话“${targetSession.title}”吗？该会话中的智能问答记录将一并删除。`);
+  if (!confirmed) {
+    return;
+  }
+
+  const service = getChatService();
+  if (!service) {
+    return;
+  }
+
+  try {
+    await service.deleteSession(normalizedSessionId);
+  } catch (error) {
+    toast(`删除会话失败：${formatErrorMessage(error)}`);
+    return;
+  }
+
+  chatState.sessions = chatState.sessions.filter((session) => session.id !== normalizedSessionId);
+  delete chatState.messagesBySession[normalizedSessionId];
+
+  if (chatState.activeSessionId === normalizedSessionId) {
+    chatState.activeSessionId = chatState.sessions[0]?.id || "";
+    if (chatState.activeSessionId) {
+      await ensureChatMessages(chatState.activeSessionId);
+      updateChatEvidenceFromActiveSession();
+    } else {
+      chatState.citations = [];
+      chatState.evidenceLevel = "medium";
+    }
+  }
+
+  renderChatPageContent();
+  toast("会话已删除。");
 }
 
 async function submitChatQuestion(question) {
@@ -718,10 +779,16 @@ function renderQuestionUnderstanding(message = {}, intent = {}, evidenceLevel = 
 
 function inferQuestionIntent(query) {
   const text = String(query || "");
+  if (/\u5305\u542b|\u5185\u5bb9|\u4ecb\u7ecd|\u8bf4\u660e|\u662f\u4ec0\u4e48|\u6709\u54ea\u4e9b/.test(text)) {
+    return { key: "doc-qa", label: "\u6587\u6863\u95ee\u7b54" };
+  }
   if (/风险|注意|缺口|不足|问题|权限/.test(text)) {
     return { key: "risk", label: "风险分析" };
   }
-  if (/设计|用例|模块|功能清单|规则|需求/.test(text)) {
+  if (/功能|模块|规则|字段|接口/.test(text) && !/设计|用例|功能清单|需求拆解|模块划分|流程图/.test(text)) {
+    return { key: "feature", label: "功能查询" };
+  }
+  if (/设计|用例|功能清单|需求拆解|模块划分|流程图/.test(text)) {
     return { key: "design", label: "设计辅助" };
   }
   if (/交接|接手|待办|负责人|进度/.test(text)) {
@@ -729,9 +796,6 @@ function inferQuestionIntent(query) {
   }
   if (/是什么|哪些|支持|关系|关联|流程|解释|总结/.test(text)) {
     return { key: "business", label: "业务解释" };
-  }
-  if (/功能|模块|字段|接口/.test(text)) {
-    return { key: "feature", label: "功能查询" };
   }
   return { key: "unknown", label: "不明确" };
 }
@@ -1574,6 +1638,157 @@ function renderRecommendedDoc(item) {
       ${renderRichTextBlock(item.reason, "compact-rich-answer")}
       <small>预计阅读时间：${escapeHtml(item.estimatedReadTime)}</small>
     </article>
+  `;
+}
+
+function renderTrainingResult(result) {
+  const container = document.getElementById("training-result");
+  if (!container) {
+    return;
+  }
+  if (!result) {
+    container.innerHTML = '<div class="empty-inline">璇疯緭鍏ュ煿璁棶棰樺悗鐢熸垚缁撴瀯鍖栬鏄庛€?/div>';
+    return;
+  }
+
+  if (isEvidenceInsufficientTrainingResult(result)) {
+    container.innerHTML = renderEvidenceInsufficientState({
+      title: "褰撳墠鐭ヨ瘑搴撹瘉鎹笉瓒?",
+      description: "绯荤粺娌℃湁妫€绱㈠埌瓒冲鐨勯」鐩枃妗ｈ瘉鎹紝鍥犳涓嶈兘鐢熸垚姝ｅ紡鏂颁汉鍩硅璁″垝銆?",
+      impact: "璇ョ粨鏋滀笉鑳戒綔涓烘寮忓煿璁潗鏂欎娇鐢紝寤鸿鍏堣ˉ鍏呴渶姹傛枃妗ｃ€佹帴鍙ｆ枃妗ｃ€侀儴缃茶鏄庢垨鏂颁汉鍩硅璧勬枡銆?",
+      suggestions: [
+        "浼樺厛涓婁紶 CRM 婕旂ず鏂囨。鎴栫湡瀹為」鐩渶姹傝鏄庛€?",
+        "琛ュ厖鎺ュ彛璇存槑銆侀儴缃叉枃妗ｅ拰娴嬭瘯鐢ㄤ緥锛屾彁鍗囨柊浜轰笂鎵嬭矾寰勫畬鏁村害銆?",
+        "涓婁紶鍚庨噸鏂扮敓鎴愭柊浜?7 澶╀笂鎵嬭鍒掋€?",
+      ],
+      primaryAction: { label: "鍘绘枃妗ｇ煡璇嗗簱涓婁紶璧勬枡", href: "#/documents" },
+      secondaryAction: { label: "鏌ョ湅婕旂ず涓績", href: "#/demo-center" },
+    });
+    return;
+  }
+
+  const concepts = result.keyConcepts?.length ? result.keyConcepts : result.terms || [];
+  const phaseSummaries = result.phaseSummaries || [];
+  const uncertainty = result.uncertainty || [];
+
+  container.innerHTML = `
+    <section class="scenario-summary-card">
+      <div>
+        <p class="eyebrow">${escapeHtml(result.topic || "鏂颁汉鍩硅")}</p>
+        <h3>缁撹鎽樿</h3>
+        ${renderRichTextBlock(result.summary || result.background || "", "compact-rich-answer")}
+      </div>
+    </section>
+    <section class="scenario-section">
+      <h3>鑳屾櫙璇存槑</h3>
+      ${renderRichTextBlock(result.background || result.summary || "", "compact-rich-answer")}
+    </section>
+    <section class="scenario-section">
+      <h3>鏍稿績姒傚康</h3>
+      <div class="term-grid">${concepts.length ? concepts.map(renderTermCard).join("") : renderEmptyState("褰撳墠璇佹嵁涓嶈冻锛屾殏鏈娊鍙栨牳蹇冩湳璇€?", "寤鸿琛ュ厖 CRM 涓氬姟鏈銆佸瓧娈佃鏄庢垨鍩硅璧勬枡銆?")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>3-7 澶╁涔犺矾寰?/h3>
+      <div class="learning-timeline">${result.learningPath?.length ? result.learningPath.map(renderLearningStep).join("") : renderEmptyState("褰撳墠璇佹嵁涓嶈冻锛屾殏鏈敓鎴愬涔犺矾寰勩€?", "寤鸿鍏堜笂浼犻渶姹傛枃妗ｃ€佹帴鍙ｆ枃妗ｃ€侀儴缃茶鏄庢垨鏂颁汉鍩硅璧勬枡銆?")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>闃舵鎬荤粨</h3>
+      <div class="term-grid">${phaseSummaries.length ? phaseSummaries.map(renderTrainingPhaseSummary).join("") : renderEmptyState("鏆傛棤闃舵鎬荤粨銆?", "绯荤粺浼氬湪鏈夎冻澶熻瘉鎹椂鎸夐樁娈垫眹鎬诲涔犵洰鏍囧拰浜у嚭銆?")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>鎺ㄨ崘闃呰璧勬枡</h3>
+      <div class="recommended-doc-grid">${result.recommendedDocs?.length ? result.recommendedDocs.map(renderRecommendedDoc).join("") : renderEmptyState("鏆傛棤鎺ㄨ崘闃呰璧勬枡銆?", "璇疯ˉ鍏呭彲浣滀负鏂颁汉鍩硅鏉愭枡鐨勪笟鍔¤鏄庢垨妯″潡鏂囨。銆?")}</div>
+    </section>
+    <section class="scenario-section">
+      <h3>鏂颁汉鑷祴闂</h3>
+      ${renderTrainingSelfTest(result)}
+    </section>
+    ${uncertainty.length ? `
+      <section class="scenario-section gap-section">
+        <h3>涓嶇‘瀹氶」 / 寰呰ˉ璇佹嵁</h3>
+        ${renderRichList(uncertainty, "scenario-bullet-list compact-list")}
+      </section>
+    ` : ""}
+    <section class="scenario-section">
+      <h3>寮曠敤璇佹嵁</h3>
+      <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : renderEmptyState("鏆傛棤寮曠敤璇佹嵁銆?", "褰撳墠鍩硅璁″垝涓嶈兘浣滀负姝ｅ紡鏉愭枃锛屽缓璁ˉ鍏呮洿澶氶」鐩枃妗ｃ€?")}</div>
+    </section>
+  `;
+}
+
+function renderTrainingSelfTest(result = {}) {
+  const questions = Array.isArray(result.selfTestQuestions) && result.selfTestQuestions.length
+    ? result.selfTestQuestions
+    : [];
+  return renderRichList(questions, "scenario-bullet-list compact-list");
+}
+
+function renderTermCard(item) {
+  const docs = Array.isArray(item.relatedDocuments) ? item.relatedDocuments.filter(Boolean) : [];
+  return `
+    <article class="term-card">
+      <strong title="${escapeHtml(stripMarkdownDecorators(item.term || item.name || ""))}">${escapeHtml(stripMarkdownDecorators(item.term || item.name || ""))}</strong>
+      ${renderRichTextBlock(item.explanation || "", "compact-rich-answer")}
+      ${docs.length ? `<small class="training-doc-meta">${escapeHtml(docs.join(" / "))}</small>` : ""}
+    </article>
+  `;
+}
+
+function renderLearningStep(item) {
+  const tasks = Array.isArray(item.tasks) ? item.tasks.filter(Boolean) : [];
+  const docs = Array.isArray(item.relatedDocuments) ? item.relatedDocuments.filter(Boolean) : [];
+  return `
+    <article class="timeline-step">
+      <span>${escapeHtml(stripMarkdownDecorators(item.day || ""))}</span>
+      <div class="training-step-main">
+        <strong title="${escapeHtml(stripMarkdownDecorators(item.title || ""))}">${escapeHtml(stripMarkdownDecorators(item.title || ""))}</strong>
+        ${item.goal ? `<div class="training-step-goal">${renderRichTextBlock(item.goal, "compact-rich-answer inline-rich-answer")}</div>` : ""}
+        ${tasks.length ? renderTrainingTaskList(tasks) : ""}
+        ${item.deliverable ? `<div class="training-step-deliverable"><label>褰撴棩浜у嚭</label>${renderRichTextBlock(item.deliverable, "compact-rich-answer inline-rich-answer")}</div>` : ""}
+        ${docs.length ? `<div class="training-step-docs">${renderTrainingDocList(docs)}</div>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function renderRecommendedDoc(item) {
+  return `
+    <article class="recommended-doc-card">
+      <div class="recommended-doc-head">
+        <strong title="${escapeHtml(stripMarkdownDecorators(item.title || ""))}">${escapeHtml(stripMarkdownDecorators(item.title || ""))}</strong>
+        <span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority || "medium")}</span>
+      </div>
+      ${renderRichTextBlock(item.reason || "", "compact-rich-answer")}
+      <small>棰勮闃呰鏃堕棿锛?{escapeHtml(item.estimatedReadTime || "10-15 min")}</small>
+    </article>
+  `;
+}
+
+function renderTrainingPhaseSummary(item) {
+  const days = Array.isArray(item.days) ? item.days.filter(Boolean) : [];
+  return `
+    <article class="term-card training-phase-card">
+      <strong title="${escapeHtml(stripMarkdownDecorators(item.phase || ""))}">${escapeHtml(stripMarkdownDecorators(item.phase || ""))}</strong>
+      ${renderRichTextBlock(item.focus || "", "compact-rich-answer")}
+      ${days.length ? `<small class="training-doc-meta">瀛︿範鏃舵锛?${escapeHtml(days.join(" / "))}</small>` : ""}
+      ${item.expectedOutcome ? `<div class="training-step-deliverable"><label>棰勬湡杈撳嚭</label>${renderRichTextBlock(item.expectedOutcome, "compact-rich-answer inline-rich-answer")}</div>` : ""}
+    </article>
+  `;
+}
+
+function renderTrainingTaskList(tasks = []) {
+  return `
+    <ul class="training-task-list">
+      ${tasks.map((task) => `<li>${escapeHtml(stripMarkdownDecorators(task))}</li>`).join("")}
+    </ul>
+  `;
+}
+
+function renderTrainingDocList(docs = []) {
+  return `
+    <div class="training-doc-chip-list">
+      ${docs.map((doc) => `<span class="training-doc-chip" title="${escapeHtml(stripMarkdownDecorators(doc))}">${escapeHtml(stripMarkdownDecorators(doc))}</span>`).join("")}
+    </div>
   `;
 }
 
@@ -4310,6 +4525,282 @@ function renderHistoryArtifactSummaryCard(detail = {}) {
   `;
 }
 
+/* function renderHistoryItem(record) {
+  return `
+    <article class="history-record-card">
+      <div class="history-record-main">
+        <div class="history-record-head">
+          <div>
+            <h3>${escapeHtml(record.title)}</h3>
+            <div class="history-record-meta">
+              ${renderSceneBadge(record.sceneMode)}
+              ${renderReviewStatusBadge(record.reviewStatus, record.sceneMode)}
+              ${record.manualEdited ? '<span class="quality-score-badge quality-score-partial">宸蹭汉宸ヤ慨璁?/span>' : ""}
+              <span>${escapeHtml(record.project)}</span>
+              <span>${escapeHtml(record.creator)}</span>
+              <time>${escapeHtml(formatShortTime(record.createdAt))}</time>
+            </div>
+          </div>
+          <span class="citation-count">${escapeHtml(record.citationCount)} 浠藉紩鐢?/span>
+        </div>
+        <p class="history-record-summary">${escapeHtml(cleanDisplayText(record.summary || "褰撳墠浜х墿鏆傛棤鎽樿銆?"))}</p>
+      </div>
+      <div class="history-actions">
+        <button type="button" data-history-action="view" data-history-id="${escapeHtml(record.id)}">鏌ョ湅</button>
+        <button type="button" data-history-action="copy" data-history-id="${escapeHtml(record.id)}">澶嶅埗</button>
+        <button type="button" data-history-action="export" data-history-id="${escapeHtml(record.id)}">瀵煎嚭</button>
+        <button class="danger-link" type="button" data-history-action="delete" data-history-id="${escapeHtml(record.id)}">鍒犻櫎</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderHistoryDetail(detail) {
+  return `
+    ${renderHistoryArtifactSummaryCard(detail)}
+    <section class="history-review-panel">
+      <div>
+        <p class="eyebrow">Review Workflow</p>
+        <h3>浜х墿澶嶆牳鐘舵€?/h3>
+        <p>灏嗙敓鎴愮粨鏋滄爣璁颁负鑽夌銆佸緟澶嶆牳銆佸凡纭鎴栭渶琛ュ厖璇佹嵁锛屾柟渚垮皬缁勫崗浣滃拰绛旇京璇存槑銆?/p>
+      </div>
+      <form class="artifact-review-form" data-history-review-form data-history-id="${escapeHtml(detail.id)}">
+        <label>
+          澶嶆牳鐘舵€?
+          <select name="reviewStatus">
+            ${renderReviewStatusOptions(detail.reviewStatus)}
+          </select>
+        </label>
+        <label>
+          浜哄伐澶嶆牳澶囨敞
+          <textarea name="humanNotes" rows="4" placeholder="渚嬪锛氭帴鍙ｅ紓甯告祦绋嬭瘉鎹笉瓒筹紝杩涘叆璇勫鍓嶉渶瑕佽ˉ鍏呮帴鍙ｉ敊璇爜璇存槑銆?>${escapeHtml(detail.humanNotes || "")}</textarea>
+        </label>
+        <div class="review-form-actions">
+          <button class="primary-button" type="submit">淇濆瓨澶嶆牳鎰忚</button>
+          <span>${renderReviewStatusBadge(detail.reviewStatus, detail.sceneMode)}</span>
+        </div>
+      </form>
+    </section>
+    <section class="detail-section">
+      <h3>鍘熷闂</h3>
+      <p>${escapeHtml(detail.originalQuestion)}</p>
+    </section>
+    <section class="detail-section">
+      <h3>杈撳嚭鍐呭鎽樿</h3>
+      ${renderHistoryOutputSummary(detail)}
+    </section>
+    <section class="detail-grid">
+      ${renderDetailItem("鎵€灞炲満鏅?, renderSceneBadge(detail.sceneMode), true)}
+      ${renderDetailItem("鎵€灞為」鐩?, detail.project)}
+      ${renderDetailItem("鍒涘缓鐢ㄦ埛", detail.creator)}
+      ${renderDetailItem("鍒涘缓鏃堕棿", detail.createdAt)}
+      ${renderDetailItem("鏇存柊鏃堕棿", detail.updatedAt || detail.createdAt)}
+      ${renderDetailItem("褰撳墠鐘舵€?, renderReviewStatusBadge(detail.reviewStatus, detail.sceneMode), true)}
+    </section>
+    ${renderScenarioQualityAssessment(detail.qualityAssessment, detail.sceneMode === "handover" ? "handover" : "design")}
+    <section class="detail-section">
+      <h3>缁撴瀯鍖栦骇鐗?/h3>
+      ${renderHistoryStructuredOutput(detail)}
+    </section>
+    <section class="detail-section">
+      <h3>寮曠敤璇佹嵁</h3>
+      <details class="history-citation-details">
+        <summary>灞曞紑 ${escapeHtml(detail.citations?.length || 0)} 鏉″紩鐢ㄨ瘉鎹?/summary>
+        <div class="scenario-evidence-list one-column">${detail.citations.length ? detail.citations.map(renderScenarioCitation).join("") : renderEmptyState("鏆傛棤寮曠敤璇佹嵁銆?)}</div>
+      </details>
+    </section>
+    <section class="detail-section">
+      <h3>鐗堟湰璁板綍</h3>
+      ${renderArtifactVersionTimeline(detail.versionRecords)}
+    </section>
+  `;
+}
+
+function renderHistoryArtifactSummaryCard(detail = {}) {
+  const quality = detail.qualityAssessment || {};
+  const score = Number(quality.score || 0);
+  const canReview = quality.canEnterReview || detail.reviewStatus === "宸茬‘璁?";
+  return `
+    <section class="artifact-summary-card">
+      <div>
+        <p class="eyebrow">Artifact Summary</p>
+        <h3>${escapeHtml(detail.title || "鍘嗗彶浜х墿")}</h3>
+        <p>${escapeHtml(cleanDisplayText(detail.outputSummary || detail.summary || "褰撳墠浜х墿鏆傛棤鎽樿銆?"))}</p>
+      </div>
+      <div class="artifact-summary-metrics">
+        ${renderStructuredCountCard("浜х墿绫诲瀷", detail.artifactType || formatSceneMode(detail.sceneMode))}
+        ${renderStructuredCountCard("鍦烘櫙", formatSceneMode(detail.sceneMode))}
+        ${renderStructuredCountCard("寮曠敤鏂囨。", groupCitationsByDocument(detail.citations || []).length)}
+        ${renderStructuredCountCard("璐ㄩ噺璇勫垎", score ? `${Math.round(score * 100)}%` : "寰呰瘎浼?)}
+        ${renderStructuredCountCard("淇鐘舵€?", detail.manualEdited ? "宸蹭汉宸ヤ慨璁?" : "AI 鍒濈")}
+      </div>
+      <div class="artifact-summary-status">
+        ${renderReviewStatusBadge(detail.reviewStatus, detail.sceneMode)}
+        ${detail.manualEdited ? '<span class="quality-score-badge quality-score-partial">宸蹭汉宸ヤ慨璁?/span>' : ""}
+        ${detail.modifiedAt ? `<span class="quality-score-badge quality-score-partial">淇锛?{escapeHtml(formatShortTime(detail.modifiedAt) || detail.modifiedAt)}</span>` : ""}
+        <span class="quality-score-badge quality-score-${canReview ? "ready" : "partial"}">${escapeHtml(canReview ? "寤鸿杩涘叆璇勫" : "寤鸿浜哄伐澶嶆牳")}</span>
+      </div>
+    </section>
+  `;
+}
+
+function getReviewStatusLabel(normalized, sceneMode = "") {
+  const isDesign = String(sceneMode || "").toLowerCase() === "design";
+  if (normalized === "confirmed") {
+    return isDesign ? "宸蹭汉宸ュ鏍?" : "宸茬‘璁?";
+  }
+  const labels = {
+    draft: "鑽夌",
+    pending: "寰呭鏍?",
+    needs_evidence: "闇€琛ュ厖璇佹嵁",
+  };
+  return labels[normalized] || "鑽夌";
+}
+
+function renderReviewStatusBadge(status, sceneMode = "") {
+  const normalized = normalizeReviewStatus(status);
+  return `<span class="review-status-badge review-${escapeHtml(normalized)}">${escapeHtml(getReviewStatusLabel(normalized, sceneMode))}</span>`;
+}
+
+*/
+
+function renderHistoryItem(record) {
+  return `
+    <article class="history-record-card">
+      <div class="history-record-main">
+        <div class="history-record-head">
+          <div>
+            <h3>${escapeHtml(record.title)}</h3>
+            <div class="history-record-meta">
+              ${renderSceneBadge(record.sceneMode)}
+              ${renderReviewStatusBadge(record.reviewStatus, record.sceneMode)}
+              ${record.manualEdited ? '<span class="quality-score-badge quality-score-partial">已人工修订</span>' : ""}
+              <span>${escapeHtml(record.project)}</span>
+              <span>${escapeHtml(record.creator)}</span>
+              <time>${escapeHtml(formatShortTime(record.createdAt))}</time>
+            </div>
+          </div>
+          <span class="citation-count">${escapeHtml(record.citationCount)} 条引用</span>
+        </div>
+        <p class="history-record-summary">${escapeHtml(cleanDisplayText(record.summary || "当前产物暂无摘要。"))}</p>
+      </div>
+      <div class="history-actions">
+        <button type="button" data-history-action="view" data-history-id="${escapeHtml(record.id)}">查看</button>
+        <button type="button" data-history-action="copy" data-history-id="${escapeHtml(record.id)}">复制</button>
+        <button type="button" data-history-action="export" data-history-id="${escapeHtml(record.id)}">导出</button>
+        <button class="danger-link" type="button" data-history-action="delete" data-history-id="${escapeHtml(record.id)}">删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderHistoryDetail(detail) {
+  return `
+    ${renderHistoryArtifactSummaryCard(detail)}
+    <section class="history-review-panel">
+      <div>
+        <p class="eyebrow">Review Workflow</p>
+        <h3>产物复核状态</h3>
+        <p>将生成结果标记为草稿、待复核、已确认或需补充证据，方便小组协作和答辩说明。</p>
+      </div>
+      <form class="artifact-review-form" data-history-review-form data-history-id="${escapeHtml(detail.id)}">
+        <label>
+          复核状态
+          <select name="reviewStatus">
+            ${renderReviewStatusOptions(detail.reviewStatus)}
+          </select>
+        </label>
+        <label>
+          人工复核备注
+          <textarea name="humanNotes" rows="4" placeholder="例如：接口异常流程证据不足，进入评审前需要补充接口错误码说明。">${escapeHtml(detail.humanNotes || "")}</textarea>
+        </label>
+        <div class="review-form-actions">
+          <button class="primary-button" type="submit">保存复核意见</button>
+          <span>${renderReviewStatusBadge(detail.reviewStatus, detail.sceneMode)}</span>
+        </div>
+      </form>
+    </section>
+    <section class="detail-section">
+      <h3>原始问题</h3>
+      <p>${escapeHtml(detail.originalQuestion)}</p>
+    </section>
+    <section class="detail-section">
+      <h3>输出内容摘要</h3>
+      ${renderHistoryOutputSummary(detail)}
+    </section>
+    <section class="detail-grid">
+      ${renderDetailItem("所属场景", renderSceneBadge(detail.sceneMode), true)}
+      ${renderDetailItem("所属项目", detail.project)}
+      ${renderDetailItem("创建用户", detail.creator)}
+      ${renderDetailItem("创建时间", detail.createdAt)}
+      ${renderDetailItem("更新时间", detail.updatedAt || detail.createdAt)}
+      ${renderDetailItem("当前状态", renderReviewStatusBadge(detail.reviewStatus, detail.sceneMode), true)}
+    </section>
+    ${renderScenarioQualityAssessment(detail.qualityAssessment, detail.sceneMode === "handover" ? "handover" : "design")}
+    <section class="detail-section">
+      <h3>结构化产物</h3>
+      ${renderHistoryStructuredOutput(detail)}
+    </section>
+    <section class="detail-section">
+      <h3>引用证据</h3>
+      <details class="history-citation-details">
+        <summary>展开 ${escapeHtml(detail.citations?.length || 0)} 条引用证据</summary>
+        <div class="scenario-evidence-list one-column">${detail.citations.length ? detail.citations.map(renderScenarioCitation).join("") : renderEmptyState("暂无引用证据。")}</div>
+      </details>
+    </section>
+    <section class="detail-section">
+      <h3>版本记录</h3>
+      ${renderArtifactVersionTimeline(detail.versionRecords)}
+    </section>
+  `;
+}
+
+function renderHistoryArtifactSummaryCard(detail = {}) {
+  const quality = detail.qualityAssessment || {};
+  const score = Number(quality.score || 0);
+  const canReview = quality.canEnterReview || detail.reviewStatus === "已确认";
+  return `
+    <section class="artifact-summary-card">
+      <div>
+        <p class="eyebrow">Artifact Summary</p>
+        <h3>${escapeHtml(detail.title || "历史产物")}</h3>
+        <p>${escapeHtml(cleanDisplayText(detail.outputSummary || detail.summary || "当前产物暂无摘要。"))}</p>
+      </div>
+      <div class="artifact-summary-metrics">
+        ${renderStructuredCountCard("产物类型", detail.artifactType || formatSceneMode(detail.sceneMode))}
+        ${renderStructuredCountCard("场景", formatSceneMode(detail.sceneMode))}
+        ${renderStructuredCountCard("引用文档", groupCitationsByDocument(detail.citations || []).length)}
+        ${renderStructuredCountCard("质量评分", score ? `${Math.round(score * 100)}%` : "待评估")}
+        ${renderStructuredCountCard("修订状态", detail.manualEdited ? "已人工修订" : "AI 初稿")}
+      </div>
+      <div class="artifact-summary-status">
+        ${renderReviewStatusBadge(detail.reviewStatus, detail.sceneMode)}
+        ${detail.manualEdited ? '<span class="quality-score-badge quality-score-partial">已人工修订</span>' : ""}
+        ${detail.modifiedAt ? `<span class="quality-score-badge quality-score-partial">修订：${escapeHtml(formatShortTime(detail.modifiedAt) || detail.modifiedAt)}</span>` : ""}
+        <span class="quality-score-badge quality-score-${canReview ? "ready" : "partial"}">${escapeHtml(canReview ? "建议进入评审" : "建议人工复核")}</span>
+      </div>
+    </section>
+  `;
+}
+
+function getReviewStatusLabel(normalized, sceneMode = "") {
+  const isDesign = String(sceneMode || "").toLowerCase() === "design";
+  if (normalized === "confirmed") {
+    return isDesign ? "已人工复核" : "已确认";
+  }
+  const labels = {
+    draft: "草稿",
+    pending: "待复核",
+    needs_evidence: "需补充证据",
+  };
+  return labels[normalized] || "草稿";
+}
+
+function renderReviewStatusBadge(status, sceneMode = "") {
+  const normalized = normalizeReviewStatus(status);
+  return `<span class="review-status-badge review-${escapeHtml(normalized)}">${escapeHtml(getReviewStatusLabel(normalized, sceneMode))}</span>`;
+}
+
 function renderHistoryOutputSummary(detail = {}) {
   const output = detail.structuredOutput || {};
   if (detail.sceneMode === "design") {
@@ -4439,6 +4930,11 @@ function normalizeReviewStatus(status) {
     return "needs_evidence";
   }
   return "draft";
+}
+
+function renderReviewStatusBadge(status, sceneMode = "") {
+  const normalized = normalizeReviewStatus(status);
+  return `<span class="review-status-badge review-${escapeHtml(normalized)}">${escapeHtml(getReviewStatusLabel(normalized, sceneMode))}</span>`;
 }
 
 function renderHistoryStructuredOutput(detail) {

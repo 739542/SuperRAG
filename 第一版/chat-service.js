@@ -108,6 +108,36 @@
     return clone(mappedMessages);
   }
 
+  async function deleteSession(sessionId) {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) {
+      return {
+        sessionId: "",
+        deletedCount: 0,
+        deletedRecordIds: [],
+      };
+    }
+
+    const deletedRecordIds = uniqueValues(
+      getLocalChatRecords()
+        .filter((record) => {
+          const recordSessionId = getRecordSessionId(record);
+          return recordSessionId === normalizedSessionId || record.id === normalizedSessionId;
+        })
+        .map((record) => record.id || record.artifactId || ""),
+    );
+
+    deletedRecordIds.forEach((id) => {
+      getBackend().deleteHistoryRecord(id);
+    });
+
+    return {
+      sessionId: normalizedSessionId,
+      deletedCount: deletedRecordIds.length,
+      deletedRecordIds,
+    };
+  }
+
   function getLocalChatRecords() {
     return (getBackend()?.getHistoryRecords?.() || [])
       .filter((record) => normalizeSceneMode(record.sceneMode || record.scene) === "chat")
@@ -539,6 +569,10 @@
     }
 
     if (isGenericEvidenceAnswer(cleaned)) {
+      const questionFocused = buildQuestionFocusedAnswer(raw.query || "", citationItems, raw);
+      if (questionFocused) {
+        return questionFocused;
+      }
       const topics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
       return buildTopicBasedAnswer(raw.query || "", topics, citationItems);
     }
@@ -552,6 +586,96 @@
       return `当前问题命中了 ${fallbackTopics.join("、")} 等文档，建议结合下方证据摘要确认结论。`;
     }
     return raw.query ? `当前问题“${truncateText(raw.query, 80)}”暂未形成明确结论。` : "当前暂无明确结论。";
+  }
+
+  function buildQuestionFocusedAnswer(query = "", citationItems = [], raw = {}) {
+    const grouped = groupCitationItemsByDocument(citationItems);
+    if (!grouped.length) {
+      return "";
+    }
+
+    const primary = grouped[0];
+    const primaryTitle = primary.title || "相关文档";
+    const aspects = extractEvidenceAspects(primary.items);
+    const supportingTopics = grouped
+      .slice(1, 4)
+      .map((item) => documentTopic(item.title || ""))
+      .filter(Boolean);
+
+    if (isContentInventoryQuestion(query)) {
+      const lines = [`围绕《${primaryTitle}》，当前命中的文档内容主要包括：`];
+      if (aspects.length) {
+        lines.push(...aspects.map((aspect, index) => `${index + 1}. ${aspect}`));
+      } else {
+        lines.push(`1. ${buildCitationSnippetSummary(primary.items)}`);
+      }
+      if (supportingTopics.length) {
+        lines.push(`其他命中文档主要用于补充与该主题相关的上下游关系：${supportingTopics.join("、")}。`);
+      }
+      return lines.join("\n");
+    }
+
+    const snippetSummary = buildCitationSnippetSummary(primary.items);
+    if (!snippetSummary) {
+      return "";
+    }
+
+    const shortQuery = truncateText(query || raw.query || "", 40);
+    const lines = [`针对“${shortQuery}”，当前命中的文档表明：${snippetSummary}`];
+    if (aspects.length) {
+      lines.push(`这些证据主要围绕：${aspects.join("、")}。`);
+    }
+    if (supportingTopics.length) {
+      lines.push(`同时，${supportingTopics.join("、")} 等文档可用于补充相关的流程或约束信息。`);
+    }
+    return lines.join("\n");
+  }
+
+  function groupCitationItemsByDocument(citationItems = []) {
+    const groups = new Map();
+    citationItems.forEach((item) => {
+      const title = item.documentTitle || item.title || item.sourceName || "相关文档";
+      if (!groups.has(title)) {
+        groups.set(title, []);
+      }
+      groups.get(title).push(item);
+    });
+    return [...groups.entries()].map(([title, items]) => ({ title, items }));
+  }
+
+  function isContentInventoryQuestion(query = "") {
+    return /包含|哪些内容|都包含了|主要内容|文档内容|介绍|说明/.test(String(query || ""));
+  }
+
+  function extractEvidenceAspects(items = []) {
+    const text = items
+      .map((item) => cleanEvidenceSnippet(item.snippet || item.content || "", item.documentTitle || item.title || ""))
+      .join(" ");
+    const patterns = [
+      ["模块定位与业务作用", /模块定位|用于处理|用于记录|用于管理/],
+      ["核心业务对象与关联数据", /核心业务对象|发票申请|客户|合同|回款|商机/],
+      ["主要功能操作与处理环节", /新建|创建|编辑|提交|审核|作废|查看|记录/],
+      ["上下游流程联动与状态流转", /联动|同步|流程|状态|进度/],
+      ["关键业务规则与校验约束", /规则|唯一|必填|不得|超过|校验|阻止/],
+    ];
+    return patterns.filter(([, pattern]) => pattern.test(text)).map(([label]) => label).slice(0, 5);
+  }
+
+  function buildCitationSnippetSummary(items = []) {
+    const sentences = [];
+    items.slice(0, 3).forEach((item) => {
+      const cleaned = cleanEvidenceSnippet(item.snippet || item.content || "", item.documentTitle || item.title || "");
+      cleaned
+        .split(/[。！？；]+/)
+        .map((part) => part.trim())
+        .filter((part) => part.length >= 12)
+        .forEach((part) => {
+          if (!sentences.includes(part)) {
+            sentences.push(part);
+          }
+        });
+    });
+    return sentences.slice(0, 2).join("；");
   }
 
   function buildTopicBasedAnswer(query = "", topics = [], citationItems = []) {
@@ -735,6 +859,282 @@
     return text.length > limit ? `${text.slice(0, limit)}...` : text;
   }
 
+  /* function normalizeSuggestedQuestions(items = []) {
+    const normalized = [];
+    const seen = new Set();
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      const raw = typeof item === "string" ? { question: item, label: item } : item || {};
+      const question = String(raw.question || raw.query || raw.text || "").trim();
+      const label = String(raw.label || raw.title || question).trim();
+      if (!question || seen.has(question)) {
+        return;
+      }
+      seen.add(question);
+      normalized.push({
+        label: label || question,
+        question,
+        reason: truncateText(raw.reason || raw.description || "鏍规嵁褰撳墠鐭ヨ瘑搴撶敓鎴愩€?", 120),
+      });
+    });
+    return normalized.slice(0, 6);
+  }
+
+  function buildReadableConclusion(text, citationItems = [], raw = {}) {
+    const cleaned = cleanAnswerText(text);
+    const query = String(raw.query || raw.originalQuestion || "").trim();
+    const insufficient = isEvidenceInsufficientText(cleaned);
+    if (insufficient) {
+      return "褰撳墠鐭ヨ瘑搴撴病鏈夋绱㈠埌瓒冲璇佹嵁锛岀郴缁熶笉浼氭妸鏃犱緷鎹唴瀹瑰寘瑁呮垚姝ｅ紡缁撹銆傚缓璁厛琛ュ厖鐩稿叧闇€姹傘€佹帴鍙ｃ€佷氦鎺ユ垨鍩硅鏂囨。銆?";
+    }
+
+    if (cleaned && !isGenericEvidenceAnswer(cleaned)) {
+      return truncateText(cleaned, 420);
+    }
+
+    if (isContentInventoryQuestion(query)) {
+      const questionFocused = buildQuestionFocusedAnswer(query, citationItems, raw);
+      if (questionFocused) {
+        return questionFocused;
+      }
+    }
+
+    if (isRuleFlowComparisonQuestion(query)) {
+      const ruleFocused = buildRuleOrPermissionAnswer(query, citationItems);
+      if (ruleFocused) {
+        return ruleFocused;
+      }
+      if (cleaned) {
+        return truncateText(cleaned, 420);
+      }
+    }
+
+    if (cleaned && !looksLikeFallbackEvidenceSummary(cleaned)) {
+      return truncateText(cleaned, 420);
+    }
+
+    const fallbackTopics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
+    if (fallbackTopics.length) {
+      return `褰撳墠闂鍛戒腑浜?${fallbackTopics.join("銆?)} 绛夋枃妗ｏ紝寤鸿缁撳悎涓嬫柟璇佹嵁鎽樿纭缁撹銆俙`;
+    }
+    return query ? `褰撳墠闂鈥?{truncateText(query, 80)}鈥濇殏鏈舰鎴愭槑纭粨璁恒€俙` : "褰撳墠鏆傛棤鏄庣‘缁撹銆?";
+  }
+
+  function buildQuestionFocusedAnswer(query = "", citationItems = [], raw = {}) {
+    const grouped = groupCitationItemsByDocument(citationItems);
+    if (!grouped.length) {
+      return "";
+    }
+
+    const primary = grouped[0];
+    const primaryTitle = primary.title || "鐩稿叧鏂囨。";
+    const aspects = extractEvidenceAspects(primary.items);
+    const supportingTopics = grouped
+      .slice(1, 4)
+      .map((item) => documentTopic(item.title || ""))
+      .filter(Boolean);
+
+    if (isContentInventoryQuestion(query)) {
+      const lines = [`鍥寸粫銆?{primaryTitle}銆嬶紝褰撳墠鍛戒腑鐨勬枃妗ｅ唴瀹逛富瑕佸寘鎷細`];
+      if (aspects.length) {
+        lines.push(...aspects.map((aspect, index) => `${index + 1}. ${aspect}`));
+      } else {
+        lines.push(`1. ${buildCitationSnippetSummary(primary.items)}`);
+      }
+      if (supportingTopics.length) {
+        lines.push(`鍏朵粬鍛戒腑鏂囨。涓昏鐢ㄤ簬琛ュ厖涓庤涓婚鐩稿叧鐨勪笂涓嬫父鍏崇郴锛?{supportingTopics.join("銆?)}銆俙`);
+      }
+      return lines.join("\n");
+    }
+
+    return "";
+  }
+
+  function isContentInventoryQuestion(query = "") {
+    return /鍖呭惈|鍝簺鍐呭|閮藉寘鍚簡|涓昏鍐呭|鏂囨。鍐呭|浠嬬粛|璇存槑|清单|概览/.test(String(query || ""));
+  }
+
+  function isRuleFlowComparisonQuestion(query = "") {
+    return /权限|条件|规则|流程|关系|关联|划分|区别|差异|编辑|审批|角色|负责人|团队成员|金额/.test(String(query || ""));
+  }
+
+  function looksLikeFallbackEvidenceSummary(text = "") {
+    const normalized = String(text || "").toLowerCase();
+    return (
+      normalized.includes("based on the retrieved project evidence") ||
+      normalized.includes("the most relevant findings") ||
+      normalized.includes(" mentions ") ||
+      normalized.startsWith("鏍规嵁褰撳墠鐭ヨ瘑搴撴绱㈢粨鏋滐細") ||
+      normalized.startsWith("閽堝")
+    );
+  }
+
+  function buildRuleOrPermissionAnswer(query = "", citationItems = []) {
+    const groups = groupCitationItemsByDocument(citationItems);
+    if (!groups.length) {
+      return "";
+    }
+
+    const sections = [];
+    const amountDocs = groups.filter((group) => /金额|合同|开票|发票|回款/.test(group.title + " " + group.items.map((item) => item.snippet).join(" ")));
+    const permissionDocs = groups.filter((group) => /权限|负责人|团队|成员|转移|审批/.test(group.title + " " + group.items.map((item) => item.snippet).join(" ")));
+
+    if (/金额|开票|合同/.test(query) && amountDocs.length) {
+      sections.push(`金额编辑条件：${buildCitationSnippetSummary(amountDocs.flatMap((group) => group.items).slice(0, 3))}`);
+    }
+    if (/权限|负责人|团队|成员/.test(query) && permissionDocs.length) {
+      sections.push(`负责人 / 团队成员权限：${buildCitationSnippetSummary(permissionDocs.flatMap((group) => group.items).slice(0, 3))}`);
+    }
+    if (groups.length > 1) {
+      const related = groups.slice(0, 4).map((group) => documentTopic(group.title)).filter(Boolean);
+      if (related.length) {
+        sections.push(`涉及模块联动：${uniqueValues(related).join("、")}。`);
+      }
+    }
+
+    if (!sections.length) {
+      return "";
+    }
+
+    return [`针对“${truncateText(query, 48)}”，当前证据可以先支持这些结论：`, ...sections.map((item, index) => `${index + 1}. ${item}`)].join("\n");
+  }
+
+  */
+
+  function normalizeSuggestedQuestions(items = []) {
+    const normalized = [];
+    const seen = new Set();
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      const raw = typeof item === "string" ? { question: item, label: item } : item || {};
+      const question = String(raw.question || raw.query || raw.text || "").trim();
+      const label = String(raw.label || raw.title || question).trim();
+      if (!question || seen.has(question)) {
+        return;
+      }
+      seen.add(question);
+      normalized.push({
+        label: label || question,
+        question,
+        reason: truncateText(raw.reason || raw.description || "鏍规嵁褰撳墠鐭ヨ瘑搴撶敓鎴愩€?", 120),
+      });
+    });
+    return normalized.slice(0, 6);
+  }
+
+  function buildReadableConclusion(text, citationItems = [], raw = {}) {
+    const cleaned = cleanAnswerText(text);
+    const query = String(raw.query || raw.originalQuestion || "").trim();
+    if (isEvidenceInsufficientText(cleaned)) {
+      return "当前知识库没有检索到足够证据，系统不会把无依据内容包装成正式结论。建议先补充相关需求、接口、交接或培训文档。";
+    }
+
+    if (cleaned && !isGenericEvidenceAnswer(cleaned)) {
+      return truncateText(cleaned, 420);
+    }
+
+    if (isContentInventoryQuestion(query)) {
+      const questionFocused = buildQuestionFocusedAnswer(query, citationItems, raw);
+      if (questionFocused) {
+        return questionFocused;
+      }
+    }
+
+    if (isRuleFlowComparisonQuestion(query)) {
+      const ruleFocused = buildRuleOrPermissionAnswer(query, citationItems);
+      if (ruleFocused) {
+        return ruleFocused;
+      }
+      if (cleaned && !looksLikeFallbackEvidenceSummary(cleaned)) {
+        return truncateText(cleaned, 420);
+      }
+    }
+
+    const fallbackTopics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
+    if (fallbackTopics.length) {
+      return `当前问题命中了 ${fallbackTopics.join("、")} 等文档，建议结合下方证据摘要确认最终结论。`;
+    }
+    return query ? `当前问题“${truncateText(query, 80)}”暂未形成明确结论。` : "当前暂无明确结论。";
+  }
+
+  function buildQuestionFocusedAnswer(query = "", citationItems = [], raw = {}) {
+    const grouped = groupCitationItemsByDocument(citationItems);
+    if (!grouped.length || !isContentInventoryQuestion(query)) {
+      return "";
+    }
+
+    const primary = grouped[0];
+    const primaryTitle = primary.title || "相关文档";
+    const aspects = extractEvidenceAspects(primary.items);
+    const supportingTopics = grouped
+      .slice(1, 4)
+      .map((item) => documentTopic(item.title || ""))
+      .filter(Boolean);
+
+    const lines = [`围绕《${primaryTitle}》，当前命中的文档内容主要包括：`];
+    if (aspects.length) {
+      lines.push(...aspects.map((aspect, index) => `${index + 1}. ${aspect}`));
+    } else {
+      lines.push(`1. ${buildCitationSnippetSummary(primary.items)}`);
+    }
+    if (supportingTopics.length) {
+      lines.push(`其他命中文档主要用于补充与该主题相关的上下游关系：${supportingTopics.join("、")}。`);
+    }
+    return lines.join("\n");
+  }
+
+  function isContentInventoryQuestion(query = "") {
+    return /包含|哪些内容|都包含了|主要内容|文档内容|介绍|说明|清单|概览/.test(String(query || ""));
+  }
+
+  function isRuleFlowComparisonQuestion(query = "") {
+    return /权限|条件|规则|流程|关系|关联|划分|区别|差异|编辑|审批|角色|负责人|团队成员|金额/.test(String(query || ""));
+  }
+
+  function looksLikeFallbackEvidenceSummary(text = "") {
+    const normalized = String(text || "").toLowerCase();
+    return (
+      normalized.includes("based on the retrieved project evidence") ||
+      normalized.includes("the most relevant findings") ||
+      normalized.includes(" mentions ") ||
+      normalized.startsWith("鏍规嵁褰撳墠鐭ヨ瘑搴撴绱㈢粨鏋滐細")
+    );
+  }
+
+  function buildRuleOrPermissionAnswer(query = "", citationItems = []) {
+    const groups = groupCitationItemsByDocument(citationItems);
+    if (!groups.length) {
+      return "";
+    }
+
+    const sections = [];
+    const amountItems = groups
+      .filter((group) => /金额|合同|开票|发票|回款/.test(group.title + " " + group.items.map((item) => item.snippet).join(" ")))
+      .flatMap((group) => group.items)
+      .slice(0, 3);
+    const permissionItems = groups
+      .filter((group) => /权限|负责人|团队|成员|转移|审批/.test(group.title + " " + group.items.map((item) => item.snippet).join(" ")))
+      .flatMap((group) => group.items)
+      .slice(0, 3);
+
+    if (/金额|开票|合同/.test(query) && amountItems.length) {
+      sections.push(`金额编辑条件：${buildCitationSnippetSummary(amountItems)}`);
+    }
+    if (/权限|负责人|团队|成员/.test(query) && permissionItems.length) {
+      sections.push(`负责人 / 团队成员权限：${buildCitationSnippetSummary(permissionItems)}`);
+    }
+    if (groups.length > 1) {
+      const related = uniqueValues(groups.slice(0, 4).map((group) => documentTopic(group.title)).filter(Boolean));
+      if (related.length) {
+        sections.push(`涉及模块联动：${related.join("、")}。`);
+      }
+    }
+
+    if (!sections.length) {
+      return "";
+    }
+
+    return [`针对“${truncateText(query, 48)}”，当前证据可以先支持这些结论：`, ...sections.map((item, index) => `${index + 1}. ${item}`)].join("\n");
+  }
+
   function mapBackendCitationToCitation(raw = {}) {
     return {
       id: raw.id || raw.segmentId || raw.segment_id || raw.chunkId || raw.chunk_id || "",
@@ -816,11 +1216,65 @@
     }
   }
 
+  function buildReadableConclusion(text, citationItems = [], raw = {}) {
+    const cleaned = cleanAnswerText(text);
+    const query = String(raw.query || raw.originalQuestion || "").trim();
+    if (isEvidenceInsufficientText(cleaned)) {
+      return "当前知识库没有检索到足够证据，系统不会把无依据内容包装成正式结论。建议先补充相关需求、接口、交接或培训文档。";
+    }
+    if (cleaned && !isGenericEvidenceAnswer(cleaned)) {
+      return truncateText(cleaned, 420);
+    }
+
+    const grouped = groupCitationItemsByDocument(citationItems);
+    if (!grouped.length) {
+      return query ? `当前问题“${truncateText(query, 80)}”暂未形成明确结论。` : "当前暂无明确结论。";
+    }
+
+    if (isContentInventoryQuestion(query)) {
+      const primary = grouped[0];
+      const aspects = extractEvidenceAspects(primary.items);
+      const lines = [`围绕《${primary.title || "相关文档"}》，当前命中的文档内容主要包括：`];
+      if (aspects.length) {
+        lines.push(...aspects.map((aspect, index) => `${index + 1}. ${aspect}`));
+      } else {
+        lines.push(`1. ${buildCitationSnippetSummary(primary.items)}`);
+      }
+      return lines.join("\n");
+    }
+
+    const docLines = grouped
+      .slice(0, 3)
+      .map((group, index) => `${index + 1}. ${group.title || "相关文档"}：${buildCitationSnippetSummary(group.items)}`)
+      .filter(Boolean);
+    if (docLines.length) {
+      return [`针对“${truncateText(query, 48)}”，当前证据更直接支持这些信息：`, ...docLines].join("\n");
+    }
+
+    const fallbackTopics = uniqueValues(citationItems.map((item) => documentTopic(item.documentTitle || item.title || item.sourceName))).slice(0, 4);
+    if (fallbackTopics.length) {
+      return `当前问题命中了 ${fallbackTopics.join("、")} 等文档，建议结合下方证据摘要确认最终结论。`;
+    }
+    return query ? `当前问题“${truncateText(query, 80)}”暂未形成明确结论。` : "当前暂无明确结论。";
+  }
+
+  function isGenericEvidenceAnswer(text) {
+    const normalized = String(text || "").toLowerCase();
+    return (
+      normalized.includes("based on the retrieved project evidence") ||
+      normalized.includes("the most relevant findings") ||
+      normalized.includes(" mentions ") ||
+      normalized.startsWith("根据当前知识库检索结果") ||
+      normalized.startsWith("鏍规嵁褰撳墠")
+    );
+  }
+
   window.chatService = {
     getSessions,
     getKnowledgeOptions,
     getSuggestedQuestions,
     getMessages,
+    deleteSession,
     sendQuestion,
     createLocalSession,
     createUserMessage,
