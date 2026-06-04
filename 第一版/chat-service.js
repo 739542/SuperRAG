@@ -25,15 +25,7 @@
   }
 
   async function getSessions(params = {}) {
-    const localSessions = getBackend()?.getHistoryRecords?.()
-      ?.filter((record) => record.sceneMode === "chat")
-      ?.map((record) => ({
-        id: record.sessionId || record.id,
-        title: record.title,
-        sceneMode: "chat",
-        createdAt: record.createdAt,
-        updatedAt: record.createdAt,
-      })) || [];
+    const localSessions = buildLocalChatSessions(getLocalChatRecords());
     const sessions = localSessions.length ? localSessions : await getApi().getSessions();
     const keyword = String(params.keyword || "").trim().toLowerCase();
     const list = sessions
@@ -60,7 +52,44 @@
     };
   }
 
+  async function getSuggestedQuestions(params = {}) {
+    const documents = Array.isArray(params.documents) ? params.documents : [];
+    try {
+      const response = await getBackend().requestJson("/chat/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        timeoutMs: 65000,
+        body: JSON.stringify({
+          collection_id: params.knowledgeBaseId || "",
+          project: params.project || "",
+          answerMode: params.answerMode || "evidence",
+        }),
+      });
+      const items = normalizeSuggestedQuestions(response.items || []);
+      if (items.length) {
+        return {
+          items: clone(items),
+          source: response.source || "backend",
+          warning: response.warning || "",
+        };
+      }
+    } catch (error) {
+      console.warn(`[SuperRAG ChatService] suggested questions fallback: ${error.message || error}`);
+    }
+
+    return {
+      items: buildLocalSuggestedQuestions({ ...params, documents }),
+      source: "frontend-fallback",
+      warning: "后端推荐问题接口暂不可用，已基于当前前端文档列表生成兜底问题。",
+    };
+  }
+
   async function getMessages(sessionId) {
+    const localMessages = buildMessagesFromLocalHistory(sessionId);
+    if (localMessages.length) {
+      return clone(localMessages);
+    }
+
     const messages = await getApi().getChatMessages(sessionId);
     const mappedMessages = await Promise.all(
       messages.map(async (message) => {
@@ -77,6 +106,145 @@
     );
 
     return clone(mappedMessages);
+  }
+
+  function getLocalChatRecords() {
+    return (getBackend()?.getHistoryRecords?.() || [])
+      .filter((record) => normalizeSceneMode(record.sceneMode || record.scene) === "chat")
+      .sort((a, b) => getTimeValue(a.createdAt || a.created_at) - getTimeValue(b.createdAt || b.created_at));
+  }
+
+  function normalizeSuggestedQuestions(items = []) {
+    const normalized = [];
+    const seen = new Set();
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      const raw = typeof item === "string" ? { question: item, label: item } : item || {};
+      const question = String(raw.question || raw.query || raw.text || "").trim();
+      const label = String(raw.label || raw.title || question).trim();
+      if (!question || seen.has(question)) {
+        return;
+      }
+      seen.add(question);
+      normalized.push({
+        label: truncateText(label, 24),
+        question,
+        reason: truncateText(raw.reason || raw.description || "根据当前知识库生成。", 120),
+      });
+    });
+    return normalized.slice(0, 6);
+  }
+
+  function buildLocalSuggestedQuestions({ documents = [], project = "" } = {}) {
+    const topics = extractDocumentTopics(documents);
+    const primary = topics[0] || project || "当前项目";
+    const relationScope = topics.length > 1 ? topics.slice(0, 5).join("、") : `${primary}相关模块和文档`;
+    return normalizeSuggestedQuestions([
+      { label: `${primary}支持哪些业务？`, question: `${primary}主要支持哪些业务能力？` },
+      { label: `${relationScope}之间的关系`, question: `${relationScope}之间是什么关系？` },
+      { label: `${primary}业务规则`, question: `${primary}有哪些关键业务规则和限制条件？` },
+      { label: `${primary}权限风险`, question: `${primary}涉及哪些权限边界和风险点？` },
+      { label: `${primary}关键流程`, question: `${primary}从发起到完成的关键流程是什么？` },
+      { label: "哪些内容证据不足？", question: `当前知识库中关于${primary}还缺少哪些文档证据？` },
+    ]);
+  }
+
+  function extractDocumentTopics(documents = []) {
+    const text = documents.map((item) => [item.title, item.project].filter(Boolean).join(" ")).join(" ");
+    const preferred = ["客户", "商机", "合同", "回款", "发票", "权限", "审批", "接口", "测试", "部署", "需求", "交接", "培训"];
+    const topics = preferred.filter((item) => text.includes(item));
+    documents.forEach((item) => {
+      const topic = cleanQuestionTopic(item.title || item.name || item.project || "");
+      if (topic && !topics.includes(topic)) {
+        topics.push(topic);
+      }
+    });
+    return topics.slice(0, 8);
+  }
+
+  function cleanQuestionTopic(value = "") {
+    const fileStem = String(value).replace(/\.[^.]+$/, "");
+    return fileStem
+      .replace(/^\d+[_\-.\s]*/, "")
+      .replace(/SuperRAG|CRM|V\d+(\.\d+)*|final|最终版|演示整理版/gi, "")
+      .replace(/(模块|管理|说明|文档|设计|规格|需求|手册|记录|资料|流程)+/g, "")
+      .replace(/[_\-（）()\s]+/g, "")
+      .replace(/[，。；、]+/g, "")
+      .slice(0, 10);
+  }
+
+  function buildLocalChatSessions(records = []) {
+    const groups = new Map();
+    records.forEach((record) => {
+      const sessionId = getRecordSessionId(record);
+      if (!sessionId) {
+        return;
+      }
+      if (!groups.has(sessionId)) {
+        groups.set(sessionId, []);
+      }
+      groups.get(sessionId).push(record);
+    });
+
+    return [...groups.entries()].map(([sessionId, items]) => {
+      const sorted = [...items].sort((a, b) => getTimeValue(a.createdAt || a.created_at) - getTimeValue(b.createdAt || b.created_at));
+      const first = sorted[0] || {};
+      const last = sorted[sorted.length - 1] || first;
+      return {
+        id: sessionId,
+        title: last.title || last.originalQuestion || last.query || first.title || "历史问答会话",
+        sceneMode: "chat",
+        createdAt: first.createdAt || first.created_at || "",
+        updatedAt: last.updatedAt || last.updated_at || last.createdAt || last.created_at || "",
+      };
+    });
+  }
+
+  function buildMessagesFromLocalHistory(sessionId) {
+    if (!sessionId) {
+      return [];
+    }
+    const records = getLocalChatRecords().filter((record) => getRecordSessionId(record) === sessionId || record.id === sessionId);
+    return records.flatMap((record, index) => {
+      const recordSessionId = getRecordSessionId(record) || sessionId;
+      const question = record.originalQuestion || record.original_question || record.query || record.title || "";
+      const createdAt = record.createdAt || record.created_at || nowText();
+      const userMessage = {
+        id: `${record.id || record.artifactId || sessionId}-user-${index}`,
+        sessionId: recordSessionId,
+        role: "user",
+        content: question,
+        createdAt,
+        citations: [],
+        citationItems: [],
+        evidenceLevel: "medium",
+      };
+      const assistantMessage = mapBackendAnswerToMessage({
+        id: record.id || record.artifactId || `history-answer-${index}`,
+        sessionId: recordSessionId,
+        role: "assistant",
+        content: record.outputSummary || record.output_summary || record.summary || "",
+        answer: record.outputSummary || record.output_summary || record.summary || "",
+        query: question,
+        originalQuestion: question,
+        structuredAnswer: record.structuredOutput || record.structured_output || {},
+        citationItems: record.citations || [],
+        citationsDetail: record.citations || [],
+        qualityAssessment: record.qualityAssessment || record.quality_assessment || {},
+        evidenceLevel: record.evidenceLevel || record.evidence_level || "",
+        createdAt,
+        answerMode: "evidence",
+      });
+      return question ? [userMessage, assistantMessage] : [assistantMessage];
+    });
+  }
+
+  function getRecordSessionId(record = {}) {
+    return record.sessionId || record.session_id || record.chatSessionId || record.chat_session_id || record.id || record.artifactId || "";
+  }
+
+  function normalizeSceneMode(scene) {
+    const value = String(scene || "");
+    return value === "general" ? "chat" : value;
   }
 
   async function sendQuestion(payload) {
@@ -651,6 +819,7 @@
   window.chatService = {
     getSessions,
     getKnowledgeOptions,
+    getSuggestedQuestions,
     getMessages,
     sendQuestion,
     createLocalSession,

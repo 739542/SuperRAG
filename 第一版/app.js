@@ -32,6 +32,11 @@ const chatState = {
   citations: [],
   evidenceLevel: "medium",
   loading: false,
+  suggestedQuestions: [],
+  suggestedQuestionSource: "",
+  suggestedQuestionWarning: "",
+  suggestedQuestionScopeKey: "",
+  suggestedQuestionLoading: false,
 };
 const trainingState = {
   loaded: false,
@@ -303,11 +308,12 @@ function bindChatActions() {
     }
   });
 
-  document.addEventListener("change", (event) => {
+  document.addEventListener("change", async (event) => {
     if (!event.target.matches("#chat-knowledge-select, #chat-project-select, #chat-answer-mode")) {
       return;
     }
     renderChatConversation();
+    await refreshChatSuggestedQuestions({ force: true });
   });
 
   document.addEventListener("submit", async (event) => {
@@ -324,6 +330,7 @@ async function renderChatPage() {
     await loadChatData();
   }
   renderChatPageContent();
+  await refreshChatSuggestedQuestions();
 }
 
 async function loadChatData() {
@@ -352,6 +359,87 @@ function renderChatPageContent() {
   renderChatSessions();
   renderChatConversation();
   renderChatCitationPanel();
+  renderChatSuggestedQuestions();
+}
+
+async function refreshChatSuggestedQuestions({ force = false } = {}) {
+  const service = getChatService();
+  if (!service || !chatState.loaded) {
+    return;
+  }
+
+  const scope = getChatSuggestionScope();
+  const scopeKey = JSON.stringify(scope);
+  if (!force && chatState.suggestedQuestionScopeKey === scopeKey && chatState.suggestedQuestions.length) {
+    return;
+  }
+
+  chatState.suggestedQuestionScopeKey = scopeKey;
+  chatState.suggestedQuestionLoading = true;
+  renderChatSuggestedQuestions();
+
+  try {
+    const result = await service.getSuggestedQuestions({
+      ...scope,
+      documents: chatState.documents,
+    });
+    chatState.suggestedQuestions = result.items || [];
+    chatState.suggestedQuestionSource = result.source || "";
+    chatState.suggestedQuestionWarning = result.warning || "";
+  } catch (error) {
+    chatState.suggestedQuestions = [];
+    chatState.suggestedQuestionSource = "frontend-error";
+    chatState.suggestedQuestionWarning = error.message || "推荐问题生成失败。";
+  } finally {
+    chatState.suggestedQuestionLoading = false;
+    renderChatSuggestedQuestions();
+  }
+}
+
+function getChatSuggestionScope() {
+  return {
+    knowledgeBaseId: document.getElementById("chat-knowledge-select")?.value || "",
+    project: document.getElementById("chat-project-select")?.value || "",
+    answerMode: document.getElementById("chat-answer-mode")?.value || "evidence",
+  };
+}
+
+function renderChatSuggestedQuestions() {
+  const container = document.getElementById("chat-quick-question-row");
+  if (!container) {
+    return;
+  }
+
+  if (chatState.suggestedQuestionLoading) {
+    container.innerHTML = '<span class="quick-question-status">正在根据当前知识库生成猜你想问...</span>';
+    return;
+  }
+
+  const questions = chatState.suggestedQuestions || [];
+  if (!questions.length) {
+    container.innerHTML = '<span class="quick-question-status">当前知识库暂无推荐问题，可直接输入问题开始检索。</span>';
+    return;
+  }
+
+  const sourceLabel = getSuggestedQuestionSourceLabel(chatState.suggestedQuestionSource);
+  container.innerHTML = [
+    `<span class="quick-question-source">${escapeHtml(sourceLabel)}</span>`,
+    ...questions.map((item) => {
+      const question = item.question || item.label || "";
+      const label = item.label || question;
+      return `<button type="button" data-chat-question="${escapeHtml(question)}" title="${escapeHtml(item.reason || question)}">${escapeHtml(label)}</button>`;
+    }),
+  ].join("");
+}
+
+function getSuggestedQuestionSourceLabel(source = "") {
+  if (/openai|model|compatible/i.test(source)) {
+    return "AI 生成";
+  }
+  if (/fallback/i.test(source)) {
+    return "基于文档生成";
+  }
+  return "猜你想问";
 }
 
 function populateChatConfigOptions() {

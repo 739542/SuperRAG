@@ -327,3 +327,16 @@ def chat_completions():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
+
+
+@api_blueprint.route("/api/chat/suggestions", methods=["POST", "OPTIONS"])
+def chat_suggestions():
+    frontend_service = current_app.config["FRONTEND_SERVICE"]
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    try:
+        result = frontend_service.suggest_chat_questions(_json())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)

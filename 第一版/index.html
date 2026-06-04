@@ -551,13 +551,8 @@
               <div class="chat-conversation" id="chat-conversation" aria-live="polite"></div>
 
               <form class="chat-input-area" id="chat-form">
-                <div class="quick-question-row" aria-label="常用问题">
-                  <button type="button" data-chat-question="CRM 客户管理模块主要支持哪些业务？">CRM 客户管理模块主要支持哪些业务？</button>
-                  <button type="button" data-chat-question="客户、商机、合同、回款、发票之间是什么关系？">客户、商机、合同、回款、发票之间是什么关系？</button>
-                  <button type="button" data-chat-question="如果设计 CRM 合同管理模块，需要注意哪些业务规则？">合同管理有哪些业务规则？</button>
-                  <button type="button" data-chat-question="客户转移、公海、团队成员权限有哪些风险？">客户权限有哪些风险？</button>
-                  <button type="button" data-chat-question="商机推进到合同和回款需要经历哪些关键流程？">商机到回款的关键流程</button>
-                  <button type="button" data-chat-question="发票申请和合同、回款之间有什么关联？">发票与合同回款的关联</button>
+                <div class="quick-question-row" id="chat-quick-question-row" aria-label="猜你想问">
+                  <span class="quick-question-status">正在根据当前知识库生成猜你想问...</span>
                 </div>
                 <div class="chat-input-row">
                   <textarea id="chat-input" rows="2" placeholder="请输入你想查询的企业知识或项目问题"></textarea>

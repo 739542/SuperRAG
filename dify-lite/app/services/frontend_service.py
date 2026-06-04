@@ -38,6 +38,234 @@ class FrontendService:
     def list_documents(self) -> list[dict[str, Any]]:
         return [self._normalize_document(item) for item in self._repository.list_documents()]
 
+    def suggest_chat_questions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project = self._payload_text(payload, "project")
+        collection_key = (
+            payload.get("collection_id")
+            or payload.get("collectionId")
+            or payload.get("knowledge_base_id")
+            or payload.get("knowledgeBaseId")
+            or ""
+        ).strip()
+        collection = self._resolve_collection_for_suggestions(project=project, collection_id=collection_key)
+        documents = self._get_suggestion_documents(collection=collection, project=project)
+        queries = self._build_suggestion_queries(documents=documents, project=project or (collection or {}).get("name", ""))
+        retrieval: dict[str, Any] = {"hits": [], "warning": ""}
+        if collection and queries:
+            retrieval = self._retrieval_service.retrieve_many(
+                collection_id=collection["id"],
+                queries=queries,
+                top_k=5,
+            )
+        hits = retrieval.get("hits", [])[:8]
+        fallback_items = self._build_suggested_question_fallback(
+            documents=documents,
+            hits=hits,
+            project=project or (collection or {}).get("name", ""),
+        )
+        items = fallback_items
+        source = "retrieval-fallback"
+        warnings = [retrieval.get("warning", "")]
+
+        if documents or hits:
+            generation = self._chat_service.generate_json_with_task_prompt(
+                task_prompt=(
+                    "你是软件研发知识库的产品型问题推荐器。"
+                    "请只基于用户当前选择的知识库、项目、文档标题和检索片段，生成 6 个适合智能问答入口展示的猜你想问。"
+                    "问题要面向软件研发团队，优先覆盖：业务对象、模块职责、业务规则、权限风险、流程关系、证据缺口。"
+                    "不要编造文档中没有出现的产品、模块或事实。"
+                    "输出严格 JSON：{\"questions\":[{\"label\":\"短按钮文案\",\"question\":\"完整问题\",\"reason\":\"推荐理由\"}]}"
+                ),
+                user_payload={
+                    "project": project,
+                    "collection": collection or {},
+                    "documents": [
+                        {
+                            "title": item.get("title") or item.get("original_name") or item.get("filename") or "",
+                            "type": item.get("doc_type") or "",
+                            "summary": item.get("summary") or "",
+                            "scene": item.get("scene") or "",
+                        }
+                        for item in documents[:12]
+                    ],
+                    "retrieval_hits": [
+                        {
+                            "sourceDocument": (hit.get("metadata") or {}).get("source_name")
+                            or (hit.get("metadata") or {}).get("title")
+                            or "",
+                            "snippet": str(hit.get("content") or "")[:500],
+                            "score": hit.get("score") or 0,
+                        }
+                        for hit in hits
+                    ],
+                },
+                max_tokens=900,
+                timeout_seconds=45,
+            )
+            model_items = self._normalize_suggested_questions(generation.get("parsed"))
+            if model_items:
+                items = model_items
+                source = generation.get("provider") or "openai-compatible"
+            elif generation.get("warning"):
+                warnings.append(generation["warning"])
+
+        return {
+            "items": items[:6],
+            "source": source,
+            "project": project or (collection or {}).get("name", ""),
+            "collection": collection or {},
+            "documentCount": len(documents),
+            "retrieval": {
+                "queries": queries,
+                "hitCount": len(hits),
+                "warning": retrieval.get("warning", ""),
+            },
+            "warning": "；".join(item for item in warnings if item),
+        }
+
+    def _resolve_collection_for_suggestions(self, *, project: str, collection_id: str) -> dict[str, Any] | None:
+        for value in [collection_id, project]:
+            if not value:
+                continue
+            collection = self._repository.get_collection(value) or self._repository.get_collection_by_name(value)
+            if collection:
+                return collection
+        collections = self._repository.list_collections()
+        return collections[0] if collections else None
+
+    def _get_suggestion_documents(self, *, collection: dict[str, Any] | None, project: str) -> list[dict[str, Any]]:
+        if collection:
+            documents = self._repository.list_documents(collection_id=collection["id"])
+        else:
+            documents = self._repository.list_documents()
+        if project:
+            filtered = [
+                item
+                for item in documents
+                if project in {
+                    item.get("project", ""),
+                    item.get("collection_name", ""),
+                    item.get("collection_id", ""),
+                }
+            ]
+            if filtered:
+                documents = filtered
+        return documents
+
+    def _build_suggestion_queries(self, *, documents: list[dict[str, Any]], project: str) -> list[str]:
+        topics = self._extract_question_topics(documents=documents, hits=[])
+        scope = " ".join(part for part in [project, " ".join(topics[:5])] if part).strip() or "当前项目"
+        return [
+            f"{scope} 核心业务对象 模块职责",
+            f"{scope} 业务规则 状态流转 权限风险",
+            f"{scope} 流程关系 接口依赖 证据缺口",
+        ]
+
+    def _build_suggested_question_fallback(
+        self,
+        *,
+        documents: list[dict[str, Any]],
+        hits: list[dict[str, Any]],
+        project: str,
+    ) -> list[dict[str, str]]:
+        topics = self._extract_question_topics(documents=documents, hits=hits)
+        if not topics:
+            topics = [project or "当前项目"]
+        primary = topics[0]
+        relation_scope = "、".join(topics[:5]) if len(topics) > 1 else f"{primary}相关模块和文档"
+        candidates = [
+            (f"{primary}支持哪些业务？", f"{primary}主要支持哪些业务能力？"),
+            (f"{relation_scope}之间的关系", f"{relation_scope}之间是什么关系？"),
+            (f"{primary}业务规则", f"{primary}有哪些关键业务规则和限制条件？"),
+            (f"{primary}权限风险", f"{primary}涉及哪些权限边界和风险点？"),
+            (f"{primary}关键流程", f"{primary}从发起到完成的关键流程是什么？"),
+            ("哪些内容证据不足？", f"当前知识库中关于{primary}还缺少哪些文档证据？"),
+        ]
+        items = []
+        seen: set[str] = set()
+        for label, question in candidates:
+            if question in seen:
+                continue
+            seen.add(question)
+            items.append(
+                {
+                    "label": label[:24],
+                    "question": question,
+                    "reason": "根据当前项目文档标题和检索片段自动生成。",
+                }
+            )
+        return items
+
+    def _normalize_suggested_questions(self, payload: Any) -> list[dict[str, str]]:
+        if isinstance(payload, dict):
+            raw_items = payload.get("questions") or payload.get("items") or []
+        elif isinstance(payload, list):
+            raw_items = payload
+        else:
+            raw_items = []
+
+        items = []
+        seen: set[str] = set()
+        for raw in raw_items:
+            if isinstance(raw, str):
+                question = raw.strip()
+                label = question
+                reason = "由模型基于当前知识库生成。"
+            elif isinstance(raw, dict):
+                question = str(raw.get("question") or raw.get("text") or raw.get("query") or "").strip()
+                label = str(raw.get("label") or raw.get("title") or question).strip()
+                reason = str(raw.get("reason") or raw.get("description") or "由模型基于当前知识库生成。").strip()
+            else:
+                continue
+            if not question or question in seen:
+                continue
+            seen.add(question)
+            items.append(
+                {
+                    "label": label[:24],
+                    "question": question,
+                    "reason": reason[:120],
+                }
+            )
+        return items
+
+    def _extract_question_topics(self, *, documents: list[dict[str, Any]], hits: list[dict[str, Any]]) -> list[str]:
+        text_parts = [
+            item.get("title") or item.get("original_name") or item.get("filename") or ""
+            for item in documents[:12]
+        ]
+        text_parts.extend(str(hit.get("content") or "")[:260] for hit in hits[:8])
+        text = " ".join(text_parts)
+        preferred = [
+            "客户",
+            "商机",
+            "合同",
+            "回款",
+            "发票",
+            "权限",
+            "审批",
+            "接口",
+            "测试",
+            "部署",
+            "需求",
+            "交接",
+            "培训",
+        ]
+        topics = [item for item in preferred if item in text]
+        for title in text_parts:
+            cleaned = self._clean_question_topic(title)
+            if cleaned and cleaned not in topics:
+                topics.append(cleaned)
+        return topics[:8]
+
+    def _clean_question_topic(self, value: str) -> str:
+        text = Path(str(value or "")).stem
+        text = re.sub(r"^\d+[_\-.\s]*", "", text)
+        text = re.sub(r"(?i)SuperRAG|CRM|V\d+(\.\d+)*|final|最终版|演示整理版", "", text)
+        text = re.sub(r"(模块|管理|说明|文档|设计|规格|需求|手册|记录|资料|流程)+", "", text)
+        text = re.sub(r"[_\-（）()\s]+", "", text).strip("，。；、")
+        return text[:10]
+
     def import_document(
         self,
         *,
