@@ -1,10 +1,9 @@
 /**
  * Document service and adapter layer.
  *
- * The document management page should call window.documentService only. This
- * layer attempts to use the real dify-lite backend for document list/import,
- * and falls back to the existing mock API when the backend is unavailable or
- * an endpoint does not exist yet.
+ * The document management page should call window.documentService only.
+ * This layer reads and writes live backend document data. It no longer
+ * simulates uploads, deletes, tags, or reindex transitions on the frontend.
  */
 (function () {
   const localDocumentOverrides = new Map();
@@ -20,13 +19,6 @@
       DOCUMENT_API_TIMEOUT_MS: window.SuperRagConfig?.DOCUMENT_API_TIMEOUT_MS || 60000,
       USE_REAL_DOCUMENT_API: window.SuperRagConfig?.USE_REAL_DOCUMENT_API !== false,
     };
-  }
-
-  function getApi() {
-    if (!window.SuperRagApi) {
-      throw new Error("SuperRagApi is not loaded");
-    }
-    return window.SuperRagApi;
   }
 
   function nowText() {
@@ -130,14 +122,16 @@
         raw.collectionName ||
         raw.collection_name ||
         inferKnowledgeCategory(documentItem),
-      ingestionLogs: raw.ingestionLogs || raw.ingestion_logs || raw.logs || buildMockIngestionLogs(documentItem),
+      ingestionLogs: normalizeLogs(raw.ingestionLogs || raw.ingestion_logs || raw.logs || []),
       chunksPreview: normalizeChunks(raw.chunksPreview || raw.chunks_preview || raw.chunks || []),
       referencedQuestionCount:
         raw.referencedQuestionCount ??
         raw.referenced_question_count ??
         raw.questionCount ??
         documentItem.referenceStats.total ??
-        getMockCitationCount(documentItem.title),
+        0,
+      referencedArtifacts: Array.isArray(raw.referencedArtifacts) ? raw.referencedArtifacts : [],
+      topReferencedChunks: Array.isArray(raw.topReferencedChunks) ? raw.topReferencedChunks : [],
     };
   }
 
@@ -170,7 +164,7 @@
 
   function normalizeQualityStatus(value = {}) {
     if (typeof value === "string") {
-      return { label: value, level: value.includes("适合") ? "ok" : "warn" };
+      return { label: value, level: value.includes("通过") ? "ok" : "warn" };
     }
     if (value && typeof value === "object") {
       return {
@@ -210,6 +204,17 @@
       sourceDocument: item.sourceDocument || item.source_document || item.sourceName || item.source_name || "",
       searchable: item.searchable !== false,
       metadata: item.metadata || {},
+    }));
+  }
+
+  function normalizeLogs(value = []) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter(Boolean).map((item) => ({
+      time: item.time || item.createdAt || item.created_at || nowText(),
+      message: item.message || item.text || item.description || "",
+      status: item.status || "",
     }));
   }
 
@@ -271,7 +276,7 @@
   }
 
   async function getDocuments(params = {}) {
-    const rawDocuments = await getDocumentsWithFallback(params);
+    const rawDocuments = await fetchBackendDocuments(params);
     const list = rawDocuments
       .map(mapBackendDocumentToDocument)
       .map(applyLocalDocumentState)
@@ -285,23 +290,10 @@
     };
   }
 
-  async function getDocumentsWithFallback(params = {}) {
-    try {
-      const backendDocuments = await fetchBackendDocuments(params);
-      if (backendDocuments) {
-        return backendDocuments;
-      }
-    } catch (error) {
-      warnFallback("获取真实文档列表失败，已回退到 mock 数据", error);
-    }
-
-    return getApi().getDocuments();
-  }
-
   async function fetchBackendDocuments(params = {}) {
     const config = getConfig();
     if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL) {
-      return null;
+      return [];
     }
 
     const query = new URLSearchParams();
@@ -316,47 +308,30 @@
   }
 
   async function getDocumentDetail(id) {
-    try {
-      const backendDetail = await fetchBackendDocumentDetail(id);
-      if (backendDetail) {
-        const mappedDetail = mapBackendDocumentDetailToDocumentDetail(backendDetail);
-        if (!mappedDetail.chunksPreview?.length) {
-          mappedDetail.chunksPreview = await fetchBackendDocumentChunks(id, 5);
-        }
-        const references = await fetchBackendDocumentReferences(id);
-        if (references) {
-          mappedDetail.referenceStats = normalizeReferenceStats({
-            total: references.totalReferences,
-            lastReferencedAt: references.lastReferencedAt,
-            ...(references.referencesByScene || {}),
-          });
-          mappedDetail.referencedArtifacts = references.referencedArtifacts || [];
-          mappedDetail.topReferencedChunks = references.topReferencedChunks || [];
-          mappedDetail.referencedQuestionCount = references.totalReferences || 0;
-        }
-        return clone(applyLocalDocumentState(mappedDetail));
-      }
-    } catch (error) {
-      warnFallback("获取真实文档详情失败，已回退到文档列表推导", error);
+    const backendDetail = await fetchBackendDocumentDetail(id);
+    const mappedDetail = mapBackendDocumentDetailToDocumentDetail(backendDetail);
+
+    if (!mappedDetail.chunksPreview?.length) {
+      mappedDetail.chunksPreview = await fetchBackendDocumentChunks(id, 5);
     }
-
-    const rawDocuments = await getDocumentsWithFallback();
-    const rawDocument = rawDocuments.find((documentItem) => {
-      const mapped = mapBackendDocumentToDocument(documentItem);
-      return mapped.id === id;
-    });
-
-    if (!rawDocument) {
-      throw new Error("Document not found");
+    const references = await fetchBackendDocumentReferences(id);
+    if (references) {
+      mappedDetail.referenceStats = normalizeReferenceStats({
+        total: references.totalReferences,
+        lastReferencedAt: references.lastReferencedAt,
+        ...(references.referencesByScene || {}),
+      });
+      mappedDetail.referencedArtifacts = references.referencedArtifacts || [];
+      mappedDetail.topReferencedChunks = references.topReferencedChunks || [];
+      mappedDetail.referencedQuestionCount = references.totalReferences || 0;
     }
-
-    return clone(applyLocalDocumentState(mapBackendDocumentDetailToDocumentDetail(rawDocument)));
+    return clone(applyLocalDocumentState(mappedDetail));
   }
 
   async function fetchBackendDocumentDetail(id) {
     const config = getConfig();
     if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL || !id) {
-      return null;
+      throw new Error("文档服务未启用");
     }
     return requestBackendJson(`/documents/${encodeURIComponent(id)}`);
   }
@@ -384,45 +359,24 @@
   }
 
   async function uploadDocument(payload) {
-    try {
-      const backendDocument = await uploadDocumentToBackend(payload);
-      if (backendDocument) {
-        const mapped = mapBackendDocumentToDocument(backendDocument);
-        const localPatch = buildUploadLocalPatch(payload);
-        if (Object.keys(localPatch).length) {
-          localDocumentOverrides.set(mapped.id, { ...(localDocumentOverrides.get(mapped.id) || {}), ...localPatch });
-        }
-        return clone(applyLocalDocumentState(mapped));
-      }
-    } catch (error) {
-      warnFallback("真实上传接口失败，已回退到 mock 上传", error);
+    const backendDocument = await uploadDocumentToBackend(payload);
+    const mapped = mapBackendDocumentToDocument(backendDocument);
+    const localPatch = buildUploadLocalPatch(payload);
+    if (Object.keys(localPatch).length) {
+      localDocumentOverrides.set(mapped.id, { ...(localDocumentOverrides.get(mapped.id) || {}), ...localPatch });
     }
-
-    if (resolveUploadFile(payload)) {
-      throw new Error("真实文档上传失败：请检查文件格式、后端状态或上传解析日志。");
-    }
-
-    const rawDocument = await getApi().createDocument({
-      title: payload.title,
-      type: payload.type,
-      project: payload.project,
-      tags: payload.tags,
-      visibilityScope: payload.visibilityScope,
-      status: "indexing",
-    });
-
-    return clone(mapBackendDocumentToDocument(rawDocument));
+    return clone(applyLocalDocumentState(mapped));
   }
 
   async function uploadDocumentToBackend(payload) {
     const config = getConfig();
     if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL) {
-      return null;
+      throw new Error("文档服务未启用");
     }
 
     const file = resolveUploadFile(payload);
     if (!file) {
-      return null;
+      throw new Error("请选择需要上传的文件");
     }
 
     const formData = new FormData();
@@ -457,9 +411,6 @@
     if (payload.upload) {
       return payload.upload;
     }
-    // Compatibility with the current static page: the call site passes form
-    // fields but not the File object yet, so the service reads the selected
-    // file without changing UI behavior.
     return document.querySelector("#upload-form input[name='file']")?.files?.[0] || null;
   }
 
@@ -474,71 +425,28 @@
     return patch;
   }
 
-  async function reindexDocument(id) {
-    // TODO: backend currently has no POST /api/documents/{id}/reindex.
-    // Keep the frontend interaction alive with a local/mock state transition.
-    const detail = await getDocumentDetail(id);
-    const patch = {
-      status: "indexing",
-      updatedAt: nowText(),
-      summary: `${detail.summary || ""}（已提交重新入库任务）`,
-    };
-    localDocumentOverrides.set(id, { ...(localDocumentOverrides.get(id) || {}), ...patch });
-
-    try {
-      await getApi().updateDocument(id, patch);
-    } catch (error) {
-      warnFallback("mock 重新入库状态同步失败，仅保留本地状态", error);
-    }
-
-    return clone({ ...detail, ...patch });
+  async function reindexDocument() {
+    throw new Error("当前后端尚未提供重新入库接口，前端已停止本地模拟状态切换。");
   }
 
   async function deleteDocument(id) {
-    try {
-      await deleteDocumentFromBackend(id);
-      locallyDeletedDocumentIds.add(id);
-      return { success: true, id };
-    } catch (error) {
-      warnFallback("真实删除接口失败，仅保留本地删除状态", error);
-    }
-
+    await deleteDocumentFromBackend(id);
     locallyDeletedDocumentIds.add(id);
-    try {
-      await getApi().deleteDocument(id);
-    } catch (error) {
-      warnFallback("mock 删除同步失败，仅保留本地删除状态", error);
-    }
     return { success: true, id };
   }
 
   async function deleteDocumentFromBackend(id) {
     const config = getConfig();
     if (!config.USE_REAL_DOCUMENT_API || !config.API_BASE_URL) {
-      return null;
+      throw new Error("文档服务未启用");
     }
     return requestBackendJson(`/documents/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
   }
 
-  async function updateDocumentTags(id, tags) {
-    // TODO: backend currently has no PATCH /api/documents/{id}/tags.
-    // Store tag changes locally so the page behavior remains unchanged.
-    const patch = { tags, updatedAt: nowText() };
-    localDocumentOverrides.set(id, { ...(localDocumentOverrides.get(id) || {}), ...patch });
-
-    try {
-      const rawDocument = await getApi().updateDocument(id, patch);
-      if (rawDocument) {
-        return clone(applyLocalDocumentState(mapBackendDocumentToDocument(rawDocument)));
-      }
-    } catch (error) {
-      warnFallback("mock 标签更新失败，仅保留本地标签状态", error);
-    }
-
-    const detail = await getDocumentDetail(id);
-    return clone({ ...detail, ...patch });
+  async function updateDocumentTags() {
+    throw new Error("当前后端尚未提供文档标签更新接口，前端已停止仅本地生效的标签修改。");
   }
 
   async function requestBackendJson(path, options = {}) {
@@ -587,26 +495,6 @@
       return "需求分析知识 / 业务规则";
     }
     return documentItem.collectionName || "通用项目知识 / 待细分";
-  }
-
-  function buildMockIngestionLogs(documentItem) {
-    const logs = {
-      indexed: ["文档解析完成，已写入知识库检索索引。", "当前后端未提供入库日志接口，此处为前端兼容展示。"],
-      indexing: ["文档已进入解析队列。", "等待后端补充重新入库接口后可展示真实任务进度。"],
-      failed: ["解析任务失败，疑似格式异常或权限不足。", "等待重新入库或人工处理。"],
-      pending: ["文档已登记，等待提交解析任务。", "尚未进入知识库索引。"],
-    };
-
-    return (logs[documentItem.status] || logs.pending).map((message, index) => ({
-      time: index === 0 ? documentItem.updatedAt : "最近",
-      message,
-      status: documentItem.status,
-    }));
-  }
-
-  function getMockCitationCount(documentTitle) {
-    const citations = window.SuperRagMock?.mockCitations || [];
-    return citations.filter((citation) => citation.documentTitle === documentTitle).length;
   }
 
   function getTimeValue(value) {

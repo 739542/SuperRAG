@@ -1,15 +1,10 @@
 /**
  * Handover service and adapter layer.
- * Calls dify-lite first and falls back to mock data when the backend cannot
- * answer for the selected project yet.
+ * Calls dify-lite and only renders backend-grounded handover content.
  */
 (function () {
   function clone(value) {
     return structuredClone(value);
-  }
-
-  function getMock() {
-    return window.SuperRagMock || {};
   }
 
   function getBackend() {
@@ -17,7 +12,7 @@
   }
 
   async function getHandoverOptions() {
-    const documents = await getDocumentsWithFallback();
+    const documents = await getDocumentsFromBackend();
     return {
       scopes: ["功能模块", "接口服务", "测试验证", "风险问题", "文档资料"],
       projects: uniqueValues(documents.map((item) => item.project || item.collectionName || item.collection_name)),
@@ -55,18 +50,7 @@
       });
       return clone(result);
     } catch (error) {
-      console.warn(`[SuperRAG HandoverService] backend unavailable, using mock: ${error.message || error}`);
-      const base = getMock().mockHandoverResult || {};
-      const citations = resolveCitations(base.citations);
-      return clone(
-        mapWorkflowHandoverResultToHandoverResult({
-          ...base,
-          query: payload.query || "请总结当前项目进度",
-          project: payload.project || base.project || "企业知识库",
-          scope: payload.scope || base.scope || "功能模块",
-          citations,
-        }),
-      );
+      throw new Error(`交接结果生成失败：${error.message || error}`);
     }
   }
 
@@ -75,7 +59,7 @@
       id: raw.id || `handover-${Date.now()}`,
       title: raw.title || "交接摘要",
       query: raw.query || "",
-      project: raw.project || "企业知识库",
+      project: raw.project || "",
       scope: raw.scope || "功能模块",
       projectBackground: raw.projectBackground || raw.project_background || raw.background || "",
       currentProgress: raw.currentProgress || raw.current_progress || raw.progress || raw.summary || "",
@@ -192,12 +176,6 @@
     };
   }
 
-  function resolveCitations(citationIds = []) {
-    const citations = getMock().mockCitations || [];
-    const idSet = new Set(citationIds);
-    return citations.filter((citation) => idSet.has(citation.id));
-  }
-
   function uniqueValues(values) {
     return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   }
@@ -214,9 +192,6 @@
 
   function inferGenerationMode(source) {
     const value = String(source || "").toLowerCase();
-    if (value.includes("mock")) {
-      return "mock-fallback";
-    }
     if (value.includes("retrieval")) {
       return "retrieval-fallback";
     }
@@ -229,12 +204,13 @@
     return "unknown";
   }
 
-  async function getDocumentsWithFallback() {
+  async function getDocumentsFromBackend() {
     try {
       const response = await getBackend().requestJson("/documents");
       return Array.isArray(response.items) ? response.items : [];
     } catch (error) {
-      return getMock().mockDocuments || [];
+      console.warn(`[SuperRAG HandoverService] live documents unavailable: ${error.message || error}`);
+      return [];
     }
   }
 

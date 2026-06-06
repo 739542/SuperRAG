@@ -1,17 +1,10 @@
 /**
  * Dashboard service and adapter layer.
- * Uses dify-lite health/documents plus locally recorded frontend actions.
+ * Reads live backend document status plus locally persisted real artifacts.
  */
 (function () {
   function clone(value) {
     return structuredClone(value);
-  }
-
-  function getApi() {
-    if (!window.SuperRagApi) {
-      throw new Error("SuperRagApi is not loaded");
-    }
-    return window.SuperRagApi;
   }
 
   function getBackend() {
@@ -19,13 +12,14 @@
   }
 
   async function getDashboardStats() {
+    const history = getBackend()?.getHistoryRecords?.() || [];
+
     try {
       const [health, docsResponse] = await Promise.all([
         getBackend().requestJson("/health"),
         getBackend().requestJson("/documents"),
       ]);
       const documents = Array.isArray(docsResponse.items) ? docsResponse.items.map(mapBackendDocumentSummaryToDocumentSummary) : [];
-      const history = getBackend().getHistoryRecords();
       return clone({
         documentCount: Number(health.documents ?? documents.length),
         categoryCount: Number(health.collections ?? uniqueValues(documents.map((item) => item.project)).length),
@@ -35,26 +29,31 @@
         failedDocumentCount: documents.filter((item) => item.status === "failed").length,
       });
     } catch (error) {
-      const stats = await getApi().getDashboardStats();
-      return clone(mapBackendStatsToStats(stats || {}));
+      return clone({
+        documentCount: 0,
+        categoryCount: 0,
+        todayQuestionCount: history.filter((item) => item.sceneMode === "chat").length,
+        designOutputCount: history.filter((item) => item.sceneMode === "design").length,
+        indexingCount: 0,
+        failedDocumentCount: 0,
+      });
     }
   }
 
   async function getRecentDocuments(params = {}) {
     const limit = Number(params.limit || 5);
-    const documents = await getDocumentsWithFallback();
+    const documents = await getDocumentsFromBackend();
     return clone((documents || []).slice(0, limit).map(mapBackendDocumentSummaryToDocumentSummary));
   }
 
   async function getRecentActivities(params = {}) {
     const limit = Number(params.limit || 5);
     const local = getBackend()?.getHistoryRecords?.() || [];
-    const sessions = local.length ? local : await getApi().getSessions();
-    return clone((sessions || []).slice(0, limit).map(mapBackendActivityToActivity));
+    return clone(local.slice(0, limit).map(mapBackendActivityToActivity));
   }
 
   async function getKnowledgeDocuments() {
-    const documents = await getDocumentsWithFallback();
+    const documents = await getDocumentsFromBackend();
     return clone((documents || []).map(mapBackendDocumentSummaryToDocumentSummary));
   }
 
@@ -104,12 +103,13 @@
     return "pending";
   }
 
-  async function getDocumentsWithFallback() {
+  async function getDocumentsFromBackend() {
     try {
       const response = await getBackend().requestJson("/documents");
       return Array.isArray(response.items) ? response.items : [];
     } catch (error) {
-      return getApi().getDocuments();
+      console.warn(`[SuperRAG DashboardService] live documents unavailable: ${error.message || error}`);
+      return [];
     }
   }
 

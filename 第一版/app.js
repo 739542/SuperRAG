@@ -814,27 +814,20 @@ function isBroadProjectQuestion(query) {
 }
 
 function renderBasisSummary(message = {}, sections = {}) {
-  const citations = message.citationItems || [];
-  if (!citations.length) {
-    return renderEmptyState("当前回答缺少可引用证据。", "建议补充需求文档、接口文档、交接记录或换一个更具体的问题。");
+  if (sections.basisSummary) {
+    return `
+      <div class="answer-basis-summary">
+        ${renderBackendRichTextBlock(sections.basisSummary, "compact-rich-answer")}
+      </div>
+    `;
   }
-  const grouped = groupCitationsByDocument(citations);
-  const docsText = grouped.slice(0, 4).map((item) => `${item.title}（${item.items.length} 个片段）`).join("、");
-  const topicText = inferMatchedKnowledgeLabel(citations);
-  return `
-    <div class="answer-basis-summary">
-      <p>本次回答主要基于 ${escapeHtml(topicText)} 中的 ${escapeHtml(docsText)}。</p>
-      <p>${escapeHtml(getBestCitationScore(citations) < 0.25 ? "部分证据相关度偏低，正式使用前建议人工复核。" : "证据可支撑当前问题的初步回答，正式结论仍建议核对原文。")}</p>
-    </div>
-  `;
+  return renderEmptyState("当前回答没有返回依据摘要。", "该区域只展示后端返回的结构化依据摘要，不再由前端二次归纳。");
 }
 
 function renderSuggestedFollowups(sections = {}, message = {}) {
-  const items = Array.isArray(sections.followUpItems) && sections.followUpItems.length
-    ? sections.followUpItems
-    : buildFrontendFollowups(message);
+  const items = Array.isArray(sections.followUpItems) ? sections.followUpItems.filter(Boolean) : [];
   if (!items.length) {
-    return renderEmptyState("当前没有建议追问。", "可以换一个更具体的问题，或转入设计辅助生成结构化产物。");
+    return renderEmptyState("当前没有建议追问。", "该区域只展示后端返回的追问建议，当前结果未提供额外追问。");
   }
   return `
     <div class="answer-followup-grid">
@@ -849,28 +842,11 @@ function renderSuggestedFollowups(sections = {}, message = {}) {
   `;
 }
 
-function buildFrontendFollowups(message = {}) {
-  const text = [message.query, ...(message.citationItems || []).map((item) => `${item.documentTitle} ${item.snippet}`)].join(" ");
-  if (/客户|商机|合同|回款|发票|CRM/i.test(text)) {
-    return [
-      "是否需要进一步生成 CRM 模块功能清单？",
-      "是否需要整理客户-商机-合同-回款-发票的业务流程？",
-      "是否需要转入设计辅助模式生成详细文本用例？",
-      "是否需要检查当前回答中证据不足的业务规则？",
-    ];
-  }
-  return [
-    "是否需要把当前结论整理为功能清单？",
-    "是否需要查看引用文档原文？",
-    "是否需要转入设计辅助模式生成结构化产物？",
-  ];
-}
-
 function renderAnswerConclusion(sections = {}) {
   return `
     <div class="answer-conclusion-card">
       <span aria-hidden="true">结</span>
-      <div>${renderRichText(sections.conclusion)}</div>
+      <div>${renderBackendRichText(sections.conclusion)}</div>
     </div>
   `;
 }
@@ -886,7 +862,7 @@ function renderAnswerEvidence(sections = {}, message = {}) {
     : items;
 
   if (!fallbackItems.length) {
-    return `<div class="answer-evidence-empty">${renderRichText(sections.evidence || "当前回答没有足够的可引用证据。")}</div>`;
+    return `<div class="answer-evidence-empty">${renderBackendRichText(sections.evidence || "")}</div>`;
   }
 
   return `
@@ -901,7 +877,7 @@ function renderAnswerEvidence(sections = {}, message = {}) {
                 <span>证据 ${index + 1}</span>
                 <strong>${escapeHtml(item.title || item.documentTitle || "知识库片段")}</strong>
               </div>
-              ${renderExpandableText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。", { threshold: 150, className: "answer-evidence-snippet" })}
+              ${renderBackendExpandableText(item.summary || item.snippet || item.content || "该文档命中用户问题相关片段。", { threshold: 150, className: "answer-evidence-snippet" })}
               <div class="answer-evidence-actions">
                 <small>相关度：${escapeHtml(scoreText)}</small>
                 ${renderCitationSourceButton(item)}
@@ -946,7 +922,7 @@ function renderAnswerList(items, fallbackText, className) {
 
   return `
     <ul class="${className}">
-      ${list.map((item) => `<li>${renderRichTextBlock(formatDisplayValue(item), "compact-rich-answer inline-rich-answer")}</li>`).join("")}
+      ${list.map((item) => `<li>${renderBackendRichTextBlock(item, "compact-rich-answer inline-rich-answer")}</li>`).join("")}
     </ul>
   `;
 }
@@ -955,6 +931,59 @@ function renderRichText(value) {
   const normalized = normalizeRichTextSource(value);
   if (!normalized) {
     return "<p>待补充</p>";
+  }
+
+  const lines = normalized.split("\n");
+  const blocks = [];
+  let listItems = [];
+
+  function flushList() {
+    if (!listItems.length) {
+      return;
+    }
+    blocks.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    listItems = [];
+  }
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      return;
+    }
+
+    const headingMatch = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (headingMatch) {
+      flushList();
+      const level = Math.min(headingMatch[1].length + 3, 6);
+      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      return;
+    }
+
+    const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
+    if (bulletMatch) {
+      listItems.push(bulletMatch[1]);
+      return;
+    }
+
+    const numberedMatch = /^\d+\.\s+(.+)$/.exec(line);
+    if (numberedMatch) {
+      listItems.push(numberedMatch[1]);
+      return;
+    }
+
+    flushList();
+    blocks.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  });
+
+  flushList();
+  return blocks.join("");
+}
+
+function renderBackendRichText(value) {
+  const normalized = normalizeBackendRichTextSource(value);
+  if (!normalized) {
+    return "";
   }
 
   const lines = normalized.split("\n");
@@ -1023,6 +1052,18 @@ function normalizeRichTextSource(value) {
     .trim();
 }
 
+function normalizeBackendRichTextSource(value) {
+  return String(value && typeof value === "object" ? formatHumanReadableItem(value) : value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/```(?:[a-zA-Z0-9_-]+)?/g, "")
+    .replace(/^\s{0,3}(#{1,6})([^\s#])/gm, "$1 $2")
+    .replace(/^\s*([*+-])([^\s*+-])/gm, "$1 $2")
+    .replace(/^\s*(\d+)\.([^\s])/gm, "$1. $2")
+    .replace(/^\s*[-*_]{3,}\s*$/gm, "")
+    .trim();
+}
+
 function stripMarkdownDecorators(value) {
   if (value && typeof value === "object") {
     return formatHumanReadableItem(value);
@@ -1038,6 +1079,11 @@ function stripMarkdownDecorators(value) {
 function renderRichTextBlock(value, className = "") {
   const extraClass = className ? ` ${className}` : "";
   return `<div class="rich-answer${extraClass}">${renderRichText(value)}</div>`;
+}
+
+function renderBackendRichTextBlock(value, className = "") {
+  const extraClass = className ? ` ${className}` : "";
+  return `<div class="rich-answer${extraClass}">${renderBackendRichText(value)}</div>`;
 }
 
 function renderRichList(items = [], className = "scenario-bullet-list") {
@@ -1647,22 +1693,22 @@ function renderTrainingResult(result) {
     return;
   }
   if (!result) {
-    container.innerHTML = '<div class="empty-inline">璇疯緭鍏ュ煿璁棶棰樺悗鐢熸垚缁撴瀯鍖栬鏄庛€?/div>';
+    container.innerHTML = '<div class="empty-inline">请输入培训问题后生成结构化说明。</div>';
     return;
   }
 
   if (isEvidenceInsufficientTrainingResult(result)) {
     container.innerHTML = renderEvidenceInsufficientState({
-      title: "褰撳墠鐭ヨ瘑搴撹瘉鎹笉瓒?",
-      description: "绯荤粺娌℃湁妫€绱㈠埌瓒冲鐨勯」鐩枃妗ｈ瘉鎹紝鍥犳涓嶈兘鐢熸垚姝ｅ紡鏂颁汉鍩硅璁″垝銆?",
-      impact: "璇ョ粨鏋滀笉鑳戒綔涓烘寮忓煿璁潗鏂欎娇鐢紝寤鸿鍏堣ˉ鍏呴渶姹傛枃妗ｃ€佹帴鍙ｆ枃妗ｃ€侀儴缃茶鏄庢垨鏂颁汉鍩硅璧勬枡銆?",
+      title: "当前知识库证据不足",
+      description: "系统没有检索到足够的项目文档证据，因此不能生成正式新人培训计划。",
+      impact: "该结果不能作为正式培训材料使用，建议先补充需求文档、接口文档、部署说明或新人培训资料。",
       suggestions: [
-        "浼樺厛涓婁紶 CRM 婕旂ず鏂囨。鎴栫湡瀹為」鐩渶姹傝鏄庛€?",
-        "琛ュ厖鎺ュ彛璇存槑銆侀儴缃叉枃妗ｅ拰娴嬭瘯鐢ㄤ緥锛屾彁鍗囨柊浜轰笂鎵嬭矾寰勫畬鏁村害銆?",
-        "涓婁紶鍚庨噸鏂扮敓鎴愭柊浜?7 澶╀笂鎵嬭鍒掋€?",
+        "优先上传 CRM 演示文档或真实项目需求说明。",
+        "补充接口说明、部署文档和测试用例，提升新人上手路径完整度。",
+        "上传后重新生成新人 7 天上手计划。",
       ],
-      primaryAction: { label: "鍘绘枃妗ｇ煡璇嗗簱涓婁紶璧勬枡", href: "#/documents" },
-      secondaryAction: { label: "鏌ョ湅婕旂ず涓績", href: "#/demo-center" },
+      primaryAction: { label: "去文档知识库上传资料", href: "#/documents" },
+      secondaryAction: { label: "查看演示中心", href: "#/demo-center" },
     });
     return;
   }
@@ -1674,44 +1720,44 @@ function renderTrainingResult(result) {
   container.innerHTML = `
     <section class="scenario-summary-card">
       <div>
-        <p class="eyebrow">${escapeHtml(result.topic || "鏂颁汉鍩硅")}</p>
-        <h3>缁撹鎽樿</h3>
+        <p class="eyebrow">${escapeHtml(result.topic || "新人培训")}</p>
+        <h3>结论摘要</h3>
         ${renderRichTextBlock(result.summary || result.background || "", "compact-rich-answer")}
       </div>
     </section>
     <section class="scenario-section">
-      <h3>鑳屾櫙璇存槑</h3>
+      <h3>背景说明</h3>
       ${renderRichTextBlock(result.background || result.summary || "", "compact-rich-answer")}
     </section>
     <section class="scenario-section">
-      <h3>鏍稿績姒傚康</h3>
-      <div class="term-grid">${concepts.length ? concepts.map(renderTermCard).join("") : renderEmptyState("褰撳墠璇佹嵁涓嶈冻锛屾殏鏈娊鍙栨牳蹇冩湳璇€?", "寤鸿琛ュ厖 CRM 涓氬姟鏈銆佸瓧娈佃鏄庢垨鍩硅璧勬枡銆?")}</div>
+      <h3>核心概念</h3>
+      <div class="term-grid">${concepts.length ? concepts.map(renderTermCard).join("") : renderEmptyState("当前证据不足，暂未抽取核心术语。", "建议补充 CRM 业务术语、字段说明或培训资料。")}</div>
     </section>
     <section class="scenario-section">
-      <h3>3-7 澶╁涔犺矾寰?/h3>
-      <div class="learning-timeline">${result.learningPath?.length ? result.learningPath.map(renderLearningStep).join("") : renderEmptyState("褰撳墠璇佹嵁涓嶈冻锛屾殏鏈敓鎴愬涔犺矾寰勩€?", "寤鸿鍏堜笂浼犻渶姹傛枃妗ｃ€佹帴鍙ｆ枃妗ｃ€侀儴缃茶鏄庢垨鏂颁汉鍩硅璧勬枡銆?")}</div>
+      <h3>3-7 天学习路径</h3>
+      <div class="learning-timeline">${result.learningPath?.length ? result.learningPath.map(renderLearningStep).join("") : renderEmptyState("当前证据不足，暂未生成学习路径。", "建议先上传需求文档、接口文档、部署说明或新人培训资料。")}</div>
     </section>
     <section class="scenario-section">
-      <h3>闃舵鎬荤粨</h3>
-      <div class="term-grid">${phaseSummaries.length ? phaseSummaries.map(renderTrainingPhaseSummary).join("") : renderEmptyState("鏆傛棤闃舵鎬荤粨銆?", "绯荤粺浼氬湪鏈夎冻澶熻瘉鎹椂鎸夐樁娈垫眹鎬诲涔犵洰鏍囧拰浜у嚭銆?")}</div>
+      <h3>阶段总结</h3>
+      <div class="term-grid">${phaseSummaries.length ? phaseSummaries.map(renderTrainingPhaseSummary).join("") : renderEmptyState("暂无阶段总结。", "系统会在有足够证据时按阶段汇总学习目标和产出。")}</div>
     </section>
     <section class="scenario-section">
-      <h3>鎺ㄨ崘闃呰璧勬枡</h3>
-      <div class="recommended-doc-grid">${result.recommendedDocs?.length ? result.recommendedDocs.map(renderRecommendedDoc).join("") : renderEmptyState("鏆傛棤鎺ㄨ崘闃呰璧勬枡銆?", "璇疯ˉ鍏呭彲浣滀负鏂颁汉鍩硅鏉愭枡鐨勪笟鍔¤鏄庢垨妯″潡鏂囨。銆?")}</div>
+      <h3>推荐阅读资料</h3>
+      <div class="recommended-doc-grid">${result.recommendedDocs?.length ? result.recommendedDocs.map(renderRecommendedDoc).join("") : renderEmptyState("暂无推荐阅读资料。", "请补充可作为新人培训材料的业务说明或模块文档。")}</div>
     </section>
     <section class="scenario-section">
-      <h3>鏂颁汉鑷祴闂</h3>
+      <h3>新人自测问题</h3>
       ${renderTrainingSelfTest(result)}
     </section>
     ${uncertainty.length ? `
       <section class="scenario-section gap-section">
-        <h3>涓嶇‘瀹氶」 / 寰呰ˉ璇佹嵁</h3>
+        <h3>不确定项 / 待补证据</h3>
         ${renderRichList(uncertainty, "scenario-bullet-list compact-list")}
       </section>
     ` : ""}
     <section class="scenario-section">
-      <h3>寮曠敤璇佹嵁</h3>
-      <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : renderEmptyState("鏆傛棤寮曠敤璇佹嵁銆?", "褰撳墠鍩硅璁″垝涓嶈兘浣滀负姝ｅ紡鏉愭枃锛屽缓璁ˉ鍏呮洿澶氶」鐩枃妗ｃ€?")}</div>
+      <h3>引用证据</h3>
+      <div class="scenario-evidence-list">${result.citations?.length ? result.citations.map(renderScenarioCitation).join("") : renderEmptyState("暂无引用证据。", "当前培训计划不能作为正式材料，建议补充更多项目文档。")}</div>
     </section>
   `;
 }
@@ -1744,7 +1790,7 @@ function renderLearningStep(item) {
         <strong title="${escapeHtml(stripMarkdownDecorators(item.title || ""))}">${escapeHtml(stripMarkdownDecorators(item.title || ""))}</strong>
         ${item.goal ? `<div class="training-step-goal">${renderRichTextBlock(item.goal, "compact-rich-answer inline-rich-answer")}</div>` : ""}
         ${tasks.length ? renderTrainingTaskList(tasks) : ""}
-        ${item.deliverable ? `<div class="training-step-deliverable"><label>褰撴棩浜у嚭</label>${renderRichTextBlock(item.deliverable, "compact-rich-answer inline-rich-answer")}</div>` : ""}
+        ${item.deliverable ? `<div class="training-step-deliverable"><label>当日产出</label>${renderRichTextBlock(item.deliverable, "compact-rich-answer inline-rich-answer")}</div>` : ""}
         ${docs.length ? `<div class="training-step-docs">${renderTrainingDocList(docs)}</div>` : ""}
       </div>
     </article>
@@ -1759,7 +1805,7 @@ function renderRecommendedDoc(item) {
         <span class="priority-badge priority-${getPriorityClass(item.priority)}">${escapeHtml(item.priority || "medium")}</span>
       </div>
       ${renderRichTextBlock(item.reason || "", "compact-rich-answer")}
-      <small>棰勮闃呰鏃堕棿锛?{escapeHtml(item.estimatedReadTime || "10-15 min")}</small>
+      <small>预计阅读时间：${escapeHtml(item.estimatedReadTime || "10-15 min")}</small>
     </article>
   `;
 }
@@ -1770,8 +1816,8 @@ function renderTrainingPhaseSummary(item) {
     <article class="term-card training-phase-card">
       <strong title="${escapeHtml(stripMarkdownDecorators(item.phase || ""))}">${escapeHtml(stripMarkdownDecorators(item.phase || ""))}</strong>
       ${renderRichTextBlock(item.focus || "", "compact-rich-answer")}
-      ${days.length ? `<small class="training-doc-meta">瀛︿範鏃舵锛?${escapeHtml(days.join(" / "))}</small>` : ""}
-      ${item.expectedOutcome ? `<div class="training-step-deliverable"><label>棰勬湡杈撳嚭</label>${renderRichTextBlock(item.expectedOutcome, "compact-rich-answer inline-rich-answer")}</div>` : ""}
+      ${days.length ? `<small class="training-doc-meta">学习时段：${escapeHtml(days.join(" / "))}</small>` : ""}
+      ${item.expectedOutcome ? `<div class="training-step-deliverable"><label>预期产出</label>${renderRichTextBlock(item.expectedOutcome, "compact-rich-answer inline-rich-answer")}</div>` : ""}
     </article>
   `;
 }
@@ -1941,7 +1987,8 @@ function renderHandoverOverviewItem(label, value, tone = "") {
 }
 
 function isEvidenceInsufficientTrainingResult(result = {}) {
-  if (result.evidenceInsufficient) {
+  const hasDisplayContent = hasTrainingDisplayContent(result);
+  if (result.evidenceInsufficient && !hasDisplayContent) {
     return true;
   }
   const text = [
@@ -1950,7 +1997,23 @@ function isEvidenceInsufficientTrainingResult(result = {}) {
     ...(result.terms || []).map((item) => item.explanation || item.term || ""),
     ...(result.learningPath || []).map((item) => item.description || item.title || ""),
   ].join(" ");
-  return isEvidenceInsufficientText(text) || (!(result.citations || []).length && isEvidenceInsufficientText(result.summary || result.background));
+  return !hasDisplayContent && (
+    isEvidenceInsufficientText(text) ||
+    (!(result.citations || []).length && isEvidenceInsufficientText(result.summary || result.background))
+  );
+}
+
+function hasTrainingDisplayContent(result = {}) {
+  const concepts = result.keyConcepts?.length ? result.keyConcepts : result.terms || [];
+  return Boolean(
+    concepts.length ||
+    (result.learningPath || []).length ||
+    (result.phaseSummaries || []).length ||
+    (result.recommendedDocs || []).length ||
+    (result.selfTestQuestions || []).length ||
+    (result.background && !isEvidenceInsufficientText(result.background)) ||
+    (result.summary && !isEvidenceInsufficientText(result.summary))
+  );
 }
 
 function isEvidenceInsufficientText(value) {
@@ -3474,14 +3537,36 @@ function renderGenerationModeBadge(mode) {
     model: "真实模型生成",
     "openai-compatible": "真实模型生成",
     "retrieval-fallback": "检索兜底生成",
-    "mock-fallback": "演示数据回退",
-    "frontend-mock": "演示数据回退",
     "json-repaired-model": "JSON 修复生成",
     unknown: "来源待确认",
   };
   const label = labels[normalized] || labels[normalized.replaceAll("_", "-")] || labels.unknown;
-  const tone = normalized.includes("mock") ? "mock" : normalized.includes("retrieval") ? "fallback" : normalized.includes("json") ? "repair" : "model";
+  const tone = normalized.includes("retrieval") || normalized.includes("fallback")
+    ? "fallback"
+    : normalized.includes("json")
+      ? "repair"
+      : "model";
   return `<span class="generation-badge generation-${tone}">${escapeHtml(label)}</span>`;
+}
+
+function renderBackendExpandableText(value, options = {}) {
+  const threshold = Number(options.threshold || 160);
+  const className = options.className || "expandable-text";
+  const emptyText = options.emptyText || "";
+  const fullText = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (!fullText) {
+    return emptyText ? `<span class="muted-inline">${escapeHtml(emptyText)}</span>` : "";
+  }
+  if (fullText.length <= threshold) {
+    return `<span class="${escapeHtml(className)}">${escapeHtml(fullText)}</span>`;
+  }
+  const shortText = `${fullText.slice(0, threshold)}...`;
+  return `
+    <details class="expandable-text-block ${escapeHtml(className)}">
+      <summary><span>${escapeHtml(shortText)}</span><em>展开</em></summary>
+      <p>${escapeHtml(fullText)}</p>
+    </details>
+  `;
 }
 
 function downloadTextFile(content, filename, type = "text/plain;charset=utf-8") {
@@ -3993,9 +4078,6 @@ function cleanDisplayText(value, options = {}) {
     .replace(/^\s*\d+[_-][^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
     .replace(/^\s*[^:：\s]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv)\s*(?:mentions|提到|[:：])?\s*/i, "")
     .replace(/Based on the retrieved project evidence, the most relevant findings are:?/gi, "根据当前知识库检索结果：")
-    .replace(/\bI could not find grounded project evidence for this question in the current knowledge base\.?/gi, "当前知识库没有检索到足够证据。")
-    .replace(/\bNo grounded evidence was found.*$/gim, "当前知识库没有检索到足够证据。")
-    .replace(/\bNo evidence was found.*$/gim, "当前知识库没有检索到足够证据。")
     .replace(/\bUnsupported claims?:/gi, "缺少证据支撑的结论：")
     .replace(/\bUncertain claims?:/gi, "需要人工确认的结论：")
     .replace(/\bPipeline version:/gi, "生成链路版本：")
@@ -5954,7 +6036,7 @@ function bindDocumentsActions() {
     }
     event.preventDefault();
     try {
-      await submitMockUpload(event.target);
+      await submitDocumentUpload(event.target);
     } catch (error) {
       toast(`上传失败：${error.message || error}`);
     }
@@ -6121,7 +6203,7 @@ function closeUploadDialog() {
   }
 }
 
-async function submitMockUpload(form) {
+async function submitDocumentUpload(form) {
   const service = getDocumentService();
   if (!service) {
     return;
@@ -6129,7 +6211,7 @@ async function submitMockUpload(form) {
   const formData = new FormData(form);
   const file = formData.get("file");
   const tags = splitTags(formData.get("tags"));
-  const fileName = file?.name || "前端模拟上传文档.md";
+  const fileName = file?.name || "未命名文档.md";
 
   await service.uploadDocument({
     title: fileName,
@@ -6443,7 +6525,7 @@ async function deleteDocument(documentId) {
   if (!documentItem) {
     return;
   }
-  const confirmed = window.confirm(`确认删除“${documentItem.title}”吗？当前仅删除前端 mock 数据。`);
+  const confirmed = window.confirm(`确认删除“${documentItem.title}”吗？该操作会同步删除真实文档记录。`);
   if (!confirmed) {
     return;
   }
@@ -6452,7 +6534,7 @@ async function deleteDocument(documentId) {
   await refreshDocumentBaseData();
   await renderDocumentTable();
   closeDocumentDrawer();
-  toast("文档已从前端 mock 列表删除。");
+  toast("文档已删除。");
 }
 
 function splitTags(value) {

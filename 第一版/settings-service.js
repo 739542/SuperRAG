@@ -3,10 +3,32 @@
  * Reads dify-lite public config and keeps editable UI settings local.
  */
 (function () {
-  const mock = window.SuperRagMock || {};
-  let settings = clone(mock.mockSettings || {});
-  let workflows = clone(mock.mockWorkflows || []);
-  let logs = clone(mock.mockLogs || []);
+  const DEFAULT_SETTINGS = {
+    retrieval: {
+      topK: 8,
+      scoreThreshold: 0.35,
+      rerankEnabled: true,
+      knowledgeStrategy: "hybrid",
+      lowEvidenceHintEnabled: true,
+    },
+    model: {
+      modelName: "",
+      temperature: 0.3,
+      maxTokens: 2048,
+      streamOutput: false,
+    },
+  };
+
+  const DEFAULT_WORKFLOWS = [
+    { sceneCode: "chat", sceneName: "智能问答", difyAppId: "", difyWorkflowId: "", status: "configured" },
+    { sceneCode: "training", sceneName: "新手培训", difyAppId: "", difyWorkflowId: "", status: "configured" },
+    { sceneCode: "handover", sceneName: "交接模式", difyAppId: "", difyWorkflowId: "", status: "configured" },
+    { sceneCode: "design", sceneName: "设计辅助", difyAppId: "", difyWorkflowId: "", status: "configured" },
+  ];
+
+  let settings = clone(DEFAULT_SETTINGS);
+  let workflows = clone(DEFAULT_WORKFLOWS);
+  let logs = [];
 
   function clone(value) {
     return structuredClone(value);
@@ -16,8 +38,8 @@
     const config = await getBackendConfig();
     return clone({
       workflows: workflows.map(mapBackendWorkflowToWorkflow),
-      retrieval: mapBackendRetrievalToRetrieval(config || settings.retrieval || {}),
-      model: mapBackendModelToModel(config || settings.model || {}),
+      retrieval: mapBackendRetrievalToRetrieval({ ...(settings.retrieval || {}), ...(config || {}) }),
+      model: mapBackendModelToModel({ ...(settings.model || {}), ...(config || {}) }),
       logs: logs.map(mapBackendLogToLog),
     });
   }
@@ -100,7 +122,7 @@
 
   function mapBackendModelToModel(raw = {}) {
     return {
-      modelName: raw.modelName || raw.model_name || (raw.model_enabled ? "configured-model" : "mock-rag-summary"),
+      modelName: raw.modelName || raw.model_name || (raw.model_enabled ? "configured-model" : ""),
       temperature: Number(raw.temperature ?? 0.3),
       maxTokens: Number(raw.maxTokens ?? raw.max_tokens ?? 2048),
       streamOutput: Boolean(raw.streamOutput ?? raw.stream_output ?? false),

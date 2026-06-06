@@ -1,15 +1,10 @@
 /**
  * Training service and adapter layer.
- * Calls dify-lite first and falls back to mock data when the backend has no
- * matching imported project yet.
+ * Calls dify-lite and only renders backend-grounded training content.
  */
 (function () {
   function clone(value) {
     return structuredClone(value);
-  }
-
-  function getMock() {
-    return window.SuperRagMock || {};
   }
 
   function getBackend() {
@@ -17,7 +12,7 @@
   }
 
   async function getTrainingOptions() {
-    const documents = await getDocumentsWithFallback();
+    const documents = await getDocumentsFromBackend();
     return {
       topics: ["项目背景", "核心概念", "功能模块", "业务流程", "接口与数据", "测试与验收"],
       projects: uniqueValues(documents.map((item) => item.project || item.collectionName || item.collection_name)),
@@ -55,128 +50,7 @@
       });
       return clone(result);
     } catch (error) {
-      console.warn(`[SuperRAG TrainingService] backend unavailable, using mock: ${error.message || error}`);
-      const base = getMock().mockTrainingResult || {};
-      const citations = resolveCitations(base.citations);
-      return clone(
-        mapWorkflowTrainingResultToTrainingResult({
-          ...base,
-          query: payload.query || "请解释项目背景",
-          topic: payload.topic || base.topic || "项目背景",
-          project: payload.project || base.project || "企业知识库",
-          citations,
-        }),
-      );
-    }
-  }
-
-  function mapWorkflowTrainingResultToTrainingResult(raw = {}) {
-    return {
-      id: raw.id || `training-${Date.now()}`,
-      title: raw.title || "培训材料",
-      query: raw.query || "",
-      topic: raw.topic || "项目背景",
-      project: raw.project || "企业知识库",
-      summary: raw.summary || raw.conclusion || "",
-      background: raw.background || raw.backgroundSummary || raw.summary || raw.conclusion || "",
-      terms: raw.terms || raw.termExplanations || [],
-      learningPath: raw.learningPath || raw.learning_path || raw.path || [],
-      recommendedDocs: raw.recommendedDocs || raw.recommended_docs || raw.documents || [],
-      citations: (raw.citations || []).map(mapCitationToEvidence),
-    };
-  }
-
-  function mapSceneResultToTrainingResult(raw = {}, payload = {}) {
-    const citations = (raw.citations || []).map(mapCitationToEvidence);
-    const evidence = raw.evidence || [];
-    const actions = raw.nextActions || [];
-    const summary = raw.summary || "";
-    if (isEvidenceInsufficientText(summary) || (!citations.length && evidence.some(isEvidenceInsufficientText))) {
-      return {
-        id: raw.id || `training-${Date.now()}`,
-        title: "新人培训计划生成受限",
-        query: payload.query || "",
-        topic: payload.topic || "项目背景",
-        project: raw.collection?.name || payload.project || "",
-        summary: "当前知识库证据不足，无法生成正式新人培训计划。",
-        background: "系统没有检索到足够的项目文档证据。请先补充需求文档、接口文档、部署说明或新人培训资料。",
-        terms: [],
-        learningPath: [],
-        recommendedDocs: [],
-        citations,
-        evidenceInsufficient: true,
-      };
-    }
-    return {
-      id: raw.id || `training-${Date.now()}`,
-      title: raw.title || "培训材料",
-      query: payload.query || "",
-      topic: payload.topic || "项目背景",
-      project: raw.collection?.name || payload.project || "",
-      summary,
-      background: summary,
-      terms: evidence.slice(0, 4).map((item, index) => ({
-        term: `知识点 ${index + 1}`,
-        explanation: item,
-      })),
-      learningPath: actions.slice(0, 5).map((item, index) => ({
-        day: `步骤 ${index + 1}`,
-        title: item,
-        description: item,
-      })),
-      recommendedDocs: citations.slice(0, 4).map((citation) => ({
-        title: citation.documentTitle,
-        reason: citation.snippet,
-        priority: "high",
-        estimatedReadTime: "5 min",
-      })),
-      citations,
-    };
-  }
-
-  function isEvidenceInsufficientText(value) {
-    const text = String(value || "").toLowerCase();
-    return [
-      "i could not find grounded project evidence",
-      "no evidence was found",
-      "current knowledge base",
-      "grounded evidence",
-      "当前知识库没有检索到",
-      "证据不足",
-      "没有找到足够",
-    ].some((pattern) => text.includes(pattern));
-  }
-
-  function mapCitationToEvidence(raw = {}) {
-    return {
-      id: raw.id || raw.segmentId || raw.segment_id || "",
-      documentTitle: raw.documentTitle || raw.document_title || raw.title || "知识片段",
-      snippet: raw.snippet || raw.content || "",
-      relevanceScore: Number(raw.relevanceScore ?? raw.relevance_score ?? raw.score ?? 0),
-      page: raw.page || raw.pageNo || raw.page_no || "",
-      segmentId: raw.segmentId || raw.segment_id || raw.id || "",
-      chunkId: raw.chunkId || raw.chunk_id || raw.segmentId || raw.segment_id || raw.id || "",
-      documentId: raw.documentId || raw.document_id || "",
-      sourceName: raw.sourceName || raw.source_name || raw.documentTitle || raw.document_title || raw.title || "",
-    };
-  }
-
-  function resolveCitations(citationIds = []) {
-    const citations = getMock().mockCitations || [];
-    const idSet = new Set(citationIds);
-    return citations.filter((citation) => idSet.has(citation.id));
-  }
-
-  function uniqueValues(values) {
-    return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
-  }
-
-  async function getDocumentsWithFallback() {
-    try {
-      const response = await getBackend().requestJson("/documents");
-      return Array.isArray(response.items) ? response.items : [];
-    } catch (error) {
-      return getMock().mockDocuments || [];
+      throw new Error(`培训结果生成失败：${error.message || error}`);
     }
   }
 
@@ -194,10 +68,10 @@
     const uncertainty = normalizeUncertainty(raw.uncertainty || raw.uncertainPoints || raw.uncertain_points || []);
     return {
       id: raw.id || `training-${Date.now()}`,
-      title: raw.title || "鍩硅鏉愭枡",
+      title: raw.title || "新人培训计划",
       query: raw.query || "",
-      topic: raw.topic || "椤圭洰鑳屾櫙",
-      project: raw.project || "浼佷笟鐭ヨ瘑搴?",
+      topic: raw.topic || "项目背景",
+      project: raw.project || "",
       summary: raw.summary || raw.conclusion || "",
       background: raw.background || raw.backgroundSummary || raw.summary || raw.conclusion || "",
       keyConcepts,
@@ -227,15 +101,24 @@
     });
     const uncertainty = normalizeUncertainty(raw.uncertainty || raw.structuredAnswer?.uncertainty || []);
 
-    if (isEvidenceInsufficientText(summary) || (!citations.length && (raw.evidence || []).some(isEvidenceInsufficientText))) {
+    const hasDisplayContent = hasTrainingDisplayContent({
+      summary,
+      background,
+      keyConcepts,
+      learningPath,
+      phaseSummaries,
+      recommendedDocs,
+      selfTestQuestions,
+    });
+    if (!hasDisplayContent && (isEvidenceInsufficientText(summary) || (!citations.length && (raw.evidence || []).some(isEvidenceInsufficientText)))) {
       return {
         id: raw.id || `training-${Date.now()}`,
-        title: "鏂颁汉鍩硅璁″垝鐢熸垚鍙楅檺",
+        title: "新人培训计划生成受限",
         query: payload.query || "",
-        topic: payload.topic || "椤圭洰鑳屾櫙",
+        topic: payload.topic || "项目背景",
         project: raw.collection?.name || payload.project || "",
-        summary: "褰撳墠鐭ヨ瘑搴撹瘉鎹笉瓒筹紝鏃犳硶鐢熸垚姝ｅ紡鏂颁汉鍩硅璁″垝銆?",
-        background: "绯荤粺娌℃湁妫€绱㈠埌瓒冲鐨勯」鐩枃妗ｈ瘉鎹€傝鍏堣ˉ鍏呴渶姹傛枃妗ｃ€佹帴鍙ｆ枃妗ｃ€侀儴缃茶鏄庢垨鏂颁汉鍩硅璧勬枡銆?",
+        summary: "当前知识库证据不足，无法生成正式新人培训计划。",
+        background: "系统没有检索到足够的项目文档证据。请先补充需求文档、接口文档、部署说明或新人培训资料。",
         keyConcepts: [],
         terms: [],
         learningPath: [],
@@ -250,9 +133,9 @@
 
     return {
       id: raw.id || `training-${Date.now()}`,
-      title: raw.title || "鍩硅鏉愭枡",
+      title: raw.title || "新人培训计划",
       query: payload.query || "",
-      topic: payload.topic || "椤圭洰鑳屾櫙",
+      topic: payload.topic || "项目背景",
       project: raw.collection?.name || payload.project || "",
       summary,
       background,
@@ -273,7 +156,7 @@
     const seen = new Set();
     (Array.isArray(items) ? items : []).forEach((item, index) => {
       const raw = typeof item === "string" ? { name: item, explanation: item } : item || {};
-      const term = String(raw.name || raw.term || `鐭ヨ瘑鐐?${index + 1}`).trim();
+      const term = String(raw.name || raw.term || `知识点 ${index + 1}`).trim();
       const explanation = String(raw.explanation || raw.description || raw.summary || "").trim();
       if (!term || seen.has(term) || isGenericTrainingText(term) || isGenericTrainingText(explanation)) {
         return;
@@ -438,6 +321,59 @@
   function normalizeStringList(value) {
     const list = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\n+/) : [];
     return list.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+
+  function mapCitationToEvidence(raw = {}) {
+    return {
+      id: raw.id || raw.segmentId || raw.segment_id || "",
+      documentTitle: raw.documentTitle || raw.document_title || raw.title || "知识片段",
+      snippet: raw.snippet || raw.content || "",
+      relevanceScore: Number(raw.relevanceScore ?? raw.relevance_score ?? raw.score ?? 0),
+      page: raw.page || raw.pageNo || raw.page_no || "",
+      segmentId: raw.segmentId || raw.segment_id || raw.id || "",
+      chunkId: raw.chunkId || raw.chunk_id || raw.segmentId || raw.segment_id || raw.id || "",
+      documentId: raw.documentId || raw.document_id || "",
+      sourceName: raw.sourceName || raw.source_name || raw.documentTitle || raw.document_title || raw.title || "",
+    };
+  }
+
+  function uniqueValues(values) {
+    return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }
+
+  async function getDocumentsFromBackend() {
+    try {
+      const response = await getBackend().requestJson("/documents");
+      return Array.isArray(response.items) ? response.items : [];
+    } catch (error) {
+      console.warn(`[SuperRAG TrainingService] live documents unavailable: ${error.message || error}`);
+      return [];
+    }
+  }
+
+  function isEvidenceInsufficientText(value) {
+    const text = String(value || "").toLowerCase();
+    return [
+      "i could not find grounded project evidence",
+      "no evidence was found",
+      "grounded evidence",
+      "当前知识库没有检索到",
+      "证据不足",
+      "没有找到足够",
+    ].some((pattern) => text.includes(pattern));
+  }
+
+  function hasTrainingDisplayContent(result = {}) {
+    const concepts = result.keyConcepts?.length ? result.keyConcepts : result.terms || [];
+    return Boolean(
+      concepts.length ||
+      (result.learningPath || []).length ||
+      (result.phaseSummaries || []).length ||
+      (result.recommendedDocs || []).length ||
+      (result.selfTestQuestions || []).length ||
+      (result.background && !isEvidenceInsufficientText(result.background)) ||
+      (result.summary && !isEvidenceInsufficientText(result.summary))
+    );
   }
 
   function isGenericTrainingText(value) {

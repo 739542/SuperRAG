@@ -915,6 +915,140 @@ class ChatService:
             "final_revision_advice": "只保留有证据支撑的结论作为事实，其余内容应进入不确定性说明。",
         }
 
+    def _build_structured_answer(
+        self,
+        answer_bundle: dict[str, Any],
+        evidence_bundle: dict[str, Any],
+        validation: dict[str, Any],
+    ) -> dict[str, str]:
+        evidence_lines = []
+        for item in evidence_bundle.get("evidence", [])[:4]:
+            evidence_lines.append(f"{item['source']}#{item['section']}: {item['content']}")
+        uncertainty = list(answer_bundle.get("uncertain_points", []))
+        if validation.get("unsupported_claims"):
+            uncertainty.append("缺少证据支撑的结论：" + "；".join(validation["unsupported_claims"][:3]))
+        if evidence_bundle.get("missing_information"):
+            uncertainty.extend(evidence_bundle["missing_information"][:2])
+        return {
+            "conclusion": answer_bundle.get("answer", ""),
+            "evidence": "\n".join(evidence_lines),
+            "suggestion": "\n".join(answer_bundle.get("implementation_suggestions", [])),
+            "uncertainty": "\n".join(uncertainty),
+        }
+
+    def _mock_structured_answer(self, *, query: str, evidence_bundle: dict[str, Any]) -> dict[str, Any]:
+        answer, key_claims, evidence_mapping = self._build_question_focused_fallback_answer(
+            query=query,
+            evidence=evidence_bundle.get("evidence", []),
+            missing_information=evidence_bundle.get("missing_information", []),
+        )
+        return {
+            "answer": answer,
+            "implementation_suggestions": [],
+            "evidence_mapping": evidence_mapping,
+            "uncertain_points": [
+                str(item).strip()
+                for item in evidence_bundle.get("missing_information", [])
+                if str(item).strip()
+            ],
+            "key_claims": key_claims,
+        }
+
+    def _build_question_focused_fallback_answer(
+        self,
+        *,
+        query: str,
+        evidence: list[dict[str, Any]],
+        missing_information: list[str] | None = None,
+    ) -> tuple[str, list[str], list[dict[str, Any]]]:
+        missing_lines = [
+            str(item).strip()
+            for item in (missing_information or [])
+            if str(item).strip()
+        ]
+        if not evidence:
+            return "\n".join(missing_lines), missing_lines[:5], []
+
+        if self._is_rule_or_permission_question(query) and not self._is_content_inventory_question(query):
+            specialized = self._build_rule_or_permission_fallback_answer(query=query, evidence=evidence)
+            if specialized:
+                return specialized
+
+        grouped = self._group_evidence_by_source(evidence)
+        lines: list[str] = []
+        key_claims: list[str] = []
+        evidence_mapping: list[dict[str, Any]] = []
+
+        for source, items in grouped[:4]:
+            refs = [f"{item['source']}#{item['section']}" for item in items[:2]]
+            snippet_summary = self._build_primary_snippet_summary(items)
+            if snippet_summary:
+                lines.append(f"{source}: {snippet_summary}")
+                key_claims.append(snippet_summary)
+                evidence_mapping.append(
+                    {
+                        "claim": snippet_summary,
+                        "evidence": refs,
+                    }
+                )
+
+            for aspect in self._extract_evidence_aspects(items):
+                if aspect in key_claims:
+                    continue
+                key_claims.append(aspect)
+                evidence_mapping.append(
+                    {
+                        "claim": aspect,
+                        "evidence": refs,
+                    }
+                )
+                if len(key_claims) >= 5:
+                    break
+
+            if len(lines) >= 4 and len(key_claims) >= 5:
+                break
+
+        return "\n".join(lines), key_claims[:5], evidence_mapping[:6]
+
+    def _build_rule_or_permission_fallback_answer(
+        self,
+        *,
+        query: str,
+        evidence: list[dict[str, Any]],
+    ) -> tuple[str, list[str], list[dict[str, Any]]] | None:
+        theme_sections = self._collect_rule_or_permission_sections(query=query, evidence=evidence)
+        if not theme_sections:
+            return None
+
+        lines: list[str] = []
+        key_claims: list[str] = []
+        evidence_mapping: list[dict[str, Any]] = []
+        for section in theme_sections:
+            lines.append(f"{section['title']}: {section['summary']}")
+            key_claims.append(section["claim"])
+            evidence_mapping.append(
+                {
+                    "claim": section["claim"],
+                    "evidence": section["evidence"],
+                }
+            )
+
+        return "\n".join(lines), key_claims[:5], evidence_mapping[:5]
+
+    def _build_primary_snippet_summary(self, items: list[dict[str, Any]]) -> str:
+        sentences: list[str] = []
+        for item in items[:3]:
+            cleaned = self._clean_fallback_text(str(item.get("content") or ""))
+            for sentence in re.split(r"(?<=[。！？；])\s+|(?<=\.)\s+", cleaned):
+                sentence = sentence.strip(" -:：;；,，")
+                if len(sentence) < 12:
+                    continue
+                if sentence not in sentences:
+                    sentences.append(sentence)
+                if len(sentences) >= 2:
+                    return " ".join(sentences)
+        return " ".join(sentences[:2])
+
     def _serialize_hit_for_prompt(self, hit: dict[str, Any]) -> dict[str, Any]:
         metadata = hit.get("metadata", {})
         return {

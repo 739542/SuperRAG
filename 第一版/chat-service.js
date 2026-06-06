@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Chat service and adapter layer.
  *
  * The intelligent QA page should call window.chatService only.
@@ -10,13 +10,6 @@
     return structuredClone(value);
   }
 
-  function getApi() {
-    if (!window.SuperRagApi) {
-      throw new Error("SuperRagApi is not loaded");
-    }
-    return window.SuperRagApi;
-  }
-
   function getBackend() {
     if (!window.SuperRagBackend) {
       throw new Error("SuperRagBackend is not loaded");
@@ -26,7 +19,7 @@
 
   async function getSessions(params = {}) {
     const localSessions = buildLocalChatSessions(getLocalChatRecords());
-    const sessions = localSessions.length ? localSessions : await getApi().getSessions();
+    const sessions = localSessions;
     const keyword = String(params.keyword || "").trim().toLowerCase();
     const list = sessions
       .filter((session) => {
@@ -53,7 +46,6 @@
   }
 
   async function getSuggestedQuestions(params = {}) {
-    const documents = Array.isArray(params.documents) ? params.documents : [];
     try {
       const response = await getBackend().requestJson("/chat/suggestions", {
         method: "POST",
@@ -74,13 +66,13 @@
         };
       }
     } catch (error) {
-      console.warn(`[SuperRAG ChatService] suggested questions fallback: ${error.message || error}`);
+      console.warn(`[SuperRAG ChatService] suggested questions unavailable: ${error.message || error}`);
     }
 
     return {
-      items: buildLocalSuggestedQuestions({ ...params, documents }),
-      source: "frontend-fallback",
-      warning: "后端推荐问题接口暂不可用，已基于当前前端文档列表生成兜底问题。",
+      items: [],
+      source: "backend-unavailable",
+      warning: "后端推荐问题接口当前不可用，前端不再生成本地候选问题。",
     };
   }
 
@@ -90,22 +82,7 @@
       return clone(localMessages);
     }
 
-    const messages = await getApi().getChatMessages(sessionId);
-    const mappedMessages = await Promise.all(
-      messages.map(async (message) => {
-        if (message.role !== "assistant") {
-          return mapBackendMessageToMessage(message);
-        }
-        const citationItems = await getApi().getCitations(message.id);
-        return mapBackendMessageToMessage({
-          ...message,
-          citationItems,
-          evidenceLevel: inferEvidenceLevel(citationItems),
-        });
-      }),
-    );
-
-    return clone(mappedMessages);
+    return [];
   }
 
   async function deleteSession(sessionId) {
@@ -291,6 +268,9 @@
           user: "course-demo-user",
         }),
       });
+      if (isDocumentListQuestion(payload.question)) {
+        rawAnswer.knowledgeDocuments = await getDocumentsWithBackendFallback();
+      }
       const message = mapSceneResultToMessage(rawAnswer, payload);
       getBackend().appendHistoryRecord({
         id: message.id,
@@ -521,11 +501,11 @@
 
     return {
       conclusion: content,
-      evidence: evidenceLines.join("\n") || "当前回答没有足够的可引用证据。",
+      evidence: evidenceLines.join("\n"),
       evidenceItems: buildEvidenceItemsFromCitations(citationItems, evidenceLines),
-      suggestion: suggestionLines.join("\n") || "建议继续补充相关项目文档后再确认结论。",
-      suggestionItems: normalizeDisplayList(suggestionLines, ["核对下方引用证据后，再将回答作为正式结论使用。"]),
-      uncertainty: uncertaintyLines.join("\n") || "当前没有识别到明显的不确定项。",
+      suggestion: suggestionLines.join("\n"),
+      suggestionItems: normalizeDisplayList(suggestionLines, []),
+      uncertainty: uncertaintyLines.join("\n"),
       uncertaintyItems: normalizeDisplayList(uncertaintyLines, []),
     };
   }
@@ -536,26 +516,28 @@
     const evidenceLines = normalizeDisplayList(source.evidence || raw.evidence || [], []);
     const suggestionLines = normalizeDisplayList(
       source.suggestionItems || source.suggestion || raw.implementationSuggestions || raw.implementation_suggestions || raw.nextActions || [],
-      ["核对引用证据后，再把回答作为正式交接或设计结论使用。"],
+      [],
     );
     const uncertaintyLines = normalizeDisplayList(
       source.uncertaintyItems || source.uncertainty || raw.uncertainPoints || raw.uncertain_points || raw.missingInformation || raw.missing_information || raw.risks || [],
       [],
     );
     const evidenceItems = normalizeEvidenceItems(source.evidenceItems || source.evidence_items, citationItems, evidenceLines);
-    const conclusion = buildReadableConclusion(rawConclusion, citationItems, raw);
-    const followUpItems = buildFollowUpQuestions(raw.query || raw.originalQuestion || "", citationItems, conclusion);
+    const conclusion = normalizeBackendText(rawConclusion);
+    const followUpItems = normalizeDisplayList(source.followUpItems || source.follow_up_items || [], []);
+    const basisSummary = normalizeBackendText(source.basisSummary || source.basis_summary || "");
 
     return {
       conclusion,
+      basisSummary,
       evidence: evidenceItems.length
         ? evidenceItems.map((item, index) => `${index + 1}. ${item.title}：${item.summary}`).join("\n")
-        : evidenceLines.join("\n") || "当前回答没有足够的可引用证据。",
+        : evidenceLines.join("\n"),
       evidenceItems,
-      suggestion: (suggestionLines.length ? suggestionLines : followUpItems).join("\n"),
-      suggestionItems: suggestionLines.length ? suggestionLines : followUpItems,
+      suggestion: suggestionLines.join("\n"),
+      suggestionItems: suggestionLines,
       followUpItems,
-      uncertainty: uncertaintyLines.join("\n") || "当前没有识别到明显的不确定项。",
+      uncertainty: uncertaintyLines.join("\n"),
       uncertaintyItems: uncertaintyLines,
       rawConclusion,
     };
@@ -647,6 +629,10 @@
     return /包含|哪些内容|都包含了|主要内容|文档内容|介绍|说明/.test(String(query || ""));
   }
 
+  function isDocumentListQuestion(query = "") {
+    return /(有哪些|有哪几个|有几个|目前有哪些|目前有哪几个|当前有哪些|收录了哪些|包含哪些)(文档|文件|资料)/.test(String(query || ""));
+  }
+
   function extractEvidenceAspects(items = []) {
     const text = items
       .map((item) => cleanEvidenceSnippet(item.snippet || item.content || "", item.documentTitle || item.title || ""))
@@ -676,6 +662,73 @@
         });
     });
     return sentences.slice(0, 2).join("；");
+  }
+
+  function buildDocumentListAnswer(query = "", documents = [], citationItems = []) {
+    const normalizedDocuments = (Array.isArray(documents) ? documents : [])
+      .map((item) => mapBackendKnowledgeDocument(item))
+      .filter((item) => item.title);
+
+    const uniqueDocuments = [];
+    const seen = new Set();
+    normalizedDocuments.forEach((item) => {
+      const key = `${item.knowledgeBaseId || item.project || ""}::${item.title}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      uniqueDocuments.push(item);
+    });
+
+    if (!uniqueDocuments.length) {
+      const grouped = groupCitationItemsByDocument(citationItems);
+      if (!grouped.length) {
+        return "";
+      }
+      const docLines = grouped
+        .slice(0, 8)
+        .map((group, index) => `${index + 1}. ${group.title || "相关文档"}`)
+        .filter(Boolean);
+      if (!docLines.length) {
+        return "";
+      }
+      return [
+        `根据当前命中的检索结果，当前知识库里至少可以确认这些文档：`,
+        ...docLines,
+        "如果你要的是完整文档清单，建议再结合文档知识库页面核对。",
+      ].join("\n");
+    }
+
+    const groupedByProject = new Map();
+    uniqueDocuments.forEach((item) => {
+      const groupKey = item.project || "未分组知识库";
+      if (!groupedByProject.has(groupKey)) {
+        groupedByProject.set(groupKey, []);
+      }
+      groupedByProject.get(groupKey).push(item);
+    });
+
+    const lines = [];
+    lines.push(`当前知识库中可见的文档共有 ${uniqueDocuments.length} 个：`);
+
+    [...groupedByProject.entries()].forEach(([project, items]) => {
+      if (groupedByProject.size > 1) {
+        lines.push(`${project}：`);
+      }
+      items
+        .sort((a, b) => String(a.title).localeCompare(String(b.title), "zh-CN"))
+        .forEach((item, index) => {
+          const prefix = groupedByProject.size > 1 ? "-" : `${index + 1}.`;
+          lines.push(`${prefix} ${item.title}`);
+        });
+    });
+
+    const projectNames = uniqueValues(uniqueDocuments.map((item) => item.project)).slice(0, 3);
+    if (projectNames.length) {
+      lines.push(`当前回答基于 ${projectNames.join("、")} 中的实时文档列表整理。`);
+    }
+
+    return lines.join("\n");
   }
 
   function buildTopicBasedAnswer(query = "", topics = [], citationItems = []) {
@@ -724,13 +777,13 @@
             if (typeof item === "string") {
               return {
                 title: `证据 ${index + 1}`,
-                summary: cleanEvidenceSnippet(item),
+                summary: normalizeBackendText(item),
                 score: "",
               };
             }
             return {
               title: item.title || item.documentTitle || item.sourceDocument || `证据 ${index + 1}`,
-              summary: cleanEvidenceSnippet(item.summary || item.snippet || item.evidenceSnippet || item.content || item.description || ""),
+              summary: normalizeBackendText(item.summary || item.snippet || item.evidenceSnippet || item.content || item.description || ""),
               score: item.score || item.relevanceScore || item.evidenceScore || "",
               documentId: item.documentId || "",
               chunkId: item.chunkId || item.segmentId || "",
@@ -744,7 +797,7 @@
 
     const fromCitations = citationItems.slice(0, 5).map((citation, index) => ({
       title: citation.documentTitle || citation.title || citation.sourceName || `证据 ${index + 1}`,
-      summary: cleanEvidenceSnippet(citation.snippet || citation.content || "", citation.documentTitle || citation.title || ""),
+      summary: normalizeBackendText(citation.snippet || citation.content || ""),
       score: Number(citation.relevanceScore ?? citation.score ?? 0),
       documentId: citation.documentId || "",
       chunkId: citation.chunkId || citation.segmentId || citation.id || "",
@@ -756,7 +809,7 @@
 
     return evidenceLines.slice(0, 5).map((line, index) => ({
       title: `证据 ${index + 1}`,
-      summary: cleanEvidenceSnippet(line),
+      summary: normalizeBackendText(line),
       score: "",
     }));
   }
@@ -769,10 +822,16 @@
     const rawItems = Array.isArray(value) ? value : String(value || "").split(/\n+/);
     const items = rawItems
       .flatMap((item) => String(item || "").split(/\n+/))
-      .map(cleanAnswerText)
-      .map(translateTechnicalLine)
+      .map(normalizeBackendText)
       .filter(Boolean);
     return items.length ? items : fallback;
+  }
+
+  function normalizeBackendText(value) {
+    return String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
   }
 
   function cleanAnswerText(value) {
@@ -785,7 +844,6 @@
       .replace(/\bPipeline version:/gi, "生成链路版本：")
       .replace(/\bNo major uncertainty was detected in the retrieved evidence\.?/gi, "当前没有识别到明显的不确定项。")
       .replace(/\bReview the cited documents before treating this as a final conclusion\.?/gi, "请先核对引用文档，再将回答作为正式结论。")
-      .replace(/\bI could not find grounded project evidence for this question in the current knowledge base\.?/gi, "当前知识库没有检索到足够证据。")
       .replace(/\bRetrieved chunks have low relevance scores; key details may still be missing\.?/gi, "检索片段相关度偏低，关键细节可能仍然缺失。")
       .replace(/\bOnly a small amount of supporting evidence was found\.?/gi, "当前只找到少量支撑证据，建议补充更多项目文档。")
       .replace(/\bvector search unavailable:/gi, "向量检索暂不可用：")
@@ -823,7 +881,6 @@
       .replace(/^Treat any uncited implementation idea as an optional suggestion that still needs review\.?$/i, "未绑定证据的实现想法只能作为待复核建议。")
       .replace(/^Import the relevant requirement, design, code, or interface document before answering again\.?$/i, "请先补充相关需求、设计、接口或交接文档后再重新提问。")
       .replace(/^Evidence is missing\.?$/i, "当前问题缺少可用证据。")
-      .replace(/^No grounded evidence was found.*$/i, "当前知识库没有检索到足够证据。")
       .trim();
   }
 
@@ -1023,6 +1080,12 @@
   function buildReadableConclusion(text, citationItems = [], raw = {}) {
     const cleaned = cleanAnswerText(text);
     const query = String(raw.query || raw.originalQuestion || "").trim();
+    if (isDocumentListQuestion(query)) {
+      const documentListAnswer = buildDocumentListAnswer(query, raw.knowledgeDocuments || raw.documents || [], citationItems);
+      if (documentListAnswer) {
+        return documentListAnswer;
+      }
+    }
     if (isEvidenceInsufficientText(cleaned)) {
       return "当前知识库没有检索到足够证据，系统不会把无依据内容包装成正式结论。建议先补充相关需求、接口、交接或培训文档。";
     }
@@ -1211,14 +1274,20 @@
       const response = await getBackend().requestJson("/documents");
       return Array.isArray(response.items) ? response.items : [];
     } catch (error) {
-      console.warn(`[SuperRAG ChatService] document options fallback: ${error.message || error}`);
-      return getApi().getDocuments();
+      console.warn(`[SuperRAG ChatService] document options unavailable: ${error.message || error}`);
+      return [];
     }
   }
 
   function buildReadableConclusion(text, citationItems = [], raw = {}) {
     const cleaned = cleanAnswerText(text);
     const query = String(raw.query || raw.originalQuestion || "").trim();
+    if (isDocumentListQuestion(query)) {
+      const documentListAnswer = buildDocumentListAnswer(query, raw.knowledgeDocuments || raw.documents || [], citationItems);
+      if (documentListAnswer) {
+        return documentListAnswer;
+      }
+    }
     if (isEvidenceInsufficientText(cleaned)) {
       return "当前知识库没有检索到足够证据，系统不会把无依据内容包装成正式结论。建议先补充相关需求、接口、交接或培训文档。";
     }

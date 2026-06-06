@@ -9,6 +9,7 @@ from app.config import Settings
 from app.core.document_loader import load_document
 from app.services.chat_service import ChatService
 from app.services.design_pipeline import DesignPipeline
+from app.services.general_qa_pipeline import GeneralQAPipeline
 from app.services.handover_pipeline import HandoverPipeline
 from app.services.ingestion_service import IngestionService
 from app.services.retrieval_service import RetrievalService
@@ -30,6 +31,7 @@ class FrontendService:
         self._retrieval_service = retrieval_service
         self._chat_service = chat_service
         self._design_pipeline = DesignPipeline(self)
+        self._general_qa_pipeline = GeneralQAPipeline(self)
         self._handover_pipeline = HandoverPipeline(self)
 
     def _scene_model_timeout_seconds(self) -> float:
@@ -318,6 +320,8 @@ class FrontendService:
         )
         if scene == "training":
             return self._run_training_scene(payload=payload, collection=collection, query=query)
+        if scene == "general":
+            return self._general_qa_pipeline.run(payload=payload, collection=collection, query=query)
         if scene in {"design", "handover"}:
             try:
                 if scene == "design":
@@ -453,7 +457,7 @@ class FrontendService:
             "recommendedDocs": structured.get("recommendedDocs", []),
             "selfTestQuestions": structured.get("selfTestQuestions", []),
             "uncertainty": structured.get("uncertainty", []),
-            "evidenceInsufficient": bool(structured.get("evidenceInsufficient")),
+            "evidenceInsufficient": bool(structured.get("evidenceInsufficient")) and not self._has_training_display_content(structured),
             "citations": citations,
             "evidence": self._build_evidence(evidence_context["raw_hits"]),
             "evidenceLevel": evidence_level,
@@ -3894,8 +3898,27 @@ class FrontendService:
             "recommendedDocs": recommended_docs[:6],
             "selfTestQuestions": self_test_questions[:8],
             "uncertainty": uncertainty[:5],
-            "evidenceInsufficient": bool(payload.get("evidenceInsufficient")),
+            "evidenceInsufficient": bool(payload.get("evidenceInsufficient")) and not self._has_training_display_content(
+                {
+                    "background": str(payload.get("background") or ""),
+                    "keyConcepts": concepts,
+                    "learningPath": learning_path[:7],
+                    "phaseSummaries": phase_summaries[:4],
+                    "recommendedDocs": recommended_docs[:6],
+                    "selfTestQuestions": self_test_questions[:8],
+                }
+            ),
         }
+
+    def _has_training_display_content(self, structured: dict[str, Any]) -> bool:
+        return bool(
+            self._as_list(structured.get("keyConcepts"))
+            or self._as_list(structured.get("learningPath"))
+            or self._as_list(structured.get("phaseSummaries"))
+            or self._as_list(structured.get("recommendedDocs"))
+            or self._as_list(structured.get("selfTestQuestions"))
+            or str(structured.get("background") or "").strip()
+        )
 
     def _training_topic_from_title(self, title: str) -> str:
         text = Path(str(title or "")).stem

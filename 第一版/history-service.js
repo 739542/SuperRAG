@@ -1,9 +1,9 @@
 /**
  * History service and adapter layer.
- * Combines local real-run records with bundled mock history.
+ * Combines backend artifacts with locally cached real-run records only.
  */
 (function () {
-  let records = clone((window.SuperRagMock || {}).mockHistoryRecords || []);
+  let records = [];
 
   function clone(value) {
     return structuredClone(value);
@@ -122,11 +122,7 @@
   }
 
   function mapBackendHistoryToHistoryDetail(raw = {}) {
-    const rawCitations = raw.citations || [];
-    const citationIds = new Set(rawCitations.filter((item) => typeof item !== "object"));
-    const citations = rawCitations.some((item) => typeof item === "object")
-      ? rawCitations
-      : ((window.SuperRagMock || {}).mockCitations || []).filter((citation) => citationIds.has(citation.id));
+    const citations = (raw.citations || []).filter((item) => item && typeof item === "object");
     return {
       ...mapBackendHistoryToHistory(raw),
       originalQuestion: raw.originalQuestion || raw.original_question || raw.query || raw.input || "",
@@ -166,7 +162,7 @@
     try {
       backendRecords = await window.SuperRagBackend?.fetchHistoryRecords?.(params) || [];
     } catch (error) {
-      console.warn(`[SuperRAG HistoryService] backend history fallback: ${error.message || error}`);
+      console.warn(`[SuperRAG HistoryService] backend history unavailable: ${error.message || error}`);
     }
     const localRecords = window.SuperRagBackend?.getHistoryRecords?.() || [];
     const seen = new Set();
@@ -191,7 +187,7 @@
         return mapArtifactLikeRecord(backendRecord);
       }
     } catch (error) {
-      console.warn(`[SuperRAG HistoryService] backend history detail fallback: ${error.message || error}`);
+      console.warn(`[SuperRAG HistoryService] backend history detail unavailable: ${error.message || error}`);
     }
     return (await getCombinedRecords()).find((item) => item.id === id);
   }
@@ -222,8 +218,6 @@
     deleteHistoryRecord,
     updateHistoryReview,
     getHistoryOptions,
-    mapBackendHistoryToHistory,
-    mapBackendHistoryToHistoryDetail,
   };
 
   window.historyApi = window.historyService;
