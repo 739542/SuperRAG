@@ -1482,6 +1482,17 @@ class FrontendService:
         collections = self._repository.list_collections()
         if not collections:
             raise ValueError("no collections available, please import documents first")
+        enterprise_collection = self._repository.get_collection_by_name("企业知识库")
+        if enterprise_collection:
+            return enterprise_collection
+
+        collections_with_docs: list[tuple[int, dict[str, Any]]] = []
+        for item in collections:
+            document_count = len(self._repository.list_documents(collection_id=item["id"]))
+            collections_with_docs.append((document_count, item))
+        collections_with_docs.sort(key=lambda pair: pair[0], reverse=True)
+        if collections_with_docs and collections_with_docs[0][0] > 0:
+            return collections_with_docs[0][1]
         return collections[0]
 
     def _normalize_document(self, item: dict[str, Any], chunks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
