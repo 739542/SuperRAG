@@ -107,9 +107,9 @@
   function mapBackendHistoryToHistory(raw = {}) {
     return {
       id: raw.id || raw.historyId || raw.history_id,
-      title: raw.title || raw.originalQuestion || raw.original_question || "SuperRAG record",
+      title: raw.title || raw.originalQuestion || raw.original_question || "DevForge record",
       sceneMode: raw.sceneMode || raw.scene_mode || raw.mode || (raw.scene === "general" ? "chat" : raw.scene) || "chat",
-      project: raw.project || raw.projectName || raw.project_name || "SuperRAG",
+      project: raw.project || raw.projectName || raw.project_name || "DevForge",
       creator: raw.creator || raw.createdByName || raw.created_by_name || "course-demo-user",
       createdAt: raw.createdAt || raw.created_at || "",
       updatedAt: raw.updatedAt || raw.updated_at || raw.createdAt || raw.created_at || "",

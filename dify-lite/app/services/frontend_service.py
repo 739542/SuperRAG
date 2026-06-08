@@ -1221,7 +1221,7 @@ class FrontendService:
         )
         ready_count = sum(1 for item in readiness_checks if item["status"] == "ready")
         return {
-            "title": "SuperRAG 答辩演示中心",
+            "title": "DevForge 答辩演示中心",
             "subtitle": "从 CRM 演示文档到结构化软件工程产物的可解释 RAG 闭环",
             "summary": {
                 "documentCount": len(documents),
@@ -1449,7 +1449,7 @@ class FrontendService:
 
     def _demo_talking_points(self) -> list[str]:
         return [
-            "SuperRAG 不是普通聊天机器人，而是面向软件研发团队的知识交接与需求设计辅助系统。",
+            "DevForge 不是普通聊天机器人，而是面向软件研发团队的知识交接与需求设计辅助系统。",
             "系统先把企业文档切片入库，再通过多路 RAG 检索找到证据，最后生成结构化软件工程产物。",
             "设计辅助输出功能清单、详细文本用例、模块建议、风险和追踪矩阵，并绑定引用证据。",
             "交接模式输出可执行待办、风险登记、责任边界和信息缺口，适合新人接手或项目答辩。",

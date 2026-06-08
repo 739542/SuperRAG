@@ -25,7 +25,7 @@
 
   function normalizeDemoCenter(raw = {}) {
     return {
-      title: raw.title || "SuperRAG 答辩演示中心",
+      title: raw.title || "DevForge 答辩演示中心",
       subtitle: raw.subtitle || "从文档入库到结构化产物复核的可解释 RAG 闭环",
       summary: {
         documentCount: Number(raw.summary?.documentCount ?? 0),
@@ -62,7 +62,7 @@
     };
 
     return normalizeDemoCenter({
-      title: "SuperRAG 答辩演示中心",
+      title: "DevForge 答辩演示中心",
       subtitle: `后端服务当前不可用，页面仅展示已落盘的真实历史产物：${error.message || error}`,
       summary: {
         documentCount: 0,

@@ -83,7 +83,7 @@
   function mapBackendActivityToActivity(raw = {}) {
     return {
       id: raw.id || raw.sessionId || raw.session_id || "",
-      title: raw.title || raw.originalQuestion || raw.original_question || "SuperRAG activity",
+      title: raw.title || raw.originalQuestion || raw.original_question || "DevForge activity",
       sceneMode: raw.sceneMode || raw.scene_mode || "chat",
       updatedAt: raw.updatedAt || raw.updated_at || raw.createdAt || raw.created_at || "",
     };

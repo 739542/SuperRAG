@@ -1024,11 +1024,11 @@ class GeneralQAPipeline:
     def _summarize_document_chunks(self, *, document: dict[str, Any], chunks: list[dict[str, Any]], query: str) -> list[str]:
         toc_headings = self._extract_toc_headings(chunks)
         if toc_headings:
-            return toc_headings[:5]
+            return toc_headings
 
         headings: list[str] = []
         snippets: list[str] = []
-        for chunk in chunks[:12]:
+        for chunk in chunks:
             text = str(chunk.get("cleaned_content") or chunk.get("content") or "").strip()
             if not text:
                 continue
@@ -1038,23 +1038,17 @@ class GeneralQAPipeline:
                     continue
                 if (line.strip().startswith("#") or re.match(r"^\d+([.、)]|\s)", candidate)) and candidate not in headings:
                     headings.append(candidate[:80])
-                if len(headings) >= 5:
-                    break
             for sentence in re.split(r"[。！？；\n]+", text):
                 candidate = re.sub(r"\s+", " ", sentence).strip(" -:：;；,，")
                 if len(candidate) < 18:
                     continue
                 if candidate not in snippets:
                     snippets.append(candidate[:120])
-                if len(snippets) >= 6:
-                    break
-            if len(headings) >= 5 and len(snippets) >= 6:
-                break
 
         if headings:
-            return headings[:5]
+            return headings
         if snippets:
-            return snippets[:5]
+            return snippets
         return [f"{document.get('title') or document.get('original_name') or '目标文档'} 已匹配成功，但当前未提取到稳定摘要。"]
 
     def _extract_toc_headings(self, chunks: list[dict[str, Any]]) -> list[str]:
@@ -1070,8 +1064,6 @@ class GeneralQAPipeline:
                     continue
                 if candidate not in headings:
                     headings.append(candidate)
-                if len(headings) >= 5:
-                    return headings
         return headings
 
     def _build_document_followups(self, *, document: dict[str, Any], query: str) -> list[str]:

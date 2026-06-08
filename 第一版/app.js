@@ -175,7 +175,7 @@ function renderCurrentRoute() {
     }
   });
 
-  document.title = `${routes[normalizedRoute]} | SuperRAG`;
+  document.title = `${routes[normalizedRoute]} | DevForge`;
 
   if (normalizedRoute === "/login") {
     return;
@@ -229,7 +229,7 @@ function bindLoginActions() {
   if (loginForm) {
     loginForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      toast("登录成功，已进入 SuperRAG 演示中心。");
+      toast("登录成功，已进入 DevForge 演示中心。");
       window.location.hash = "#/demo-center";
     });
   }
@@ -765,7 +765,7 @@ function renderQuestionUnderstanding(message = {}, intent = {}, evidenceLevel = 
   const citations = message.citationItems || [];
   const knowledgeLabel = inferMatchedKnowledgeLabel(citations);
   const broadHint = status.key === "broad"
-    ? `<div class="answer-intent-hint">当前问题较宽泛，系统将按当前知识库中的 ${escapeHtml(knowledgeLabel)} 回答。若想了解 SuperRAG 项目本身，请选择项目说明文档或更换知识库。</div>`
+    ? `<div class="answer-intent-hint">当前问题较宽泛，系统将按当前知识库中的 ${escapeHtml(knowledgeLabel)} 回答。若想了解 DevForge 项目本身，请选择项目说明文档或更换知识库。</div>`
     : "";
   return `
     <section class="answer-intent-card">
@@ -2416,7 +2416,7 @@ async function handleHandoverAction(action) {
     return;
   }
   if (action === "export") {
-    downloadTextFile(markdown, `SuperRAG-项目交接清单-${Date.now()}.md`, "text/markdown;charset=utf-8");
+    downloadTextFile(markdown, `DevForge-项目交接清单-${Date.now()}.md`, "text/markdown;charset=utf-8");
     toast("交接清单 Markdown 已导出。");
   }
 }
@@ -2430,7 +2430,7 @@ async function renderDesignPage() {
   if (!designState.loaded) {
     const options = await service.getDesignOptions();
     populateScenarioSelect("design-output-type", options.outputTypes, "详细文本用例");
-    populateScenarioSelect("design-project", options.projects, "SuperRAG CRM 演示库");
+    populateScenarioSelect("design-project", options.projects, "DevForge CRM 演示库");
     populateScenarioSelect("design-granularity", options.granularities, "标准");
 
     const input = document.getElementById("design-goal");
@@ -3888,7 +3888,7 @@ async function handleDesignAction(action) {
 
   if (action === "export") {
     const markdown = buildDesignMarkdown(activeResult);
-    downloadTextFile(markdown, `SuperRAG-需求设计产物-${Date.now()}.md`, "text/markdown;charset=utf-8");
+    downloadTextFile(markdown, `DevForge-需求设计产物-${Date.now()}.md`, "text/markdown;charset=utf-8");
     toast("设计产物 Markdown 已导出。");
     return;
   }
@@ -5161,7 +5161,7 @@ async function exportHistoryRecord(id) {
     return;
   }
   const markdown = buildHistoryMarkdown(detail);
-  downloadTextFile(markdown, `SuperRAG-历史产物-${detail.id || Date.now()}.md`, "text/markdown;charset=utf-8");
+  downloadTextFile(markdown, `DevForge-历史产物-${detail.id || Date.now()}.md`, "text/markdown;charset=utf-8");
   toast("历史产物 Markdown 已导出。");
 }
 
@@ -5734,7 +5734,7 @@ async function renderDemoCenterPage() {
     demoCenterState.data = data;
     demoCenterState.loaded = true;
     if (titleNode) {
-      titleNode.textContent = data.title || "SuperRAG 答辩演示中心";
+      titleNode.textContent = data.title || "DevForge 答辩演示中心";
     }
     if (subtitleNode) {
       subtitleNode.textContent = data.subtitle || "从文档入库到结构化产物复核的可解释 RAG 闭环";
