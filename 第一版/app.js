@@ -2433,13 +2433,9 @@ async function renderDesignPage() {
     populateScenarioSelect("design-project", options.projects, "DevForge CRM 演示库");
     populateScenarioSelect("design-granularity", options.granularities, "标准");
 
-    const input = document.getElementById("design-goal");
-    if (input && !input.value.trim()) {
-      input.value = "基于当前 CRM 业务文档，生成客户、商机、合同、回款、发票模块的详细文本用例和设计产物。";
-    }
-
     designState.loaded = true;
-    await generateDesignOutput({ silent: true });
+    renderDesignResult(designState.result);
+    renderDesignEvidencePanel(designState.result);
     return;
   }
 
